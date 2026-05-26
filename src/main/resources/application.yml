@@ -1,0 +1,78 @@
+spring:
+  application:
+    name: cryptobot-service
+  main:
+    web-application-type: reactive
+
+  # R2DBC is the runtime data plane (used by application services & controllers).
+  r2dbc:
+    url: ${CRYPTOBOT_R2DBC_URL:r2dbc:postgresql://localhost:5433/life_engine_cryptobot}
+    username: ${CRYPTOBOT_DB_USER:life_engine}
+    password: ${CRYPTOBOT_DB_PASSWORD:life_engine}
+    pool:
+      enabled: true
+      initial-size: 2
+      max-size: 10
+      max-idle-time: 5m
+
+  # Flyway runs at startup via JDBC against the same database.
+  flyway:
+    enabled: true
+    url: ${CRYPTOBOT_JDBC_URL:jdbc:postgresql://localhost:5433/life_engine_cryptobot}
+    user: ${CRYPTOBOT_DB_USER:life_engine}
+    password: ${CRYPTOBOT_DB_PASSWORD:life_engine}
+    locations: classpath:db/migration
+    schemas: public
+    baseline-on-migrate: true
+    validate-on-migrate: true
+
+server:
+  port: ${CRYPTOBOT_SERVICE_PORT:8091}
+  error:
+    include-message: never
+    include-stacktrace: never
+
+cryptobot:
+  runtime:
+    base-url: ${CRYPTOBOT_RUNTIME_BASE_URL:http://localhost:8090}
+    workflow-id: crypto.market-review.v1
+  snapshot:
+    # Phase 1 keeps deterministic-local as the safe default. Switch to `binance-public`
+    # to call api.binance.com/api/v3/ticker/24hr (read-only, no API key) once that path
+    # is verified in your environment.
+    provider: ${CRYPTOBOT_SNAPSHOT_PROVIDER:deterministic-local}
+  security:
+    enabled: ${CRYPTOBOT_SECURITY_ENABLED:true}
+  binance:
+    base-url: ${CRYPTOBOT_BINANCE_BASE_URL:https://api.binance.com}
+    timeout: ${CRYPTOBOT_BINANCE_TIMEOUT:3s}
+
+lifeengine:
+  security:
+    jwt:
+      secret: ${JWT_SECRET:}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health, prometheus, metrics, info
+  endpoint:
+    health:
+      show-details: when_authorized
+      probes:
+        enabled: true
+  prometheus:
+    metrics:
+      export:
+        enabled: true
+  metrics:
+    tags:
+      application: ${spring.application.name}
+
+logging:
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss.SSS} %5p marketReviewId=%X{marketReviewId:-} runtimeRunId=%X{runtimeRunId:-} [%t] %logger{36} - %msg%n"
+  level:
+    root: INFO
+    io.lifeengine.cryptobot: INFO

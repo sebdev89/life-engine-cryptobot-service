@@ -1,0 +1,8 @@
+io/lifeengine/cryptobot/application/MarketObservationsServiceTest.class
+io/lifeengine/cryptobot/application/WatchlistServiceTest.class
+io/lifeengine/cryptobot/application/MarketReviewServiceUnitTest$1.class
+io/lifeengine/cryptobot/application/MarketReviewServiceUnitTest.class
+io/lifeengine/cryptobot/infrastructure/binance/BinancePublicClientTest.class
+io/lifeengine/cryptobot/testsupport/StubRepositoriesConfiguration.class
+io/lifeengine/cryptobot/application/MarketReviewServiceUnitTest$2.class
+io/lifeengine/cryptobot/api/MarketReviewControllerTest.class

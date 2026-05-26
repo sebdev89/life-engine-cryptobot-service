@@ -1,0 +1,28 @@
+spring:
+  r2dbc:
+    url: ${CRYPTOBOT_R2DBC_URL:r2dbc:postgresql://localhost:5433/life_engine_cryptobot}
+    username: ${CRYPTOBOT_DB_USER:life_engine}
+    password: ${CRYPTOBOT_DB_PASSWORD:life_engine}
+  flyway:
+    url: ${CRYPTOBOT_JDBC_URL:jdbc:postgresql://localhost:5433/life_engine_cryptobot}
+    user: ${CRYPTOBOT_DB_USER:life_engine}
+    password: ${CRYPTOBOT_DB_PASSWORD:life_engine}
+
+cryptobot:
+  runtime:
+    base-url: ${CRYPTOBOT_RUNTIME_BASE_URL:http://localhost:8090}
+    workflow-id: crypto.market-review.v1
+  snapshot:
+    provider: deterministic-local
+  security:
+    enabled: ${CRYPTOBOT_SECURITY_ENABLED:true}
+
+lifeengine:
+  security:
+    jwt:
+      # Must match life-engine-auth + life-engine-runtime. Defaults are dev-only.
+      secret: ${JWT_SECRET:local-dev-jwt-hs512-secret-minimum-32-chars-long-xx}
+
+logging:
+  level:
+    io.lifeengine.cryptobot: DEBUG

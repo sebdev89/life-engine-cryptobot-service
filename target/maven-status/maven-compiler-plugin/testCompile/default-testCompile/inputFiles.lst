@@ -1,0 +1,6 @@
+/home/sebas/Workspace/active/cryptobot-service/src/test/java/io/lifeengine/cryptobot/api/MarketReviewControllerTest.java
+/home/sebas/Workspace/active/cryptobot-service/src/test/java/io/lifeengine/cryptobot/application/MarketObservationsServiceTest.java
+/home/sebas/Workspace/active/cryptobot-service/src/test/java/io/lifeengine/cryptobot/application/MarketReviewServiceUnitTest.java
+/home/sebas/Workspace/active/cryptobot-service/src/test/java/io/lifeengine/cryptobot/application/WatchlistServiceTest.java
+/home/sebas/Workspace/active/cryptobot-service/src/test/java/io/lifeengine/cryptobot/infrastructure/binance/BinancePublicClientTest.java
+/home/sebas/Workspace/active/cryptobot-service/src/test/java/io/lifeengine/cryptobot/testsupport/StubRepositoriesConfiguration.java
