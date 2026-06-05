@@ -1,16 +1,21 @@
 package io.lifeengine.cryptobot.testsupport;
 
+import io.lifeengine.cryptobot.domain.MarketReviewRun;
 import io.lifeengine.cryptobot.infrastructure.persistence.r2dbc.IndicatorSnapshotRepository;
 import io.lifeengine.cryptobot.infrastructure.persistence.r2dbc.MarketObservationRepository;
+import io.lifeengine.cryptobot.infrastructure.persistence.r2dbc.MarketReviewRunRepository;
 import io.lifeengine.cryptobot.infrastructure.persistence.r2dbc.PriceZoneRepository;
 import io.lifeengine.cryptobot.infrastructure.persistence.r2dbc.TradeJournalEntryRepository;
 import io.lifeengine.cryptobot.infrastructure.persistence.r2dbc.WatchlistEntryRepository;
+import org.mockito.ArgumentMatchers;
 import org.mockito.Mockito;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.context.annotation.Bean;
+import reactor.core.publisher.Flux;
+import reactor.core.publisher.Mono;
 
 /**
- * Provides Mockito stubs for the five R2DBC repositories so {@code @SpringBootTest} can boot the
+ * Provides Mockito stubs for the R2DBC repositories so {@code @SpringBootTest} can boot the
  * context without a live Postgres connection. Individual tests can override each bean via
  * {@code @MockBean}/{@code @SpyBean} (or simply re-stub the existing mock) if they need richer
  * behaviour.
@@ -41,5 +46,25 @@ public class StubRepositoriesConfiguration {
     @Bean
     IndicatorSnapshotRepository indicatorSnapshotRepository() {
         return Mockito.mock(IndicatorSnapshotRepository.class);
+    }
+
+    /**
+     * In tests, {@link MarketReviewRunRepository} echoes back the value passed to {@code insert} /
+     * {@code update} so the MarketReviewService can stay on the happy path. Tests that need richer
+     * lookups can re-stub specific methods.
+     */
+    @Bean
+    MarketReviewRunRepository marketReviewRunRepository() {
+        MarketReviewRunRepository mock = Mockito.mock(MarketReviewRunRepository.class);
+        Mockito.when(mock.insert(ArgumentMatchers.any()))
+                .thenAnswer(inv -> Mono.just(inv.<MarketReviewRun>getArgument(0)));
+        Mockito.when(mock.update(ArgumentMatchers.any()))
+                .thenAnswer(inv -> Mono.just(inv.<MarketReviewRun>getArgument(0)));
+        Mockito.when(mock.findById(ArgumentMatchers.any())).thenReturn(Mono.empty());
+        Mockito.when(mock.findByRuntimeRunId(ArgumentMatchers.any())).thenReturn(Mono.empty());
+        Mockito.when(mock.findLatestBySymbol(ArgumentMatchers.anyString())).thenReturn(Mono.empty());
+        Mockito.when(mock.findRecentBySymbol(ArgumentMatchers.anyString(), ArgumentMatchers.anyInt()))
+                .thenReturn(Flux.empty());
+        return mock;
     }
 }

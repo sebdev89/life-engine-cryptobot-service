@@ -80,6 +80,23 @@ class MarketReviewControllerTest {
                                                 "workflowId", "crypto.market-review.v1",
                                                 "correlationId", "cryptobot-mr-test",
                                                 "status", "RUNNING"))));
+        // Background reconciliation polls GET /api/runtime/runs/{runId} after a short delay.
+        // Enqueue a couple of "still RUNNING" responses so we don't get MockWebServer NPEs
+        // even if the controller test finishes before the poll fires.
+        for (int i = 0; i < 4; i++) {
+            runtimeMock.enqueue(
+                    new MockResponse()
+                            .setHeader("Content-Type", "application/json")
+                            .setBody(
+                                    objectMapper.writeValueAsString(
+                                            java.util.Map.of(
+                                                    "runId", runtimeRunId.toString(),
+                                                    "workflowId", "crypto.market-review.v1",
+                                                    "status", "RUNNING",
+                                                    "agentStages", java.util.List.of(),
+                                                    "llmCalls", java.util.List.of(),
+                                                    "events", java.util.List.of()))));
+        }
 
         String token = signJwt(List.of("RUNTIME_OPERATOR"));
 
@@ -100,7 +117,9 @@ class MarketReviewControllerTest {
                 .jsonPath("$.related.runtimeWorkflowId")
                 .isEqualTo("crypto.market-review.v1")
                 .jsonPath("$.related.ssePath")
-                .isEqualTo("/api/runtime/runs/" + runtimeRunId + "/stream");
+                .isEqualTo("/api/runtime/runs/" + runtimeRunId + "/stream")
+                .jsonPath("$.marketReviewRunId")
+                .exists();
 
         RecordedRequest sent = runtimeMock.takeRequest();
         Assertions.assertThat(sent.getPath()).isEqualTo("/api/runtime/runs");

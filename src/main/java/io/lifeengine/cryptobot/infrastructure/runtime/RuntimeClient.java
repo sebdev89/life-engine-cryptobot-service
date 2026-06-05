@@ -1,6 +1,7 @@
 package io.lifeengine.cryptobot.infrastructure.runtime;
 
 import io.lifeengine.cryptobot.domain.RuntimeUnreachableException;
+import java.util.UUID;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpHeaders;
@@ -56,6 +57,36 @@ public class RuntimeClient {
                 .onErrorMap(
                         java.util.function.Predicate.not(RuntimeUnreachableException.class::isInstance),
                         ex -> new RuntimeUnreachableException("Runtime call failed: " + ex.getMessage(), ex));
+    }
+
+    /**
+     * Fetches the full run-detail snapshot for {@code runId} via
+     * {@code GET /api/runtime/runs/{runId}}. Used by reconciliation to pull
+     * status/verdict/summary into {@code market_review_run}.
+     */
+    public Mono<RuntimeRunDetail> getRun(UUID runId, String bearerToken) {
+        return webClient
+                .get()
+                .uri("/api/runtime/runs/{runId}", runId)
+                .accept(MediaType.APPLICATION_JSON)
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + bearerToken)
+                .retrieve()
+                .bodyToMono(RuntimeRunDetail.class)
+                .onErrorMap(
+                        WebClientResponseException.class,
+                        ex ->
+                                new RuntimeUnreachableException(
+                                        "Runtime GET /runs/" + runId + " returned HTTP "
+                                                + ex.getStatusCode().value()
+                                                + ": "
+                                                + ex.getResponseBodyAsString(),
+                                        ex))
+                .onErrorMap(
+                        java.util.function.Predicate.not(RuntimeUnreachableException.class::isInstance),
+                        ex ->
+                                new RuntimeUnreachableException(
+                                        "Runtime GET /runs/" + runId + " failed: " + ex.getMessage(),
+                                        ex));
     }
 
     public String runtimeBaseUrl() {

@@ -16,6 +16,12 @@ cryptobot:
     provider: deterministic-local
   security:
     enabled: ${CRYPTOBOT_SECURITY_ENABLED:true}
+  monitoring:
+    # Local dev: scheduler off by default. Run "Run monitoring now" in the UI to
+    # trigger BTCUSDT and SOLUSDT reviews in parallel.
+    enabled: ${CRYPTOBOT_MONITORING_ENABLED:false}
+    symbols: ${CRYPTOBOT_MONITORING_SYMBOLS:BTCUSDT,SOLUSDT}
+    interval: ${CRYPTOBOT_MONITORING_INTERVAL:10m}
 
 lifeengine:
   security:

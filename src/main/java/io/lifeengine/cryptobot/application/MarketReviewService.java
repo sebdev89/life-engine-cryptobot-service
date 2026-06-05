@@ -7,6 +7,7 @@ import io.lifeengine.cryptobot.api.MarketReviewDtos.MarketReviewResponse;
 import io.lifeengine.cryptobot.api.MarketReviewDtos.MarketSignalResponse;
 import io.lifeengine.cryptobot.api.MarketReviewDtos.RelatedRuntimeRunResponse;
 import io.lifeengine.cryptobot.domain.InvalidSymbolException;
+import io.lifeengine.cryptobot.domain.MarketReviewRun;
 import io.lifeengine.cryptobot.domain.MarketSignal;
 import io.lifeengine.cryptobot.domain.MarketSnapshot;
 import io.lifeengine.cryptobot.infrastructure.runtime.RuntimeClient;
@@ -22,6 +23,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Mono;
+import reactor.core.scheduler.Schedulers;
 
 /**
  * Orchestrates a single market review:
@@ -43,18 +45,32 @@ public class MarketReviewService {
 
     private final MarketSnapshotProvider snapshotProvider;
     private final RuntimeClient runtimeClient;
+    private final MarketReviewRunService marketReviewRunService;
     private final ObjectMapper objectMapper;
     private final Clock clock;
 
     public MarketReviewService(
-            MarketSnapshotProvider snapshotProvider, RuntimeClient runtimeClient, ObjectMapper objectMapper) {
+            MarketSnapshotProvider snapshotProvider,
+            RuntimeClient runtimeClient,
+            MarketReviewRunService marketReviewRunService,
+            ObjectMapper objectMapper) {
         this.snapshotProvider = snapshotProvider;
         this.runtimeClient = runtimeClient;
+        this.marketReviewRunService = marketReviewRunService;
         this.objectMapper = objectMapper;
         this.clock = Clock.systemUTC();
     }
 
     public Mono<MarketReviewResponse> execute(MarketReviewRequest request, String bearerToken) {
+        return execute(request, bearerToken, null);
+    }
+
+    /**
+     * {@code requestedBy} is the authenticated principal's email (or user id, fallback) — captured
+     * into the {@code market_review_run.requested_by} column for traceability.
+     */
+    public Mono<MarketReviewResponse> execute(
+            MarketReviewRequest request, String bearerToken, String requestedBy) {
         String symbol = normalize(request.symbol());
         String marketReviewId = UUID.randomUUID().toString();
         String correlationId =
@@ -64,8 +80,72 @@ public class MarketReviewService {
 
         return snapshotProvider
                 .snapshot(symbol)
-                .flatMap(snapshot -> triggerRuntime(snapshot, marketReviewId, correlationId, bearerToken)
-                        .map(runtimeResponse -> assemble(snapshot, marketReviewId, correlationId, runtimeResponse)));
+                .flatMap(
+                        snapshot ->
+                                triggerRuntime(snapshot, marketReviewId, correlationId, bearerToken)
+                                        .flatMap(
+                                                runtimeResponse ->
+                                                        persistAndReconcile(
+                                                                        snapshot,
+                                                                        runtimeResponse,
+                                                                        marketReviewId,
+                                                                        correlationId,
+                                                                        bearerToken,
+                                                                        requestedBy)
+                                                                .map(
+                                                                        savedRunId ->
+                                                                                assemble(
+                                                                                        snapshot,
+                                                                                        marketReviewId,
+                                                                                        correlationId,
+                                                                                        runtimeResponse,
+                                                                                        savedRunId))));
+    }
+
+    private Mono<UUID> persistAndReconcile(
+            MarketSnapshot snapshot,
+            RuntimeStartRunResponse runtimeResponse,
+            String marketReviewId,
+            String correlationId,
+            String bearerToken,
+            String requestedBy) {
+        Map<String, Object> metadata = new LinkedHashMap<>();
+        metadata.put("source", "cryptobot-market-review");
+        metadata.put("marketReviewId", marketReviewId);
+        metadata.put("correlationId", correlationId);
+        return marketReviewRunService
+                .recordStart(
+                        snapshot.symbol(),
+                        runtimeResponse.runId(),
+                        runtimeClient.runtimeWorkflowId(),
+                        requestedBy,
+                        metadata)
+                .doOnSuccess(
+                        saved -> {
+                            if (saved == null || saved.id() == null) {
+                                return;
+                            }
+                            // Fire-and-forget reconciliation loop. Subscribed off the request thread so
+                            // it survives the controller returning. Errors are swallowed inside the
+                            // service.
+                            marketReviewRunService
+                                    .reconcileWithRetry(saved.id(), bearerToken)
+                                    .subscribeOn(Schedulers.boundedElastic())
+                                    .subscribe(
+                                            ignored -> {
+                                                /* terminal — already logged inside service */
+                                            },
+                                            err ->
+                                                    log.warn(
+                                                            "background_reconcile_failed marketReviewRunId={} runtimeRunId={} error={}",
+                                                            saved.id(),
+                                                            saved.runtimeRunId(),
+                                                            err.toString()));
+                        })
+                // recordStart() guarantees a non-empty Mono (it falls back to the
+                // in-memory row if the insert returns empty or errors), so .map() is
+                // safe here without further empty-guards.
+                .map(MarketReviewRun::id);
     }
 
     private Mono<RuntimeStartRunResponse> triggerRuntime(
@@ -98,7 +178,11 @@ public class MarketReviewService {
     }
 
     private MarketReviewResponse assemble(
-            MarketSnapshot snapshot, String marketReviewId, String correlationId, RuntimeStartRunResponse runtimeResponse) {
+            MarketSnapshot snapshot,
+            String marketReviewId,
+            String correlationId,
+            RuntimeStartRunResponse runtimeResponse,
+            UUID marketReviewRunId) {
         MarketSignal signal = computeSignal(snapshot);
 
         RelatedRuntimeRunResponse related =
@@ -116,7 +200,8 @@ public class MarketReviewService {
                 new MarketSignalResponse(
                         signal.signal(), signal.strength(), signal.reason(), signal.indicators()),
                 related,
-                Instant.now(clock));
+                Instant.now(clock),
+                marketReviewRunId);
     }
 
     /**

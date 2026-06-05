@@ -13,6 +13,7 @@ import org.springframework.security.authentication.UsernamePasswordAuthenticatio
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.context.ReactiveSecurityContextHolder;
 import org.springframework.stereotype.Component;
+import org.springframework.web.cors.reactive.CorsUtils;
 import org.springframework.web.server.ServerWebExchange;
 import org.springframework.web.server.WebFilter;
 import org.springframework.web.server.WebFilterChain;
@@ -65,6 +66,9 @@ public class CryptobotJwtAuthenticationWebFilter implements WebFilter {
     }
 
     static boolean shouldSkip(ServerWebExchange exchange) {
+        if (CorsUtils.isPreFlightRequest(exchange.getRequest())) {
+            return true;
+        }
         String path = exchange.getRequest().getPath().value();
         return path.startsWith("/actuator/health")
                 || path.equals("/api/cryptobot/health")

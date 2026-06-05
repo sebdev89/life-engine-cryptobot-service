@@ -21,6 +21,11 @@ cryptobot:
   binance:
     base-url: http://localhost:0
     timeout: 1s
+  monitoring:
+    enabled: false
+    symbols: BTCUSDT,SOLUSDT
+    interval: 10m
+    workflow-id: crypto.market-review.v1
 
 lifeengine:
   security:

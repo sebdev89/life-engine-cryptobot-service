@@ -34,7 +34,11 @@ public class MarketReviewController {
         if (principal == null) {
             return Mono.error(new IllegalStateException("Missing authenticated principal"));
         }
-        return service.execute(request, principal.rawToken());
+        String requestedBy =
+                principal.email() != null && !principal.email().isBlank()
+                        ? principal.email()
+                        : (principal.userId() != null ? principal.userId().toString() : null);
+        return service.execute(request, principal.rawToken(), requestedBy);
     }
 
     @ExceptionHandler(InvalidSymbolException.class)

@@ -18,7 +18,23 @@ public final class MarketReviewDtos {
             MarketSnapshot snapshot,
             MarketSignalResponse signal,
             RelatedRuntimeRunResponse related,
-            Instant createdAt) {}
+            Instant createdAt,
+            /**
+             * Local cryptobot-side linkage row id ({@code market_review_run.id}). Null only when
+             * persistence is unavailable; the synchronous response itself is unaffected.
+             */
+            UUID marketReviewRunId) {
+
+        public MarketReviewResponse(
+                String marketReviewId,
+                String symbol,
+                MarketSnapshot snapshot,
+                MarketSignalResponse signal,
+                RelatedRuntimeRunResponse related,
+                Instant createdAt) {
+            this(marketReviewId, symbol, snapshot, signal, related, createdAt, null);
+        }
+    }
 
     public record MarketSignalResponse(
             String signal, String strength, String reason, Map<String, Double> indicators) {

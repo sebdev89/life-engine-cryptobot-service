@@ -46,11 +46,27 @@ cryptobot:
   binance:
     base-url: ${CRYPTOBOT_BINANCE_BASE_URL:https://api.binance.com}
     timeout: ${CRYPTOBOT_BINANCE_TIMEOUT:3s}
+  monitoring:
+    # Disabled by default — manual triggers via POST /api/cryptobot/monitoring/run-once
+    # are always available. Set CRYPTOBOT_MONITORING_ENABLED=true to enable the periodic
+    # background loop (requires a service-side bearer token; see MonitoringService).
+    enabled: ${CRYPTOBOT_MONITORING_ENABLED:false}
+    symbols: ${CRYPTOBOT_MONITORING_SYMBOLS:BTCUSDT,SOLUSDT}
+    interval: ${CRYPTOBOT_MONITORING_INTERVAL:10m}
+    workflow-id: ${CRYPTOBOT_MONITORING_WORKFLOW_ID:crypto.market-review.v1}
 
 lifeengine:
   security:
     jwt:
       secret: ${JWT_SECRET:}
+  cryptobot:
+    security:
+      # Phase-1 bridge: while life-engine-auth has not yet seeded RUNTIME_VIEWER /
+      # RUNTIME_OPERATOR / RUNTIME_ADMIN permissions (auth db/migration/V49__auth_rbac.sql),
+      # mint them locally from the JWT `role` claim and ROLE_ADMIN so the runtime can call
+      # /api/cryptobot/** with a forwarded user token. Set to `false` once auth ships
+      # proper RUNTIME_* permission rows + role mappings.
+      derive-runtime-authorities-from-role: ${CRYPTOBOT_DERIVE_RUNTIME_AUTHORITIES:true}
 
 management:
   endpoints:

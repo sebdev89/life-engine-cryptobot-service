@@ -1,8 +1,10 @@
 package io.lifeengine.cryptobot;
 
+import io.lifeengine.cryptobot.application.MonitoringProperties;
 import io.lifeengine.cryptobot.infrastructure.runtime.RuntimeClientProperties;
 import io.lifeengine.cryptobot.infrastructure.snapshot.SnapshotProviderProperties;
 import io.lifeengine.cryptobot.security.CryptobotJwtProperties;
+import io.lifeengine.cryptobot.security.CryptobotRuntimeSecurityProperties;
 import io.lifeengine.cryptobot.security.CryptobotSecurityProperties;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
@@ -21,7 +23,9 @@ import org.springframework.boot.context.properties.EnableConfigurationProperties
     RuntimeClientProperties.class,
     SnapshotProviderProperties.class,
     CryptobotSecurityProperties.class,
-    CryptobotJwtProperties.class
+    CryptobotJwtProperties.class,
+    CryptobotRuntimeSecurityProperties.class,
+    MonitoringProperties.class
 })
 public class CryptobotServiceApplication {
 
