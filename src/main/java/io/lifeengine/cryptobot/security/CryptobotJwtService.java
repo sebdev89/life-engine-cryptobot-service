@@ -105,35 +105,42 @@ public class CryptobotJwtService {
     private Claims parseClaimsInternal(String rawToken) {
         String alg = peekAlg(rawToken);
         if ("RS256".equals(alg) && jwksKeyProvider.isConfigured()) {
-            Optional<RSAPublicKey> pub = jwksKeyProvider.getPublicKey();
-            if (pub.isPresent()) {
-                return Jwts.parser().verifyWith(pub.get()).build().parseSignedClaims(rawToken).getPayload();
+            String kid = peekKid(rawToken);
+            var pub = jwksKeyProvider.getPublicKey(kid);
+            if (pub.isEmpty()) {
+                throw new io.jsonwebtoken.JwtException("jwks_key_not_found");
             }
+            return Jwts.parser().verifyWith(pub.get()).build().parseSignedClaims(rawToken).getPayload();
         }
         return Jwts.parser().verifyWith(key).build().parseSignedClaims(rawToken).getPayload();
     }
 
-    private static String peekAlg(String rawToken) {
-        try {
-            int dot = rawToken.indexOf('.');
-            if (dot < 0) return "HS256";
-            String header = new String(Base64.getUrlDecoder().decode(pad(rawToken.substring(0, dot))),
-                    StandardCharsets.UTF_8);
-            int algIdx = header.indexOf("\"alg\"");
-            if (algIdx < 0) return "HS256";
-            int colon = header.indexOf(':', algIdx);
-            int open = header.indexOf('"', colon);
-            int close = header.indexOf('"', open + 1);
-            if (open < 0 || close < 0) return "HS256";
-            return header.substring(open + 1, close);
-        } catch (Exception e) {
-            return "HS256";
-        }
+    static String peekAlg(String rawToken) {
+        return peekHeaderField(rawToken, "\"alg\"", "HS256");
     }
 
-    private static String pad(String s) {
-        int mod = s.length() % 4;
-        return mod == 0 ? s : s + "====".substring(mod);
+    static String peekKid(String rawToken) {
+        return peekHeaderField(rawToken, "\"kid\"", "");
+    }
+
+    private static String peekHeaderField(String rawToken, String fieldKey, String defaultValue) {
+        try {
+            String[] parts = rawToken.split("\\.", 3);
+            if (parts.length < 1) return defaultValue;
+            int mod = parts[0].length() % 4;
+            String padded = mod == 0 ? parts[0] : parts[0] + "====".substring(mod);
+            byte[] decoded = Base64.getUrlDecoder().decode(padded);
+            String header = new String(decoded, StandardCharsets.UTF_8);
+            int fieldIdx = header.indexOf(fieldKey);
+            if (fieldIdx < 0) return defaultValue;
+            int colon = header.indexOf(':', fieldIdx);
+            int start = header.indexOf('"', colon + 1) + 1;
+            int end = header.indexOf('"', start);
+            if (start <= 0 || end <= start) return defaultValue;
+            return header.substring(start, end);
+        } catch (Exception e) {
+            return defaultValue;
+        }
     }
 
     private static List<String> readAuthorities(Claims claims) {

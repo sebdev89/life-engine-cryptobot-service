@@ -11,6 +11,7 @@ import java.util.List;
 import java.util.UUID;
 import javax.crypto.SecretKey;
 import org.junit.jupiter.api.Test;
+import static org.mockito.Mockito.mock;
 
 /**
  * Unit tests for the Phase-1 {@code lifeengine.cryptobot.security.derive-runtime-authorities-from-role}
@@ -144,7 +145,8 @@ class CryptobotJwtServiceTest {
     private static CryptobotJwtService serviceWithBridge(boolean enabled) {
         return new CryptobotJwtService(
                 new CryptobotJwtProperties(TEST_SECRET),
-                new CryptobotRuntimeSecurityProperties(enabled));
+                new CryptobotRuntimeSecurityProperties(enabled),
+                mock(JwksPublicKeyProvider.class));
     }
 
     private static CryptobotPrincipal parseOk(CryptobotJwtService service, String token) {

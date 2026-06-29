@@ -8,6 +8,9 @@ import java.security.interfaces.RSAPublicKey;
 import java.security.spec.RSAPublicKeySpec;
 import java.time.Duration;
 import java.util.Base64;
+import java.util.Collections;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.Optional;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -15,8 +18,10 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.reactive.function.client.WebClient;
 
 /**
- * Fetches and caches the RSA public key from the Auth JWKS endpoint.
- * Inactive (always returns empty) when {@code AUTH_JWKS_URI} is not set.
+ * Fetches and caches the RSA public keys from the Auth JWKS endpoint, keyed by {@code kid}.
+ * Supports key rotation: if Auth serves multiple keys during a rotation window, all are cached
+ * and tokens can be verified with the matching key.
+ * Inactive (always returns empty) when {@code AUTH_JWKS_URI} is not configured.
  */
 @Component
 public class JwksPublicKeyProvider {
@@ -24,7 +29,7 @@ public class JwksPublicKeyProvider {
     private static final Logger log = LoggerFactory.getLogger(JwksPublicKeyProvider.class);
     private static final long TTL_MS = 3_600_000L;
 
-    private volatile RSAPublicKey cached;
+    private volatile Map<String, RSAPublicKey> cachedKeys = Collections.emptyMap();
     private volatile long expiryMs;
     private final String jwksUri;
     private final ObjectMapper objectMapper;
@@ -38,28 +43,47 @@ public class JwksPublicKeyProvider {
         return !jwksUri.isBlank();
     }
 
+    /** Returns the public key matching the given {@code kid}, refreshing the cache if needed. */
+    public Optional<RSAPublicKey> getPublicKey(String kid) {
+        Map<String, RSAPublicKey> keys = refreshIfNeeded();
+        if (kid != null && !kid.isBlank() && keys.containsKey(kid)) {
+            return Optional.of(keys.get(kid));
+        }
+        // Fallback: if kid not found or blank, return the first available key
+        return keys.values().stream().findFirst();
+    }
+
+    /** Returns the first available public key — convenience method for single-key scenarios. */
     public Optional<RSAPublicKey> getPublicKey() {
-        if (!isConfigured()) return Optional.empty();
+        return getPublicKey(null);
+    }
+
+    private Map<String, RSAPublicKey> refreshIfNeeded() {
+        if (!isConfigured()) return Collections.emptyMap();
         long now = System.currentTimeMillis();
-        if (cached != null && now < expiryMs) return Optional.of(cached);
+        if (!cachedKeys.isEmpty() && now < expiryMs) return cachedKeys;
         try {
             String body = WebClient.create().get().uri(jwksUri)
                     .retrieve().bodyToMono(String.class)
                     .block(Duration.ofSeconds(10));
-            JsonNode keys = objectMapper.readTree(body).path("keys");
-            if (!keys.isArray() || keys.isEmpty()) {
+            JsonNode keysNode = objectMapper.readTree(body).path("keys");
+            if (!keysNode.isArray() || keysNode.isEmpty()) {
                 log.warn("jwks_provider keys_empty uri={}", jwksUri);
-                return cached != null ? Optional.of(cached) : Optional.empty();
+                return cachedKeys;
             }
-            JsonNode key = keys.get(0);
-            RSAPublicKey pub = buildPublicKey(key.get("n").asText(), key.get("e").asText());
-            cached = pub;
+            Map<String, RSAPublicKey> parsed = new LinkedHashMap<>();
+            for (JsonNode keyNode : keysNode) {
+                String kid = keyNode.path("kid").asText("");
+                RSAPublicKey pub = buildPublicKey(keyNode.get("n").asText(), keyNode.get("e").asText());
+                parsed.put(kid, pub);
+            }
+            cachedKeys = Collections.unmodifiableMap(parsed);
             expiryMs = System.currentTimeMillis() + TTL_MS;
-            log.info("jwks_provider refreshed uri={}", jwksUri);
-            return Optional.of(pub);
+            log.info("jwks_provider refreshed uri={} keys={}", jwksUri, parsed.keySet());
+            return cachedKeys;
         } catch (Exception e) {
             log.warn("jwks_provider fetch_failed uri={} error={}", jwksUri, e.getMessage());
-            return cached != null ? Optional.of(cached) : Optional.empty();
+            return cachedKeys;
         }
     }
 
