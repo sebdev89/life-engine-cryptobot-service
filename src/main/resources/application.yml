@@ -59,6 +59,8 @@ lifeengine:
   security:
     jwt:
       secret: ${JWT_SECRET:}
+    jwks:
+      uri: ${AUTH_JWKS_URI:}
   cryptobot:
     security:
       # Phase-1 bridge: while life-engine-auth has not yet seeded RUNTIME_VIEWER /

@@ -8,7 +8,9 @@ import io.jsonwebtoken.MalformedJwtException;
 import io.jsonwebtoken.security.Keys;
 import io.jsonwebtoken.security.SignatureException;
 import java.nio.charset.StandardCharsets;
+import java.security.interfaces.RSAPublicKey;
 import java.util.ArrayList;
+import java.util.Base64;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
@@ -38,9 +40,12 @@ public class CryptobotJwtService {
 
     private final SecretKey key;
     private final CryptobotRuntimeSecurityProperties runtimeSecurityProperties;
+    private final JwksPublicKeyProvider jwksKeyProvider;
 
     public CryptobotJwtService(
-            CryptobotJwtProperties props, CryptobotRuntimeSecurityProperties runtimeSecurityProperties) {
+            CryptobotJwtProperties props,
+            CryptobotRuntimeSecurityProperties runtimeSecurityProperties,
+            JwksPublicKeyProvider jwksKeyProvider) {
         String secret = props.secret() == null ? "" : props.secret();
         byte[] bytes = secret.getBytes(StandardCharsets.UTF_8);
         if (bytes.length < 32) {
@@ -49,6 +54,7 @@ public class CryptobotJwtService {
         }
         this.key = Keys.hmacShaKeyFor(bytes);
         this.runtimeSecurityProperties = runtimeSecurityProperties;
+        this.jwksKeyProvider = jwksKeyProvider;
     }
 
     public record ParseOutcome(Optional<CryptobotPrincipal> principal, Optional<String> failureReason) {
@@ -76,7 +82,7 @@ public class CryptobotJwtService {
             return ParseOutcome.failed("missing");
         }
         try {
-            Claims claims = Jwts.parser().verifyWith(key).build().parseSignedClaims(rawToken).getPayload();
+            Claims claims = parseClaimsInternal(rawToken);
             UUID userId = UUID.fromString(claims.getSubject());
             String email = claims.get("email", String.class);
             String role = claims.get("role", String.class);
@@ -94,6 +100,40 @@ public class CryptobotJwtService {
         } catch (JwtException | IllegalArgumentException ex) {
             return ParseOutcome.failed("invalid");
         }
+    }
+
+    private Claims parseClaimsInternal(String rawToken) {
+        String alg = peekAlg(rawToken);
+        if ("RS256".equals(alg) && jwksKeyProvider.isConfigured()) {
+            Optional<RSAPublicKey> pub = jwksKeyProvider.getPublicKey();
+            if (pub.isPresent()) {
+                return Jwts.parser().verifyWith(pub.get()).build().parseSignedClaims(rawToken).getPayload();
+            }
+        }
+        return Jwts.parser().verifyWith(key).build().parseSignedClaims(rawToken).getPayload();
+    }
+
+    private static String peekAlg(String rawToken) {
+        try {
+            int dot = rawToken.indexOf('.');
+            if (dot < 0) return "HS256";
+            String header = new String(Base64.getUrlDecoder().decode(pad(rawToken.substring(0, dot))),
+                    StandardCharsets.UTF_8);
+            int algIdx = header.indexOf("\"alg\"");
+            if (algIdx < 0) return "HS256";
+            int colon = header.indexOf(':', algIdx);
+            int open = header.indexOf('"', colon);
+            int close = header.indexOf('"', open + 1);
+            if (open < 0 || close < 0) return "HS256";
+            return header.substring(open + 1, close);
+        } catch (Exception e) {
+            return "HS256";
+        }
+    }
+
+    private static String pad(String s) {
+        int mod = s.length() % 4;
+        return mod == 0 ? s : s + "====".substring(mod);
     }
 
     private static List<String> readAuthorities(Claims claims) {

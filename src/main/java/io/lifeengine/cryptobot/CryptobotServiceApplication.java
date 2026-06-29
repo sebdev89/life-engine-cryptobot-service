@@ -3,6 +3,7 @@ package io.lifeengine.cryptobot;
 import io.lifeengine.cryptobot.application.MonitoringProperties;
 import io.lifeengine.cryptobot.infrastructure.runtime.RuntimeClientProperties;
 import io.lifeengine.cryptobot.infrastructure.snapshot.SnapshotProviderProperties;
+import io.lifeengine.cryptobot.security.CryptobotJwksProperties;
 import io.lifeengine.cryptobot.security.CryptobotJwtProperties;
 import io.lifeengine.cryptobot.security.CryptobotRuntimeSecurityProperties;
 import io.lifeengine.cryptobot.security.CryptobotSecurityProperties;
@@ -24,6 +25,7 @@ import org.springframework.boot.context.properties.EnableConfigurationProperties
     SnapshotProviderProperties.class,
     CryptobotSecurityProperties.class,
     CryptobotJwtProperties.class,
+    CryptobotJwksProperties.class,
     CryptobotRuntimeSecurityProperties.class,
     MonitoringProperties.class
 })
