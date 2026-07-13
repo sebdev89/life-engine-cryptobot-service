@@ -18,6 +18,7 @@ import org.springframework.web.server.ServerWebExchange;
 import org.springframework.web.server.WebFilter;
 import org.springframework.web.server.WebFilterChain;
 import reactor.core.publisher.Mono;
+import reactor.core.scheduler.Schedulers;
 
 /** Validates Bearer JWT before authorization. Skips public health/metrics endpoints. */
 @Component
@@ -45,7 +46,17 @@ public class CryptobotJwtAuthenticationWebFilter implements WebFilter {
             return chain.filter(exchange);
         }
         String auth = exchange.getRequest().getHeaders().getFirst(HttpHeaders.AUTHORIZATION);
-        var outcome = jwtService.parseAuthorizationHeader(auth);
+        // KAN-105: parseAuthorizationHeader can trigger a blocking JWKS HTTP fetch
+        // (JwksPublicKeyProvider). This filter runs on a Reactor Netty event-loop thread, where
+        // any direct .block() trips Reactor's non-blocking-thread check. Run the whole parse step
+        // on boundedElastic instead.
+        return Mono.fromCallable(() -> jwtService.parseAuthorizationHeader(auth))
+                .subscribeOn(Schedulers.boundedElastic())
+                .flatMap(outcome -> continueFilter(outcome, exchange, chain));
+    }
+
+    private Mono<Void> continueFilter(
+            CryptobotJwtService.ParseOutcome outcome, ServerWebExchange exchange, WebFilterChain chain) {
         if (outcome.principal().isEmpty()) {
             String reason = outcome.failureReason().orElse("unknown");
             log.warn(
