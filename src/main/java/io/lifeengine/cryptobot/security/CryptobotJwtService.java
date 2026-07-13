@@ -38,6 +38,10 @@ public class CryptobotJwtService {
 
     private static final String PLATFORM_ROLE_ADMIN = "ROLE_ADMIN";
 
+    /** Null when HS256 verification is disabled (no real secret + JWKS configured) — see
+     * constructor. Never a placeholder/dummy value: a fixed fallback key sitting in source
+     * control would let anyone forge an HS256 token that verifies successfully, which is worse
+     * than just refusing to verify HS256 tokens at all. */
     private final SecretKey key;
     private final CryptobotRuntimeSecurityProperties runtimeSecurityProperties;
     private final JwksPublicKeyProvider jwksKeyProvider;
@@ -49,10 +53,18 @@ public class CryptobotJwtService {
         String secret = props.secret() == null ? "" : props.secret();
         byte[] bytes = secret.getBytes(StandardCharsets.UTF_8);
         if (bytes.length < 32) {
-            throw new IllegalStateException(
-                    "lifeengine.security.jwt.secret must be at least 32 UTF-8 bytes for HS256");
+            if (jwksKeyProvider.isConfigured()) {
+                // KAN-32 follow-up: JWT_SECRET is no longer required once AUTH_JWKS_URI is set —
+                // this service only ever verifies, never signs. HS256 verification is disabled
+                // outright (key stays null) rather than falling back to a dummy key.
+                this.key = null;
+            } else {
+                throw new IllegalStateException(
+                        "lifeengine.security.jwt.secret must be at least 32 UTF-8 bytes for HS256");
+            }
+        } else {
+            this.key = Keys.hmacShaKeyFor(bytes);
         }
-        this.key = Keys.hmacShaKeyFor(bytes);
         this.runtimeSecurityProperties = runtimeSecurityProperties;
         this.jwksKeyProvider = jwksKeyProvider;
     }
@@ -111,6 +123,10 @@ public class CryptobotJwtService {
                 throw new io.jsonwebtoken.JwtException("jwks_key_not_found");
             }
             return Jwts.parser().verifyWith(pub.get()).build().parseSignedClaims(rawToken).getPayload();
+        }
+        if (key == null) {
+            // HS256 disabled (see constructor) and this isn't a verifiable RS256 token.
+            throw new JwtException("hs256_disabled");
         }
         return Jwts.parser().verifyWith(key).build().parseSignedClaims(rawToken).getPayload();
     }

@@ -1,6 +1,8 @@
 package io.lifeengine.cryptobot.security;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatCode;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.security.Keys;
@@ -12,6 +14,7 @@ import java.util.UUID;
 import javax.crypto.SecretKey;
 import org.junit.jupiter.api.Test;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 /**
  * Unit tests for the Phase-1 {@code lifeengine.cryptobot.security.derive-runtime-authorities-from-role}
@@ -140,6 +143,67 @@ class CryptobotJwtServiceTest {
         CryptobotJwtService.ParseOutcome outcome = service.parseToken(token);
         assertThat(outcome.principal()).isEmpty();
         assertThat(outcome.failureReason()).contains("invalid_signature");
+    }
+
+    @Test
+    void rejectsShortOrMissingSecret_whenJwksNotConfigured() {
+        JwksPublicKeyProvider unconfigured = mock(JwksPublicKeyProvider.class);
+        when(unconfigured.isConfigured()).thenReturn(false);
+
+        assertThatThrownBy(
+                        () -> new CryptobotJwtService(
+                                new CryptobotJwtProperties(""),
+                                new CryptobotRuntimeSecurityProperties(true),
+                                unconfigured))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("32 UTF-8 bytes");
+    }
+
+    @Test
+    void acceptsMissingSecret_whenJwksIsConfigured() {
+        // KAN-32 follow-up: this service only ever verifies (never signs) tokens, so once
+        // AUTH_JWKS_URI is set there's no reason JWT_SECRET should still be mandatory.
+        JwksPublicKeyProvider configured = mock(JwksPublicKeyProvider.class);
+        when(configured.isConfigured()).thenReturn(true);
+
+        assertThatCode(
+                        () -> new CryptobotJwtService(
+                                new CryptobotJwtProperties(""),
+                                new CryptobotRuntimeSecurityProperties(true),
+                                configured))
+                .doesNotThrowAnyException();
+    }
+
+    @Test
+    void rejectsAnyHs256Token_whenNoRealSecretConfigured_evenIfSignedWithAnArbitraryKey() {
+        // Critical regression guard: HS256 verification must be fully disabled when there's no
+        // real secret, not silently accepted against some fixed fallback key — a fallback key
+        // sitting in source control would let anyone forge a token that verifies.
+        JwksPublicKeyProvider configured = mock(JwksPublicKeyProvider.class);
+        when(configured.isConfigured()).thenReturn(true);
+        CryptobotJwtService service =
+                new CryptobotJwtService(
+                        new CryptobotJwtProperties(""),
+                        new CryptobotRuntimeSecurityProperties(true),
+                        configured);
+
+        SecretKey arbitraryKey =
+                Keys.hmacShaKeyFor("some-arbitrary-32-plus-byte-key-value!!".getBytes(StandardCharsets.UTF_8));
+        String forged =
+                Jwts.builder()
+                        .subject(UUID.randomUUID().toString())
+                        .claim("email", "attacker@example.com")
+                        .claim("role", "ADMIN")
+                        .signWith(arbitraryKey)
+                        .compact();
+
+        CryptobotJwtService.ParseOutcome outcome = service.parseToken(forged);
+
+        // parseClaimsInternal signals failure via exception, collapsed to a generic reason by
+        // the shared catch block (same as the pre-existing "jwks_key_not_found" case) — what
+        // matters is that it's rejected, not the exact label.
+        assertThat(outcome.principal()).isEmpty();
+        assertThat(outcome.failureReason()).isPresent();
     }
 
     private static CryptobotJwtService serviceWithBridge(boolean enabled) {
