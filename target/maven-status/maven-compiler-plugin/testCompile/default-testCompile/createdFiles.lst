@@ -2,10 +2,8 @@ io/lifeengine/cryptobot/application/MarketObservationsServiceTest.class
 io/lifeengine/cryptobot/application/MarketReviewServiceUnitTest$1.class
 io/lifeengine/cryptobot/application/MarketReviewServiceUnitTest$3.class
 io/lifeengine/cryptobot/application/MarketReviewServiceUnitTest.class
-io/lifeengine/cryptobot/observability/BuildIdentityInfoContributorTest.class
 io/lifeengine/cryptobot/api/MarketReviewsQueryControllerTest.class
 io/lifeengine/cryptobot/security/CryptobotCorsTest.class
-io/lifeengine/cryptobot/observability/BuildIdentityResolverTest.class
 io/lifeengine/cryptobot/infrastructure/binance/BinancePublicClientTest.class
 io/lifeengine/cryptobot/application/MarketReviewRunServiceTest$2.class
 io/lifeengine/cryptobot/api/SnapshotsControllerSecurityTest.class
@@ -16,7 +14,5 @@ io/lifeengine/cryptobot/application/MarketReviewRunServiceTest$1.class
 io/lifeengine/cryptobot/application/MarketReviewRunServiceTest.class
 io/lifeengine/cryptobot/api/MonitoringControllerTest$1.class
 io/lifeengine/cryptobot/testsupport/StubRepositoriesConfiguration.class
-io/lifeengine/cryptobot/observability/CryptobotActuatorInfoIdentityTest.class
-io/lifeengine/cryptobot/observability/BuildIdentityCommonTagsTest.class
 io/lifeengine/cryptobot/application/MarketReviewServiceUnitTest$2.class
 io/lifeengine/cryptobot/api/MarketReviewControllerTest.class

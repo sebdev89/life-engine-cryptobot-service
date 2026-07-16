@@ -56,15 +56,9 @@ cryptobot:
     workflow-id: ${CRYPTOBOT_MONITORING_WORKFLOW_ID:crypto.market-review.v1}
 
 lifeengine:
-  # Deployment environment for build identity (/actuator/info) and metric common tags. From APP_ENV —
-  # never hardcoded per environment (KAN-199 / §2.2).
-  deployment:
-    env: ${APP_ENV:local}
   security:
     jwt:
       secret: ${JWT_SECRET:}
-    jwks:
-      uri: ${AUTH_JWKS_URI:}
   cryptobot:
     security:
       # Phase-1 bridge: while life-engine-auth has not yet seeded RUNTIME_VIEWER /
@@ -79,15 +73,6 @@ management:
     web:
       exposure:
         include: health, prometheus, metrics, info
-  # BuildIdentityConfig owns /actuator/info in the exact shape of LIFE-OPS-02 §2.2. The stock env/git/build
-  # contributors are disabled so they cannot pollute or reshape that contract (KAN-199).
-  info:
-    env:
-      enabled: false
-    git:
-      enabled: false
-    build:
-      enabled: false
   endpoint:
     health:
       show-details: when_authorized
@@ -100,15 +85,6 @@ management:
   metrics:
     tags:
       application: ${spring.application.name}
-
-# Build identity overrides. Empty by default: local and CI builds carry a .git directory, so git.properties
-# (git-commit-id) is the source. A future Docker image (KAN-109) with no .git would pass these as
-# build-args → env, and BuildIdentityResolver prefers them. Never a secret.
-identity:
-  git:
-    commit: ${GIT_COMMIT:}
-    branch: ${GIT_BRANCH:}
-    commit-time: ${GIT_COMMIT_TIME:}
 
 logging:
   pattern:
