@@ -52,6 +52,12 @@ public class CryptobotSecurityConfig {
                                         .permitAll()
                                         .pathMatchers(HttpMethod.GET, "/actuator/prometheus")
                                         .permitAll()
+                                        // Build identity (KAN-199). Internal-network readable like the
+                                        // other scrape endpoints; nginx keeps /actuator/info blocked
+                                        // externally (LIFE-OPS-02 §2.2). Only /actuator/info is opened —
+                                        // /actuator/metrics and the rest stay denied. Carries no secrets.
+                                        .pathMatchers(HttpMethod.GET, "/actuator/info")
+                                        .permitAll()
                                         .pathMatchers(HttpMethod.POST, "/api/cryptobot/market-review")
                                         .hasAuthority(AUTHORITY_MARKET_REVIEW)
                                         .pathMatchers(HttpMethod.POST, "/api/cryptobot/monitoring/**")

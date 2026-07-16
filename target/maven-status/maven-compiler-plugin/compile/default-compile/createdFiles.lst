@@ -1,12 +1,16 @@
 io/lifeengine/cryptobot/api/MarketReviewDtos$MarketReviewRequest.class
+io/lifeengine/cryptobot/observability/BuildIdentityResolver.class
+io/lifeengine/cryptobot/security/JwksPublicKeyProvider.class
 io/lifeengine/cryptobot/api/ObservabilityDtos$CreateMarketObservationRequest.class
 io/lifeengine/cryptobot/security/CryptobotJwtAuthenticationWebFilter.class
 io/lifeengine/cryptobot/api/ObservabilityDtos$CreateTradeJournalEntryRequest.class
 io/lifeengine/cryptobot/api/ObservabilityDtos$CreatePriceZoneRequest.class
 io/lifeengine/cryptobot/application/MarketObservationsService.class
 io/lifeengine/cryptobot/application/MarketReviewRunService.class
+io/lifeengine/cryptobot/observability/BuildIdentityConfig.class
 io/lifeengine/cryptobot/infrastructure/persistence/r2dbc/MarketReviewRunR2dbcStore.class
 io/lifeengine/cryptobot/infrastructure/persistence/r2dbc/TradeJournalEntryRow.class
+io/lifeengine/cryptobot/observability/BuildIdentity.class
 io/lifeengine/cryptobot/api/SnapshotsController$MarketSnapshotResponse.class
 io/lifeengine/cryptobot/security/CryptobotSecurityConfig.class
 io/lifeengine/cryptobot/infrastructure/persistence/r2dbc/WatchlistEntryRow.class
@@ -21,6 +25,7 @@ io/lifeengine/cryptobot/api/ObservabilityDtos.class
 io/lifeengine/cryptobot/infrastructure/persistence/r2dbc/MarketReviewRunRepository.class
 io/lifeengine/cryptobot/infrastructure/persistence/r2dbc/IndicatorSnapshotRow.class
 io/lifeengine/cryptobot/api/ObservabilityDtos$PriceZoneResponse.class
+io/lifeengine/cryptobot/security/CryptobotJwksProperties.class
 io/lifeengine/cryptobot/infrastructure/binance/BinancePublicClient$BinanceTicker24h.class
 io/lifeengine/cryptobot/api/ObservabilityDtos$MarketObservationResponse.class
 io/lifeengine/cryptobot/infrastructure/runtime/RuntimeStartRunPayload.class
@@ -61,6 +66,7 @@ io/lifeengine/cryptobot/infrastructure/persistence/r2dbc/MarketObservationReposi
 io/lifeengine/cryptobot/infrastructure/snapshot/SnapshotProviderProperties.class
 io/lifeengine/cryptobot/infrastructure/persistence/r2dbc/WatchlistEntryRepository.class
 io/lifeengine/cryptobot/domain/WatchlistEntry.class
+io/lifeengine/cryptobot/observability/BuildIdentityInfoContributor.class
 io/lifeengine/cryptobot/application/MonitoringProperties.class
 io/lifeengine/cryptobot/health/CryptobotHealthController.class
 io/lifeengine/cryptobot/infrastructure/runtime/RuntimeStartRunResponse.class

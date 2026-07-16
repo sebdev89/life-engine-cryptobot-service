@@ -1,4 +1,4 @@
 -------------------------------------------------------------------------------
 Test set: io.lifeengine.cryptobot.api.MarketReviewsQueryControllerTest
 -------------------------------------------------------------------------------
-Tests run: 4, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 2.112 s -- in io.lifeengine.cryptobot.api.MarketReviewsQueryControllerTest
+Tests run: 4, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 2.230 s -- in io.lifeengine.cryptobot.api.MarketReviewsQueryControllerTest
