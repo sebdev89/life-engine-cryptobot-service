@@ -1,4 +1,0 @@
--------------------------------------------------------------------------------
-Test set: io.lifeengine.cryptobot.infrastructure.binance.BinancePublicClientTest
--------------------------------------------------------------------------------
-Tests run: 3, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.033 s -- in io.lifeengine.cryptobot.infrastructure.binance.BinancePublicClientTest
