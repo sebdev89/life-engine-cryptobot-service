@@ -16,7 +16,7 @@ concurrency:
 jobs:
   build-and-test:
     name: build + test (java 21, ubuntu)
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, le-ci]
     timeout-minutes: 20
 
     steps:
@@ -33,13 +33,13 @@ jobs:
       - name: Show toolchain
         run: |
           java -version
-          mvn -v
+          ./mvnw -v
 
       - name: Compile (main + test sources)
-        run: mvn -B -ntp -DskipTests test-compile
+        run: ./mvnw -B -ntp -DskipTests test-compile
 
       - name: Run tests (surefire)
-        run: mvn -B -ntp test
+        run: ./mvnw -B -ntp test
 
       - name: Upload Surefire reports (on failure)
         if: failure()
