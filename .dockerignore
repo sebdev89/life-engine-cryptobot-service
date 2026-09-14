@@ -1,0 +1,4 @@
+target
+signer/target
+.env.local
+.env.hackathon

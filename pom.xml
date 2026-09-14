@@ -130,6 +130,13 @@
                             <goal>build-info</goal>
                         </goals>
                     </execution>
+                    <!-- Runnable jar for the hackathon Docker image (docker-compose.hackathon.yml). -->
+                    <execution>
+                        <id>repackage</id>
+                        <goals>
+                            <goal>repackage</goal>
+                        </goals>
+                    </execution>
                 </executions>
             </plugin>
 
