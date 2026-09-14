@@ -11,3 +11,9 @@ target/
 
 # signer module build output
 signer/target/
+
+# hackathon compose secrets
+.env.hackathon
+
+# local env (copy from .env.template); never versioned
+.env.local
