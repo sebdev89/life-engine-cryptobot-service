@@ -32,6 +32,7 @@ public class PortfolioService {
 
     private static final Logger log = LoggerFactory.getLogger(PortfolioService.class);
     private static final BigDecimal HUNDRED = new BigDecimal("100");
+    static final BigDecimal MIN_WEIGHT_DELTA_PCT = new BigDecimal("0.05");
 
     public record PortfolioView(PortfolioSnapshot snapshot, RiskReport risk, PortfolioDiff changes) {}
 
@@ -162,9 +163,12 @@ public class PortfolioService {
             BigDecimal wb = b == null ? BigDecimal.ZERO : nz(b.weightPct());
             BigDecimal wa = a == null ? BigDecimal.ZERO : nz(a.weightPct());
             BigDecimal delta = wa.subtract(wb);
+            // A position "changed" if its balance moved or its weight shifted noticeably. Pure
+            // price drift on an unchanged balance is not a wallet event — it would list every
+            // asset on every refresh and bury the one that actually moved.
             boolean changed = b == null || a == null
                     || nz(b.amount()).compareTo(nz(a.amount())) != 0
-                    || nz(b.valueUsd()).compareTo(nz(a.valueUsd())) != 0;
+                    || delta.abs().compareTo(MIN_WEIGHT_DELTA_PCT) >= 0;
             if (changed) {
                 changes.add(new PortfolioChange(s,
                         b == null ? null : b.amount(), a == null ? null : a.amount(),
