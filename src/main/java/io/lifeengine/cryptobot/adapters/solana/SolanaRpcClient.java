@@ -31,6 +31,7 @@ public class SolanaRpcClient {
     public static final String TOKEN_PROGRAM_ID = "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA";
     public static final String TOKEN_2022_PROGRAM_ID = "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb";
     public static final long LAMPORTS_PER_SOL = 1_000_000_000L;
+    static final int MAX_RESPONSE_BYTES = 16 * 1024 * 1024;
 
     private final WebClient webClient;
     private final SolanaRpcProperties properties;
@@ -38,7 +39,11 @@ public class SolanaRpcClient {
     private final AtomicLong requestIds = new AtomicLong(1);
 
     public SolanaRpcClient(WebClient.Builder builder, SolanaRpcProperties properties, ObjectMapper objectMapper) {
-        this.webClient = builder.build();
+        // A busy mainnet wallet returns hundreds of token accounts in jsonParsed form — well over
+        // WebClient's 256 KiB default. 16 MiB keeps the reader honest without being unbounded.
+        this.webClient = builder
+                .codecs(c -> c.defaultCodecs().maxInMemorySize(MAX_RESPONSE_BYTES))
+                .build();
         this.properties = properties;
         this.objectMapper = objectMapper;
     }

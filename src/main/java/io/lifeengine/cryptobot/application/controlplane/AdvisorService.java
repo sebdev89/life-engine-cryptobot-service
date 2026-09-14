@@ -44,6 +44,7 @@ public class AdvisorService {
     /** A base58 string of 87–88 chars is the shape of a 64-byte secret key. Refuse to forward it anywhere. */
     private static final Pattern SECRET_SHAPE = Pattern.compile("[1-9A-HJ-NP-Za-km-z]{64,90}");
     private static final int MAX_QUESTION_CHARS = 1000;
+    static final int MAX_POSITIONS_FOR_LLM = 15;
 
     public record Asked(AdvisorAnswer answer, UUID runtimeRunId, String runtimeBaseUrl, String ssePath) {}
 
@@ -120,8 +121,19 @@ public class AdvisorService {
 
         Map<String, Object> pf = new LinkedHashMap<>();
         pf.put("totalUsd", scale(view.snapshot().totalUsd(), 2));
+        // The Runtime caps input at 32k chars and the model has a context budget: send the priced
+        // positions (already sorted by value, capped) and only a count for the unpriced tail. A busy
+        // mainnet wallet can hold hundreds of airdrop/spam mints; none of them change the analysis.
         List<Map<String, Object>> positions = new ArrayList<>();
+        int unpriced = 0;
         for (Position p : view.snapshot().positions()) {
+            if (!p.priced()) {
+                unpriced++;
+                continue;
+            }
+            if (positions.size() >= MAX_POSITIONS_FOR_LLM) {
+                continue;
+            }
             Map<String, Object> pos = new LinkedHashMap<>();
             pos.put("symbol", p.symbol());
             pos.put("amount", scale(p.amount(), 6));
@@ -132,6 +144,8 @@ public class AdvisorService {
             positions.add(pos);
         }
         pf.put("positions", positions);
+        pf.put("unpricedPositions", unpriced);
+        pf.put("positionsOmitted", Math.max(0, (int) view.snapshot().positions().stream().filter(Position::priced).count() - positions.size()));
         if (view.changes() != null) {
             Map<String, Object> ch = new LinkedHashMap<>();
             ch.put("totalUsdPct", view.changes().totalUsdDeltaPct() == null ? null : scale(view.changes().totalUsdDeltaPct(), 2));
