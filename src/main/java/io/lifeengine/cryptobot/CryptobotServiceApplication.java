@@ -27,7 +27,13 @@ import org.springframework.boot.context.properties.EnableConfigurationProperties
     CryptobotJwtProperties.class,
     CryptobotJwksProperties.class,
     CryptobotRuntimeSecurityProperties.class,
-    MonitoringProperties.class
+    MonitoringProperties.class,
+    io.lifeengine.cryptobot.adapters.solana.SolanaRpcProperties.class,
+    io.lifeengine.cryptobot.adapters.marketdata.MarketDataProperties.class,
+    io.lifeengine.cryptobot.application.controlplane.RiskRulesProperties.class,
+    io.lifeengine.cryptobot.application.controlplane.PolicyProperties.class,
+    io.lifeengine.cryptobot.integration.signer.SignerProperties.class,
+    io.lifeengine.cryptobot.integration.lifeengine.AdvisorProperties.class
 })
 public class CryptobotServiceApplication {
 

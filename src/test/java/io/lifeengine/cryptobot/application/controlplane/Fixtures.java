@@ -1,0 +1,64 @@
+package io.lifeengine.cryptobot.application.controlplane;
+
+import io.lifeengine.cryptobot.adapters.marketdata.TokenRegistry;
+import io.lifeengine.cryptobot.adapters.solana.SolanaCluster;
+import io.lifeengine.cryptobot.domain.portfolio.PortfolioSnapshot;
+import io.lifeengine.cryptobot.domain.portfolio.Position;
+import io.lifeengine.cryptobot.domain.wallet.Wallet;
+import java.math.BigDecimal;
+import java.math.RoundingMode;
+import java.time.Instant;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.UUID;
+
+/** Hand-built snapshots so the engines can be tested without RPC or prices. */
+final class Fixtures {
+
+    static final String ADDRESS = "9xQeWvG816bUx9EPjHmaT23yvVM2ZWbrrpZb9PusVFin";
+    static final String VAULT = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
+    static final UUID OWNER = UUID.fromString("a0000000-0000-4000-8000-000000000001");
+
+    private Fixtures() {}
+
+    static Wallet wallet(SolanaCluster cluster) {
+        Instant now = Instant.parse("2026-09-14T12:00:00Z");
+        return new Wallet(UUID.randomUUID(), OWNER, ADDRESS, cluster, "demo", now, now);
+    }
+
+    /** SOL 7 @ $100 = 700, USDC 300 → SOL 70% / USDC 30%. */
+    static PortfolioSnapshot solHeavy() {
+        return snapshot(new Object[][] {
+            {TokenRegistry.NATIVE_SOL_MINT, "SOL", "7", "100", false, true},
+            {TokenRegistry.USDC_MINT, "USDC", "300", "1", true, false},
+        });
+    }
+
+    /** SOL 300 / USDC 350 / JUP 350 → nothing above 40%, stables 35%. */
+    static PortfolioSnapshot balanced() {
+        return snapshot(new Object[][] {
+            {TokenRegistry.NATIVE_SOL_MINT, "SOL", "3", "100", false, true},
+            {TokenRegistry.USDC_MINT, "USDC", "350", "1", true, false},
+            {"JUPyiwrYJFskUPiHa7hkeR8VUtAeFoSYbKedZNsDvCN", "JUP", "700", "0.5", false, false},
+        });
+    }
+
+    static PortfolioSnapshot snapshot(Object[][] rows) {
+        List<Position> raw = new ArrayList<>();
+        BigDecimal total = BigDecimal.ZERO;
+        for (Object[] r : rows) {
+            BigDecimal amount = new BigDecimal((String) r[2]);
+            BigDecimal price = r[3] == null ? null : new BigDecimal((String) r[3]);
+            BigDecimal value = price == null ? null : amount.multiply(price);
+            if (value != null) {
+                total = total.add(value);
+            }
+            raw.add(new Position((String) r[0], (String) r[1], amount, 9, price, value, null, (Boolean) r[4], (Boolean) r[5], "test"));
+        }
+        final BigDecimal t = total;
+        List<Position> weighted = raw.stream().map(p -> new Position(p.mint(), p.symbol(), p.amount(), p.decimals(), p.priceUsd(), p.valueUsd(),
+                p.valueUsd() == null ? null : p.valueUsd().multiply(new BigDecimal("100")).divide(t, 4, RoundingMode.HALF_UP),
+                p.stable(), p.nativeSol(), p.priceSource())).toList();
+        return new PortfolioSnapshot(UUID.randomUUID(), UUID.randomUUID(), Instant.parse("2026-09-14T12:00:00Z"), total, weighted, "test", 3);
+    }
+}

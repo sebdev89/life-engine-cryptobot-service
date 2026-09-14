@@ -27,6 +27,32 @@ cryptobot:
     interval: 10m
     workflow-id: crypto.market-review.v1
 
+  solana:
+    rpc:
+      devnet-url: http://localhost:0
+      mainnet-url: http://localhost:0
+      timeout: 2s
+  marketdata:
+    jupiter-enabled: false
+    fallback-prices:
+      SOL: 100
+      USDC: 1
+      USDT: 1
+  policy:
+    execution-enabled: true
+    execution-cluster: devnet
+    max-trade-usd: 500
+    max-trade-pct-of-portfolio: 50
+    allowed-assets: SOL,USDC,USDT
+    cooldown: 60s
+    rebalance-vault: 9xQeWvG816bUx9EPjHmaT23yvVM2ZWbrrpZb9PusVFin
+    max-lamports-per-tx: 2000000000
+  signer:
+    enabled: false
+  advisor:
+    workflow-id: crypto.portfolio-advisor.v1
+    timeout: 5s
+    poll-interval: 100ms
 lifeengine:
   security:
     jwt:

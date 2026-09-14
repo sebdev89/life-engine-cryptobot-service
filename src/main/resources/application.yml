@@ -55,6 +55,57 @@ cryptobot:
     interval: ${CRYPTOBOT_MONITORING_INTERVAL:10m}
     workflow-id: ${CRYPTOBOT_MONITORING_WORKFLOW_ID:crypto.market-review.v1}
 
+  # ---- Colosseum control plane (wallet → portfolio → risk → advisor → proposal → approval) ----
+  solana:
+    rpc:
+      devnet-url: ${CRYPTOBOT_SOLANA_DEVNET_RPC:https://api.devnet.solana.com}
+      mainnet-url: ${CRYPTOBOT_SOLANA_MAINNET_RPC:https://api.mainnet-beta.solana.com}
+      timeout: ${CRYPTOBOT_SOLANA_RPC_TIMEOUT:8s}
+  marketdata:
+    jupiter-enabled: ${CRYPTOBOT_JUPITER_ENABLED:true}
+    jupiter-base-url: ${CRYPTOBOT_JUPITER_BASE_URL:https://lite-api.jup.ag}
+    timeout: 6s
+    # Stale-but-honest prices used only when Jupiter is unreachable; the snapshot says "fallback-static".
+    fallback-prices:
+      SOL: 100
+      USDC: 1
+      USDT: 1
+      JUP: 0.5
+      BONK: 0.00002
+      MSOL: 120
+      JITOSOL: 118
+    # devnet mint → mainnet mint it is valued as. Circle devnet USDC is built in; add your own here.
+    aliases: {}
+  risk:
+    concentration-high-pct: ${CRYPTOBOT_RISK_CONCENTRATION_HIGH:60}
+    concentration-medium-pct: ${CRYPTOBOT_RISK_CONCENTRATION_MEDIUM:40}
+    min-stable-pct: ${CRYPTOBOT_RISK_MIN_STABLE:10}
+    dust-usd: 1
+    sharp-move-pct: 5
+  policy:
+    # Emergency stop. false ⇒ nothing is ever signed or broadcast; proposals still work as paper trades.
+    execution-enabled: ${CRYPTOBOT_EXECUTION_ENABLED:true}
+    execution-cluster: devnet
+    max-trade-usd: ${CRYPTOBOT_POLICY_MAX_TRADE_USD:500}
+    max-trade-pct-of-portfolio: ${CRYPTOBOT_POLICY_MAX_TRADE_PCT:50}
+    allowed-assets: SOL,USDC,USDT
+    cooldown: ${CRYPTOBOT_POLICY_COOLDOWN:60s}
+    # Destination of the executable SOL leg on devnet. Empty ⇒ proposals are approvable but not executable.
+    rebalance-vault: ${CRYPTOBOT_REBALANCE_VAULT:}
+    max-lamports-per-tx: ${CRYPTOBOT_POLICY_MAX_LAMPORTS:2000000000}
+    proposal-ttl: 30m
+  signer:
+    enabled: ${CRYPTOBOT_SIGNER_ENABLED:false}
+    base-url: ${CRYPTOBOT_SIGNER_BASE_URL:http://localhost:8096}
+    # Shared service token (NOT a key). Must match SIGNER_TOKEN of cryptobot-signer.
+    token: ${CRYPTOBOT_SIGNER_TOKEN:}
+    timeout: 8s
+  advisor:
+    workflow-id: ${CRYPTOBOT_ADVISOR_WORKFLOW_ID:crypto.portfolio-advisor.v1}
+    timeout: ${CRYPTOBOT_ADVISOR_TIMEOUT:90s}
+    poll-interval: 1500ms
+    locale: ${CRYPTOBOT_ADVISOR_LOCALE:en}
+
 lifeengine:
   # Deployment environment for build identity (/actuator/info) and metric common tags. From APP_ENV —
   # never hardcoded per environment (KAN-199 / §2.2).
