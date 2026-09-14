@@ -37,9 +37,8 @@ cryptobot:
     base-url: ${CRYPTOBOT_RUNTIME_BASE_URL:http://localhost:8090}
     workflow-id: crypto.market-review.v1
   snapshot:
-    # Phase 1 keeps deterministic-local as the safe default. Switch to `binance-public`
-    # to call api.binance.com/api/v3/ticker/24hr (read-only, no API key) once that path
-    # is verified in your environment.
+    # deterministic-local (default, offline) · binance-public (api.binance.com ticker 24h) ·
+    # solana-public (GeckoTerminal pool + Jupiter price; keyless). All read-only.
     provider: ${CRYPTOBOT_SNAPSHOT_PROVIDER:deterministic-local}
   security:
     enabled: ${CRYPTOBOT_SECURITY_ENABLED:true}
@@ -57,6 +56,14 @@ cryptobot:
 
   # ---- Colosseum control plane (wallet → portfolio → risk → advisor → proposal → approval) ----
   solana:
+    # Market data for the market-review pipeline (symbol → DEX pool). Binance stays; Solana is added.
+    market:
+      gecko-terminal-base-url: ${CRYPTOBOT_GECKOTERMINAL_BASE_URL:https://api.geckoterminal.com}
+      jupiter-base-url: ${CRYPTOBOT_JUPITER_BASE_URL:https://lite-api.jup.ag}
+      timeout: 6s
+      pools:
+        SOLUSDC: 58oQChx4yWmvKdwLLZzBi4ChoCc2fqCUWBkwMihLYQo2   # Raydium SOL/USDC
+      mints: {}
     rpc:
       devnet-url: ${CRYPTOBOT_SOLANA_DEVNET_RPC:https://api.devnet.solana.com}
       mainnet-url: ${CRYPTOBOT_SOLANA_MAINNET_RPC:https://api.mainnet-beta.solana.com}
