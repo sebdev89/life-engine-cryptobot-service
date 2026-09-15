@@ -1,0 +1,9 @@
+{
+  "object": {
+    "btcars": {"currency": "btc", "bid_currency": "ars", "purchase_price": "149500000.00", "selling_price": "148900000.00", "market_identifier": "btcars"},
+    "usdtars": {"currency": "usdt", "bid_currency": "ars", "purchase_price": "1500.00", "selling_price": "1480.00", "market_identifier": "usdtars"},
+    "daiars": {"currency": "dai", "bid_currency": "ars", "purchase_price": "1502.00", "selling_price": "1481.00", "market_identifier": "daiars"},
+    "btcusdt": {"currency": "btc", "bid_currency": "usdt", "purchase_price": "101000.00", "selling_price": "100500.00", "market_identifier": "btcusdt"},
+    "ethars": {"currency": "eth", "bid_currency": "ars", "purchase_price": "0", "selling_price": "0", "market_identifier": "ethars"}
+  }
+}

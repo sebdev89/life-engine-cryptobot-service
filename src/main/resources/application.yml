@@ -83,6 +83,32 @@ cryptobot:
       JITOSOL: 118
     # devnet mint → mainnet mint it is valued as. Circle devnet USDC is built in; add your own here.
     aliases: {}
+  # ---- ARS quotes across Argentine exchanges (KAN-355): GET /api/cryptobot/quotes/{asset} ----
+  # Public, keyless, read-only price feeds only. One board per exchange, cached cache-ttl (30–60 s by
+  # design); a failed refresh serves the previous board flagged stale while younger than stale-max.
+  quotes:
+    cache-ttl: ${CRYPTOBOT_QUOTES_CACHE_TTL:45s}
+    stale-max: ${CRYPTOBOT_QUOTES_STALE_MAX:5m}
+    timeout: ${CRYPTOBOT_QUOTES_TIMEOUT:5s}
+    exchanges:
+      bitso:
+        enabled: ${CRYPTOBOT_QUOTES_BITSO_ENABLED:true}
+        base-url: ${CRYPTOBOT_QUOTES_BITSO_BASE_URL:https://api.bitso.com}
+      ripio:
+        enabled: ${CRYPTOBOT_QUOTES_RIPIO_ENABLED:true}
+        base-url: ${CRYPTOBOT_QUOTES_RIPIO_BASE_URL:https://app.ripio.com}
+      buenbit:
+        enabled: ${CRYPTOBOT_QUOTES_BUENBIT_ENABLED:true}
+        base-url: ${CRYPTOBOT_QUOTES_BUENBIT_BASE_URL:https://be.buenbit.com}
+    # Withdrawal fees in units of the asset, by exchange → asset → network. None of the three feeds
+    # publishes fees on a public endpoint, so this table is maintained by hand from each exchange's
+    # fee page and is reported as source=CONFIGURED (never as live). Empty by default on purpose:
+    # an unknown fee is shown as "not applied", a made-up one would rank exchanges wrongly.
+    # Example:
+    #   ripio:
+    #     USDT:
+    #       TRON: 1
+    withdrawal-fees: {}
   risk:
     concentration-high-pct: ${CRYPTOBOT_RISK_CONCENTRATION_HIGH:60}
     concentration-medium-pct: ${CRYPTOBOT_RISK_CONCENTRATION_MEDIUM:40}

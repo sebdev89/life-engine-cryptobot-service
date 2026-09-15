@@ -38,6 +38,18 @@ cryptobot:
       SOL: 100
       USDC: 1
       USDT: 1
+  quotes:
+    cache-ttl: 45s
+    stale-max: 5m
+    timeout: 1s
+    # No network in tests: every adapter points at a closed port; the controller test overrides the port bean.
+    exchanges:
+      bitso:
+        base-url: http://localhost:0
+      ripio:
+        base-url: http://localhost:0
+      buenbit:
+        base-url: http://localhost:0
   policy:
     execution-enabled: true
     execution-cluster: devnet
