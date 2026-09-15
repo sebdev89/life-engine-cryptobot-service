@@ -52,3 +52,125 @@ jobs:
           path: target/surefire-reports/**
           if-no-files-found: ignore
           retention-days: 14
+
+  # ---------------------------------------------------------------------------
+  # KAN-352 — publicar la imagen. Copia del job de life-engine-runtime: hasta acá este
+  # repo sólo compilaba y testeaba, así que no existía ningún artefacto que uat-compose
+  # pudiera desplegar por digest, y ningún tablero de CryptoBot podía mostrar nada.
+  #
+  # El repo es PRIVADO: el paquete ghcr.io/sebdev89/life-engine-cryptobot-service hereda
+  # esa visibilidad en su primera publicación (GITHUB_TOKEN, mismo owner). Verificarlo
+  # después del primer run: gh api /user/packages/container/life-engine-cryptobot-service
+  # -q .visibility → private. El host que despliega necesita `docker login ghcr.io`
+  # con un PAT read:packages (ya lo tiene para runtime, privado desde KAN-349).
+  # ---------------------------------------------------------------------------
+  docker-publish:
+    name: docker build + push
+    runs-on: [self-hosted, le-ci]
+    needs: build-and-test
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    permissions:
+      contents: read
+      packages: write
+    # Expose the published artifact's identity (KAN-200 / T9) so the deploy can consume it from the
+    # Actions API without resolving it by hand. Not secret — repository/tag/digest/revision are public
+    # facts of the pushed image.
+    outputs:
+      repository: ${{ steps.image-metadata.outputs.repository }}
+      tag: ${{ steps.image-metadata.outputs.tag }}
+      digest: ${{ steps.image-metadata.outputs.digest }}
+      revision: ${{ steps.image-metadata.outputs.revision }}
+      commit: ${{ steps.image-metadata.outputs.commit }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          # `git describe` necesita los tags, y el default de checkout (fetch-depth: 1)
+          # no los trae. Sin esto la version caeria siempre al sha corto.
+          fetch-depth: 0
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # Immutable sha- tags only. 'latest' is a moving pointer and is banned across the platform
+      # (KAN-193 no-latest guard); deploys resolve by digest/sha, never by latest. metadata-action still
+      # stamps org.opencontainers.image.revision=<sha> into the labels, so the image keeps its OCI revision.
+      # La version sale del tag de git, no del pom.xml (`0.0.1-SNAPSHOT`, nunca tocado).
+      # `--match 'v*'` evita tomar tags de otra convencion; `--always` cae al sha corto en
+      # un repo sin tags (este, hoy).
+      - name: Versión desde el tag
+        id: version
+        run: |
+          semver="$(git describe --tags --match 'v*' --always)"
+          echo "semver=${semver}" >> "$GITHUB_OUTPUT"
+          echo "versión: ${semver}"
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository_owner }}/${{ github.event.repository.name }}
+          tags: |
+            type=sha,prefix=sha-
+          # La procedencia va en el propio artefacto, no en el manifiesto: `ops` la lee de la
+          # imagen y, si el label no está, registra `buildSource=unknown` en vez de asumir CI
+          # —afirmarlo sin evidencia sería falsificar CI (KAN-258).
+          # `build.reason` no se estampa a propósito: sólo lo exige `manual-fallback`.
+          labels: |
+            life-engine.semver=${{ steps.version.outputs.semver }}
+            life-engine.build.source=github-actions
+
+      - name: Build and push
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          # Real git identity for /actuator/info: the build context has no .git, so pass it explicitly.
+          build-args: |
+            GIT_COMMIT=${{ github.sha }}
+            GIT_BRANCH=${{ github.ref_name }}
+            GIT_COMMIT_TIME=${{ github.event.head_commit.timestamp }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # KAN-200 / T9: publish the digest of the image we just pushed. build-push-action reports the
+      # immutable digest in steps.build.outputs.digest — surface it as job outputs (Actions API /
+      # downstream jobs) and in the run summary (gh run view), so the deploy can resolve
+      # commit -> digest straight from the run instead of querying GHCR by hand. No credentials here.
+      - name: Expose published image digest
+        id: image-metadata
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          short="${GITHUB_SHA:0:7}"
+          repository="ghcr.io/${{ github.repository_owner }}/${{ github.event.repository.name }}"
+          tag="sha-${short}"
+          {
+            echo "repository=${repository}"
+            echo "tag=${tag}"
+            echo "digest=${DIGEST}"
+            echo "revision=${GITHUB_SHA}"
+            echo "commit=${short}"
+          } >> "$GITHUB_OUTPUT"
+          {
+            echo "## Published image"
+            echo ""
+            echo "| field | value |"
+            echo "| --- | --- |"
+            echo "| repository | \`${repository}\` |"
+            echo "| tag | \`${tag}\` |"
+            echo "| digest | \`${DIGEST}\` |"
+            echo "| oci.revision | \`${GITHUB_SHA}\` |"
+            echo "| commit | \`${short}\` |"
+          } >> "$GITHUB_STEP_SUMMARY"
