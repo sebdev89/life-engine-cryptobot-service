@@ -1,0 +1,38 @@
+spring:
+  application:
+    name: cryptobot-signer
+  main:
+    web-application-type: reactive
+
+server:
+  port: ${SIGNER_PORT:8096}
+  error:
+    include-message: never
+    include-stacktrace: never
+
+signer:
+  # 64-byte solana-keygen id.json. Mount it read-only; never commit it; never put it in a DB.
+  keypair-path: ${SIGNER_KEYPAIR_PATH:}
+  # Alternative for containers without a mount: the same JSON array as a string.
+  keypair-json: ${SIGNER_KEYPAIR_JSON:}
+  # Shared service token cryptobot-service must present in X-Signer-Token. NOT a key.
+  token: ${SIGNER_TOKEN:}
+  cluster: ${SIGNER_CLUSTER:devnet}
+  # Hard caps: enforced here, independently of anything cryptobot-service decided.
+  max-lamports: ${SIGNER_MAX_LAMPORTS:2000000000}
+  allowed-destinations: ${SIGNER_ALLOWED_DESTINATIONS:}
+  # Emergency stop for the signer itself.
+  enabled: ${SIGNER_ENABLED:true}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
+  endpoint:
+    health:
+      show-details: never
+
+logging:
+  level:
+    root: INFO

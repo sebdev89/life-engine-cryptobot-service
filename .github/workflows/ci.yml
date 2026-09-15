@@ -41,6 +41,9 @@ jobs:
       - name: Run tests (surefire)
         run: ./mvnw -B -ntp test
 
+      - name: Run signer tests (isolated module, own pom)
+        run: ./mvnw -B -ntp -f signer/pom.xml test
+
       - name: Upload Surefire reports (on failure)
         if: failure()
         uses: actions/upload-artifact@v4

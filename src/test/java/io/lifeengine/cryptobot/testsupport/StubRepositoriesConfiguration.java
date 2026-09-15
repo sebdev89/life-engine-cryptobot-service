@@ -67,4 +67,30 @@ public class StubRepositoriesConfiguration {
                 .thenReturn(Flux.empty());
         return mock;
     }
+
+    // ---- Colosseum control plane: real in-memory stores, not mocks ------------------------
+    @Bean
+    io.lifeengine.cryptobot.infrastructure.persistence.controlplane.WalletRepository walletRepository() {
+        return InMemoryControlPlaneRepositories.wallets();
+    }
+
+    @Bean
+    io.lifeengine.cryptobot.infrastructure.persistence.controlplane.PortfolioSnapshotRepository portfolioSnapshotRepository() {
+        return InMemoryControlPlaneRepositories.snapshots();
+    }
+
+    @Bean
+    io.lifeengine.cryptobot.infrastructure.persistence.controlplane.AdvisorMessageRepository advisorMessageRepository() {
+        return InMemoryControlPlaneRepositories.messages();
+    }
+
+    @Bean
+    io.lifeengine.cryptobot.infrastructure.persistence.controlplane.ActionProposalRepository actionProposalRepository() {
+        return InMemoryControlPlaneRepositories.proposals();
+    }
+
+    @Bean
+    io.lifeengine.cryptobot.infrastructure.persistence.controlplane.AuditEventRepository auditEventRepository() {
+        return InMemoryControlPlaneRepositories.audit();
+    }
 }
