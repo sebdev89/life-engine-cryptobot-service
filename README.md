@@ -82,6 +82,44 @@ All endpoints take `Authorization: Bearer <Life Engine JWT>`. Everything is scop
 | `POST /api/cryptobot/wallets/{id}/proposals` `{targetWeights:{SOL:50}}` | plan → simulate → policy → `AWAITING_APPROVAL` / `BLOCKED_BY_POLICY` |
 | `POST /api/cryptobot/proposals/{id}/approve` · `/reject` · `/execute` | human decision · devnet execution |
 | `GET /api/cryptobot/proposals/{id}` · `/audit` | proposal with its trail |
+| `GET /api/cryptobot/quotes/{asset}?ars=<monto>&network=<red>` · `?side=SELL&amount=<unidades>` | ARS quotes across Argentine exchanges, ranked "recibís X" (KAN-355) |
+
+### ARS quotes across exchanges (KAN-355)
+
+"Con estos pesos, ¿dónde conviene comprar?" — the same table https://criptos.com.ar shows, computed
+from each exchange's **public, keyless, read-only** price feed. criptos.com.ar itself is only a
+manual validation oracle in development (its API is neither public nor documented); it is never
+called from this code.
+
+| Exchange | Feed | Fees on the feed |
+|---|---|---|
+| `bitso` | `GET https://api.bitso.com/v3/ticker/` (documented, docs.bitso.com) — `*_ars` books | no (`/v3/fees/` is authenticated) |
+| `ripio` | `GET https://app.ripio.com/api/v3/rates/?country=AR` — `buy_rate`/`sell_rate` | no |
+| `buenbit` | `GET https://be.buenbit.com/api/market/tickers/` — `purchase_price`/`selling_price` | no |
+
+Port `ArsQuotesPort` → `CachedArsQuotesService` (one board per exchange, cached
+`cryptobot.quotes.cache-ttl` = 45 s; a failed refresh serves the previous board flagged
+`stale=true` up to `stale-max` = 5 min, then the exchange is `FETCH_FAILED`). Adapters implement
+`ExchangeQuoteSource`; adding an exchange is one class + one fixture. Runtime never calls
+exchanges: the advisor receives this ranking as context from the vertical.
+
+```bash
+# buy: 100 000 ARS of USDT withdrawn over TRON → USDT received per exchange, best first
+curl -s -H "Authorization: Bearer $TOKEN" 'http://localhost:8091/api/cryptobot/quotes/USDT?ars=100000&network=TRON'
+# sell: 0.01 BTC → ARS received per exchange, best first
+curl -s -H "Authorization: Bearer $TOKEN" 'http://localhost:8091/api/cryptobot/quotes/BTC?side=SELL&amount=0.01'
+```
+
+Response: `ranking[]` with `rank, exchange, ask, bid, spreadPct, receives, receivesUnit,
+effectivePrice, fee{network,amount,source}, feeKnown, stale, note`; `unavailable[]` with
+`exchange, reason (NOT_LISTED | FETCH_FAILED | DISABLED), detail`; `exchanges[]` (everything
+configured, so a missing one is visible). Withdrawal fees: none of the three feeds publishes them,
+so `cryptobot.quotes.withdrawal-fees.<exchange>.<asset>.<network>` is a hand-maintained table
+reported as `source=CONFIGURED`; an unknown fee is shown as "not applied" (`feeKnown=false`),
+never as zero. Metrics: `cryptobot_quotes_fetch_total{exchange,ok}` and
+`cryptobot_quotes_fetch_latency_seconds{exchange}`.
+
+Manual validation against the oracle (dev only, needs network): `scripts/validate-quotes-oracle.sh`.
 
 ## Security model
 
@@ -99,7 +137,7 @@ All endpoints take `Authorization: Bearer <Life Engine JWT>`. Everything is scop
 ## Tests
 
 ```bash
-./mvnw test                     # 114 tests: adapters (recorded responses), engines, state machine, HTTP flow with fake RPC + Runtime
+./mvnw test                     # 144 tests: adapters (recorded responses), engines, state machine, HTTP flow with fake RPC + Runtime, ARS quotes (fixtures, no network)
 ./mvnw -f signer/pom.xml test   # 10 tests: signing policy (every refusal reason), token, signature verification
 cd ../cryptobot-ui && npx ng test
 ```
@@ -122,5 +160,5 @@ README and the Docker files. The exact list lives in the vault:
 ## Configuration
 
 Full list with defaults in `src/main/resources/application.yml` under `cryptobot.solana`,
-`cryptobot.marketdata`, `cryptobot.risk`, `cryptobot.policy`, `cryptobot.signer`,
-`cryptobot.advisor`. Nothing secret has a default.
+`cryptobot.marketdata`, `cryptobot.quotes`, `cryptobot.risk`, `cryptobot.policy`,
+`cryptobot.signer`, `cryptobot.advisor`. Nothing secret has a default.

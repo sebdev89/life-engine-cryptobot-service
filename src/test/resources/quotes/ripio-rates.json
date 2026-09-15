@@ -1,0 +1,6 @@
+[
+  {"ticker": "BTC_ARS", "buy_rate": "151200000.00", "sell_rate": "147300000.00", "variation": "-0.85", "base": "BTC", "quote": "ARS"},
+  {"ticker": "USDT_ARS", "buy_rate": "1495.00", "sell_rate": "1470.00", "variation": "0.10", "base": "USDT", "quote": "ARS"},
+  {"ticker": "USDC_ARS", "buy_rate": "1496.00", "sell_rate": "1471.00", "variation": "0.10", "base": "USDC", "quote": "ARS"},
+  {"ticker": "BTC_USDC", "buy_rate": "101500.00", "sell_rate": "100900.00", "variation": "0.00", "base": "BTC", "quote": "USDC"}
+]
