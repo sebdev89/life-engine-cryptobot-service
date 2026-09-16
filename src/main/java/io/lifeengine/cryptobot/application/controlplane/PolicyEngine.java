@@ -1,7 +1,12 @@
 package io.lifeengine.cryptobot.application.controlplane;
 
 import io.lifeengine.cryptobot.adapters.solana.Base58;
+import io.lifeengine.cryptobot.domain.policy.DeterministicPolicyEngine;
 import io.lifeengine.cryptobot.domain.policy.PolicyDecision;
+import io.lifeengine.cryptobot.domain.policy.PolicyInput;
+import io.lifeengine.cryptobot.domain.policy.PolicyPredicate;
+import io.lifeengine.cryptobot.domain.policy.PolicyRules;
+import io.lifeengine.cryptobot.domain.policy.PolicyVerdict;
 import io.lifeengine.cryptobot.domain.strategy.RebalanceLeg;
 import io.lifeengine.cryptobot.domain.transactions.ActionProposal;
 import io.lifeengine.cryptobot.domain.transactions.ProposalStatus;
@@ -12,6 +17,7 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
@@ -21,6 +27,19 @@ import org.springframework.stereotype.Service;
  * Deterministic policy over a fully simulated proposal. It runs <em>after</em> simulation and
  * <em>before</em> the human sees it, so what reaches the approval screen is already inside
  * the limits — and what is outside them is recorded as {@code BLOCKED_BY_POLICY} with the rule.
+ *
+ * <p>Two layers, one verdict (KAN-436):
+ * <ul>
+ *   <li>the legacy named rules (kill switch, cooldown, cluster, vault, simulation, signer …) that
+ *       decide <em>approvable</em> and <em>executable</em>;
+ *   <li>the versioned {@link DeterministicPolicyEngine} over {@code (I, S, R_v)} that decides
+ *       ALLOW / ESCALATE / DENY by predicates and tier. Its verdict — with {@code H_R} — goes
+ *       into {@link PolicyDecision#authorization()}; DENY is a blocking violation named
+ *       {@link #RULE_AUTHORIZATION}.
+ * </ul>
+ * Today every proposal still waits for the human, whatever the tier says: ALLOW and
+ * REQUIRE_SECOND_AGENT are recorded, not acted on (no autonomous execution, no second validator
+ * yet). The verdict is what the receipt will commit to.
  */
 @Service
 public class PolicyEngine {
@@ -35,17 +54,40 @@ public class PolicyEngine {
     public static final String RULE_VAULT = "REBALANCE_VAULT_CONFIGURED";
     public static final String RULE_SIMULATION = "ONCHAIN_SIMULATION_PASSED";
     public static final String RULE_SIGNER = "SIGNER_CONTROLS_WALLET";
+    /** The deterministic verdict said DENY; the message lists the failed predicates. */
+    public static final String RULE_AUTHORIZATION = "AUTHORIZATION";
+
+    /**
+     * What the caller resolved from the authoritative state for this wallet, at evaluation time.
+     *
+     * @param lastExecutedAt when this wallet last executed anything, for the cooldown
+     * @param executedLast24hUsd notional already executed by this wallet in the last 24 h ({@code daily_exposure})
+     * @param pricesAsOf when the snapshot the plan was built on was valued ({@code oracle_age})
+     */
+    public record WalletState(Optional<Instant> lastExecutedAt, BigDecimal executedLast24hUsd, Instant pricesAsOf) {
+        public WalletState {
+            lastExecutedAt = lastExecutedAt == null ? Optional.empty() : lastExecutedAt;
+        }
+
+        public static WalletState fresh(Instant pricesAsOf) {
+            return new WalletState(Optional.empty(), BigDecimal.ZERO, pricesAsOf);
+        }
+    }
 
     private final PolicyProperties props;
+    private final AuthorizationProperties authorization;
+    private final PolicyRules rules;
     private final Clock clock;
 
     @org.springframework.beans.factory.annotation.Autowired
-    public PolicyEngine(PolicyProperties props) {
-        this(props, Clock.systemUTC());
+    public PolicyEngine(PolicyProperties props, AuthorizationProperties authorization) {
+        this(props, authorization, Clock.systemUTC());
     }
 
-    PolicyEngine(PolicyProperties props, Clock clock) {
+    PolicyEngine(PolicyProperties props, AuthorizationProperties authorization, Clock clock) {
         this.props = props;
+        this.authorization = authorization;
+        this.rules = authorization.rules(props); // throws ⇒ the service does not start without a valid policy
         this.clock = clock;
     }
 
@@ -53,16 +95,23 @@ public class PolicyEngine {
         return props;
     }
 
+    /** {@code R_v} in force in this process. */
+    public PolicyRules rules() {
+        return rules;
+    }
+
     /**
      * @param proposal the simulated proposal (plan + simulation + transaction filled in)
      * @param wallet its wallet
-     * @param lastExecutedAt when this wallet last executed anything, for the cooldown
+     * @param state what the caller knows about the wallet right now
      * @param signerPublicKey the signer's identity if the signer is reachable, else empty
      */
-    public PolicyDecision evaluate(ActionProposal proposal, Wallet wallet, Optional<Instant> lastExecutedAt, Optional<String> signerPublicKey) {
+    public PolicyDecision evaluate(ActionProposal proposal, Wallet wallet, WalletState state, Optional<String> signerPublicKey) {
         List<PolicyDecision.Violation> blocking = new ArrayList<>();
         List<PolicyDecision.Violation> execution = new ArrayList<>();
         List<String> applied = new ArrayList<>();
+        Instant now = clock.instant();
+        Optional<Instant> lastExecutedAt = state.lastExecutedAt();
 
         // --- blocking rules: the proposal is not even shown for approval ---------------------
         applied.add(RULE_ASSET_ALLOWLIST);
@@ -91,9 +140,16 @@ public class PolicyEngine {
         }
 
         applied.add(RULE_COOLDOWN);
-        Instant now = clock.instant();
         if (lastExecutedAt.isPresent() && Duration.between(lastExecutedAt.get(), now).compareTo(props.cooldown()) < 0) {
             blocking.add(new PolicyDecision.Violation(RULE_COOLDOWN, "This wallet executed a trade " + Duration.between(lastExecutedAt.get(), now).toSeconds() + "s ago; cooldown is " + props.cooldown().toSeconds() + "s"));
+        }
+
+        // --- the deterministic verdict over (I, S, R_v) -------------------------------------
+        applied.add(RULE_AUTHORIZATION);
+        PolicyVerdict verdict = DeterministicPolicyEngine.evaluate(rules, policyInput(proposal, wallet, state, now));
+        if (verdict.denied()) {
+            blocking.add(new PolicyDecision.Violation(RULE_AUTHORIZATION, "Policy " + rules.version() + " (" + rules.hash() + ") denied: "
+                    + verdict.failedPredicates().stream().map(p -> p.name() + " [" + p.formula() + "]").toList()));
         }
 
         // --- execution rules: approvable as paper, but must not reach the chain -------------
@@ -134,7 +190,64 @@ public class PolicyEngine {
             execution.add(new PolicyDecision.Violation(RULE_SIGNER, "The signer does not control this wallet (read-only wallet): paper trade only"));
         }
 
-        return new PolicyDecision(blocking.isEmpty(), blocking.isEmpty() && execution.isEmpty(), blocking, execution, applied, now);
+        return new PolicyDecision(blocking.isEmpty(), blocking.isEmpty() && execution.isEmpty(), blocking, execution, applied, now, verdict);
+    }
+
+    /**
+     * {@code (I, S)} from a rebalance proposal. Nothing is defaulted: a fact the proposal cannot
+     * provide stays {@code null} and fails its predicate.
+     *
+     * <ul>
+     *   <li>asset / exposure after: the BUY leg that ends with the largest weight (a buy is what
+     *       creates concentration); with no BUY leg, the largest SELL leg and the weight it ends
+     *       at. Every leg's asset is still checked by {@link #RULE_ASSET_ALLOWLIST}.
+     *   <li>trade value: the whole plan's turnover, cents rounded up.
+     *   <li>slippage: the tolerance the executor applies ({@code executor-slippage-bps}); the
+     *       intent does not carry one yet (KAN-435 producer).
+     *   <li>oracle age: seconds since the snapshot the plan was priced on.
+     *   <li>expiry: epoch seconds on both sides until intents carry a Solana slot.
+     *   <li>nonce unused: this proposal has never started executing.
+     *   <li>agent permitted: the proposal's owner is the wallet's owner.
+     * </ul>
+     */
+    PolicyInput policyInput(ActionProposal proposal, Wallet wallet, WalletState state, Instant now) {
+        List<RebalanceLeg> legs = proposal.plan().legs();
+        Optional<RebalanceLeg> headline = legs.stream()
+                .filter(l -> l.action() == RebalanceLeg.Action.BUY)
+                .max(Comparator.comparing(RebalanceLeg::weightPctAfter, Comparator.nullsFirst(Comparator.naturalOrder())));
+        if (headline.isEmpty()) {
+            headline = legs.stream().max(Comparator.comparing(RebalanceLeg::estimatedUsd, Comparator.nullsFirst(Comparator.naturalOrder())));
+        }
+        String asset = headline.map(RebalanceLeg::symbol).orElse(null);
+        Integer exposureAfterBps = headline.map(RebalanceLeg::weightPctAfter).map(PolicyEngine::bps).orElse(null);
+        BigDecimal turnover = proposal.plan().turnoverUsd();
+        Long tradeValueCents = turnover == null || turnover.signum() < 0 ? null : AuthorizationProperties.tradeCents(turnover);
+        Long validUntil = proposal.expiresAt() == null ? null : proposal.expiresAt().getEpochSecond();
+
+        PolicyInput.IntentFacts intent = new PolicyInput.IntentFacts(
+                proposal.requestedBy(),
+                proposal.kind(),
+                rules.version(),
+                asset,
+                tradeValueCents,
+                authorization.executorSlippageBps(),
+                validUntil);
+
+        BigDecimal executed = state.executedLast24hUsd();
+        Long dailyExposureCents = executed == null || executed.signum() < 0 ? null : AuthorizationProperties.tradeCents(executed);
+        Long oracleAge = state.pricesAsOf() == null || state.pricesAsOf().isAfter(now) ? null : Duration.between(state.pricesAsOf(), now).getSeconds();
+        boolean agentPermitted = proposal.ownerUserId() != null && proposal.ownerUserId().equals(wallet.ownerUserId());
+        boolean nonceUnused = proposal.operationId() == null && proposal.execution() == null && !proposal.status().inFlight()
+                && proposal.status() != ProposalStatus.EXECUTED;
+
+        PolicyInput.StateFacts facts = new PolicyInput.StateFacts(
+                dailyExposureCents,
+                exposureAfterBps,
+                oracleAge,
+                agentPermitted,
+                nonceUnused,
+                now.getEpochSecond());
+        return new PolicyInput(intent, facts);
     }
 
     /** Re-checked at execution time — the world may have changed since approval. */
@@ -149,6 +262,15 @@ public class PolicyEngine {
         if (proposal.policy() == null || !proposal.policy().executable()) {
             problems.add("Policy marked this proposal as not executable");
         }
+        PolicyVerdict verdict = proposal.policy() == null ? null : proposal.policy().authorization();
+        if (verdict == null) {
+            problems.add("No policy verdict on this proposal (evaluated before KAN-436): re-create it");
+        } else if (verdict.denied()) {
+            problems.add("Policy verdict is DENY: " + verdict.failedPredicates());
+        } else if (!rules.hash().equals(verdict.policyHash())) {
+            // Policy-binding invariant (paper §23): what was approved under R_v does not execute under R_w.
+            problems.add("Policy changed since evaluation (" + verdict.policyHash() + " → " + rules.hash() + "): re-create the proposal");
+        }
         if (proposal.approval() == null || proposal.approval().decision() != io.lifeengine.cryptobot.domain.transactions.ApprovalRecord.Decision.APPROVED) {
             problems.add("No approval record");
         }
@@ -161,5 +283,17 @@ public class PolicyEngine {
     private boolean allowed(String symbol) {
         String s = symbol == null ? "" : symbol.toUpperCase(Locale.ROOT);
         return props.allowedAssets().stream().anyMatch(a -> a.equalsIgnoreCase(s));
+    }
+
+    /** Percent (0–100, any scale) → basis points, rounded up; outside 0..100 → {@code null} (unknown). */
+    static Integer bps(BigDecimal pct) {
+        if (pct == null) {
+            return null;
+        }
+        BigDecimal b = pct.movePointRight(2).setScale(0, RoundingMode.CEILING);
+        if (b.signum() < 0 || b.compareTo(BigDecimal.valueOf(PolicyRules.MAX_BPS)) > 0) {
+            return null;
+        }
+        return b.intValueExact();
     }
 }

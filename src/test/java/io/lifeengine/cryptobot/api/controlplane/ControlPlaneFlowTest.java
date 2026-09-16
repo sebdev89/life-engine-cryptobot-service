@@ -181,6 +181,17 @@ class ControlPlaneFlowTest {
         assertThat(p.path("policy").path("allowed").asBoolean()).isTrue();
         assertThat(p.path("policy").path("executable").asBoolean()).isFalse(); // signer disabled in tests
         assertThat(p.path("policy").path("executionViolations").toString()).contains("SIGNER_CONTROLS_WALLET");
+        // KAN-436: the graduated verdict with H_R travels with the proposal. $200 on a $1000 wallet:
+        // over the $100 autonomous tier, within the $250 second-agent tier of test-policy-v1.
+        JsonNode verdict = p.path("policy").path("authorization");
+        assertThat(verdict.path("decision").asText()).isEqualTo("ESCALATE");
+        assertThat(verdict.path("escalation").asText()).isEqualTo("REQUIRE_SECOND_AGENT");
+        assertThat(verdict.path("tier").asText()).isEqualTo("SECOND_AGENT");
+        assertThat(verdict.path("failedPredicates")).isEmpty();
+        assertThat(verdict.path("evaluatedPredicates")).hasSize(11);
+        assertThat(verdict.path("policyVersion").asText()).isEqualTo("test-policy-v1");
+        assertThat(verdict.path("policyHash").asText()).matches("sha256:[0-9a-f]{64}");
+        assertThat(verdict.path("inputHash").asText()).matches("sha256:[0-9a-f]{64}");
 
         // 4. Execute before approval is impossible.
         web.post().uri("/api/cryptobot/proposals/" + proposalId + "/execute").header(HttpHeaders.AUTHORIZATION, token)
@@ -210,6 +221,12 @@ class ControlPlaneFlowTest {
         audit.forEach(e -> types.add(e.path("eventType").asText()));
         assertThat(types).containsExactly("PROPOSAL_CREATED", "SIMULATED", "POLICY_EVALUATED", "AWAITING_APPROVAL", "APPROVED");
         assertThat(audit.get(4).path("actor").asText()).isEqualTo("operator@test.local");
+        // KAN-436: the POLICY_EVALUATED event commits the policy hash, the input hash and the verdict hash.
+        JsonNode policyEvent = audit.get(2).path("payload");
+        assertThat(policyEvent.path("decision").asText()).isEqualTo("ESCALATE");
+        assertThat(policyEvent.path("policyHash").asText()).isEqualTo(verdict.path("policyHash").asText());
+        assertThat(policyEvent.path("inputHash").asText()).isEqualTo(verdict.path("inputHash").asText());
+        assertThat(policyEvent.path("verdictHash").asText()).matches("sha256:[0-9a-f]{64}");
 
         // 7b. KAN-403: the durable event stream was written with the state (trade.requested, trade.approved),
         // PENDING until the publisher's tick, then PUBLISHED — visible to the owner, invisible to anyone else.

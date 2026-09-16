@@ -32,6 +32,7 @@ import org.springframework.boot.context.properties.EnableConfigurationProperties
     io.lifeengine.cryptobot.adapters.marketdata.MarketDataProperties.class,
     io.lifeengine.cryptobot.application.controlplane.RiskRulesProperties.class,
     io.lifeengine.cryptobot.application.controlplane.PolicyProperties.class,
+    io.lifeengine.cryptobot.application.controlplane.AuthorizationProperties.class,
     io.lifeengine.cryptobot.integration.signer.SignerProperties.class,
     io.lifeengine.cryptobot.integration.lifeengine.AdvisorProperties.class,
     io.lifeengine.cryptobot.infrastructure.solana.SolanaMarketProperties.class,
