@@ -1,0 +1,40 @@
+[package]
+name = "intent-authority"
+version = "0.1.0"
+edition = "2021"
+description = "CryptoBot on-chain authority (paper level 4): policy PDA, nonce PDA and execution receipt — validates agent, expiry slot, nonce and policy hash before any execution (KAN-437)"
+license = "MIT"
+publish = false
+
+[lib]
+crate-type = ["cdylib", "lib"]
+
+[features]
+no-entrypoint = []
+test-sbf = []
+
+[dependencies]
+borsh = { version = "1.5", features = ["derive"] }
+solana-program = "2.2"
+thiserror = "2"
+
+[dev-dependencies]
+solana-program-test = "2.2"
+solana-sdk = "2.2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+
+# The entrypoint macro probes target_os = "solana" and the custom-heap/custom-panic features;
+# on a host build those cfgs are "unexpected" and only noise.
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = [
+    'cfg(target_os, values("solana"))',
+    'cfg(feature, values("custom-heap", "custom-panic", "frozen-abi"))',
+] }
+
+[profile.release]
+overflow-checks = true
+lto = "fat"
+codegen-units = 1

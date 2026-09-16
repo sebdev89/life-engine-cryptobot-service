@@ -2,3 +2,4 @@ target
 signer/target
 .env.local
 .env.hackathon
+programs/*/target

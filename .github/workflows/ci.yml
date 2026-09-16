@@ -54,6 +54,41 @@ jobs:
           retention-days: 14
 
   # ---------------------------------------------------------------------------
+  # KAN-437 — el programa Solana (programs/intent-authority) se testea en el host, sin
+  # toolchain SBF: `solana-program-test` corre el processor nativo contra un banco real.
+  # Rust se instala en el runner por acción (no está en la imagen de le-ci); la cache de
+  # cargo evita recompilar los ~560 crates de solana-program-test en cada run.
+  # ---------------------------------------------------------------------------
+  program-test:
+    name: solana program (cargo test, host)
+    runs-on: [self-hosted, le-ci]
+    timeout-minutes: 40
+    defaults:
+      run:
+        working-directory: programs/intent-authority
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Rust (stable)
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: programs/intent-authority
+
+      - name: Show toolchain
+        run: |
+          cargo --version
+          rustc --version
+          cc --version | head -1
+
+      - name: cargo test (unit + bank simulator + vectors)
+        run: cargo test --locked
+
+  # ---------------------------------------------------------------------------
   # KAN-352 — publicar la imagen. Copia del job de life-engine-runtime: hasta acá este
   # repo sólo compilaba y testeaba, así que no existía ningún artefacto que uat-compose
   # pudiera desplegar por digest, y ningún tablero de CryptoBot podía mostrar nada.

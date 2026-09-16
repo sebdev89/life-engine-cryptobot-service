@@ -25,6 +25,7 @@ wallet → portfolio → risk detection → AI analysis → rebalance proposal
 | Approve | Explicit human decision, recorded with who/when/note. `execute` before `APPROVED` is a 409. | `ProposalService` |
 | Execute (devnet) | Second explicit click. Re-simulates on a fresh blockhash, asks the **isolated signer** (separate process, own secret) to sign, verifies the signature against the wallet key, broadcasts, confirms, links the explorer. | `ExecutionService` · `signer/` |
 | Audit | Append-only `audit_event` per transition: created, simulated, policy evaluated, awaiting approval, approved/rejected, started, signed, submitted, executed/failed, reconciled. | `AuditService` |
+| On-chain authority (KAN-437, paper level 4) | `programs/intent-authority`: a Solana program (devnet target) that refuses an execution unless the **agent signed** and its policy PDA is registered and not revoked (I1), the claimed `H_R` equals the one **committed on-chain** (I4), the current slot is within `valid_until_slot` (I2), and neither the receipt PDA of `H_I` nor the nonce PDA of `(agent, nonce)` exists (I3) — then leaves a receipt account atomically. Java client (PDAs, instructions, account decoders) byte-exact with the program via shared SDK vectors. Not yet wired into `ExecutionService`, not yet deployed (needs the Solana CLI: human step). | `programs/intent-authority` · `adapters/solana/authority` |
 | Reliable execution (KAN-403) | `operationId` idempotency key bound **before** signing; optimistic version + status guard on every write; signature persisted **before** broadcast; `EXECUTING`/`SUBMITTED` rows reconciled against `getSignatureStatuses` at startup and every 30 s — never re-sent; transactional outbox (`trade.*` events) with `SKIP LOCKED` worker, backoff and dead-letter queue. | `ExecutionService` · `ReconciliationService` · `OutboxPublisher` |
 
 Legacy (pre-hackathon, still available, not part of the demo): Binance-public watchlist / price
@@ -220,11 +221,42 @@ tokens) parsed as one document, and a leading/trailing control character (`"pape
 was trimmed away instead of refused. Meters for the funnel: `policy_verdicts_total{decision,
 escalation}` and `policy_predicate_failed_total{predicate}`.
 
+### On-chain authority (KAN-437, paper §10–12 / §27 / level 4)
+
+Everything above is verified by the service. `programs/intent-authority/` moves four of those
+checks to where the client cannot lie about them: a native Solana program (no Anchor, one
+runtime dependency) with three PDAs and three instructions.
+
+| account | seeds | meaning |
+|---|---|---|
+| policy | `["policy", agent, policy_version u32 LE]` | `H_R` committed by an authority; immutable, revocable; a new version is a new address |
+| nonce | `["nonce", agent, nonce u64 LE]` | exists ⇔ consumed — anti-replay is account creation, which the runtime cannot do twice |
+| receipt | `["receipt", intent_hash]` | exists ⇔ this exact `H_I` executed (paper §12); carries agent, version, `H_R`, nonce, window and slot |
+
+`Execute{intent_hash, policy_version, policy_hash, valid_until_slot, nonce}` runs the rules as a
+pure function in this order — **I1** agent is a transaction signer and the policy account is
+*its* registered, non-revoked PDA → **I4** `policy.policy_hash == claimed` → **I2**
+`Clock.slot ≤ valid_until_slot` → **I3** receipt and nonce PDAs do not exist — and only then
+creates nonce + receipt atomically. The "execution" at this level is the receipt: no transfer, no
+swap, devnet only. Each refusal is a stable `Custom(n)` code (`AuthorityError`, 0–12), mirrored in
+Java with the invariant it enforces.
+
+Tests: 13 unit (the rules table, sizes) + 14 against a real bank (`solana-program-test`: happy
+path, every invariant broken through a signed transaction, revoke by non-authority, immutability,
+prefunded-PDA griefing, malformed PDAs) + 2 vectors. `src/test/resources/authority/vectors-v1.json`
+is written by the Rust SDK (`find_program_address`, `is_on_curve`, borsh) and asserted by both
+sides: the Java `ProgramDerivedAddress` (with dalek's decompression semantics for the curve test)
+and `IntentAuthorityProgram` (instruction bytes, account layouts, account lists) reproduce it byte
+for byte. What this PR does **not** do: deploy (needs the Solana CLI — a human step,
+`programs/intent-authority/scripts/deploy-devnet.sh`) or wire `ExecutionService` to the program
+(next issue in the epic).
+
 ## Tests
 
 ```bash
-./mvnw test                     # 291 tests: adapters (recorded responses), engines, state machine, HTTP flow with fake RPC + Runtime, ARS quotes (fixtures, no network), idempotency + crash/reconciliation + outbox (KAN-403), intent schema + canonicalization vectors (KAN-435), deterministic policy: decision table + golden vectors + 2-implementation agreement (KAN-436), adversarial benchmark 10 000 intents + invariants I1–I7 + chaos (KAN-440)
+./mvnw test                     # 334 tests: adapters (recorded responses), engines, state machine, HTTP flow with fake RPC + Runtime, ARS quotes (fixtures, no network), idempotency + crash/reconciliation + outbox (KAN-403), intent schema + canonicalization vectors (KAN-435), deterministic policy: decision table + golden vectors + 2-implementation agreement (KAN-436), adversarial benchmark 10 000 intents + invariants I1–I7 + chaos (KAN-440), PDA derivation + program client vs SDK vectors (KAN-437)
 ./mvnw -f signer/pom.xml test   # 10 tests: signing policy (every refusal reason), token, signature verification
+(cd programs/intent-authority && cargo test)   # 29 tests: on-chain rules, bank simulator, shared vectors (KAN-437)
 cd ../cryptobot-ui && npx ng test
 ```
 
