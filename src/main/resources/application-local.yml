@@ -26,8 +26,10 @@ cryptobot:
 lifeengine:
   security:
     jwt:
-      # Must match life-engine-auth + life-engine-runtime. Defaults are dev-only.
-      secret: ${JWT_SECRET:local-dev-jwt-hs512-secret-minimum-32-chars-long-xx}
+      # Must match life-engine-auth + life-engine-runtime. No default (KAN-350): the historical
+      # dev value sat in a public repo and is treated as compromised. Set JWT_SECRET in .env.local
+      # (see .env.template) or AUTH_JWKS_URI; with neither, the service refuses to start.
+      secret: ${JWT_SECRET:}
 
 logging:
   level:

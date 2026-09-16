@@ -49,7 +49,8 @@ export SIGNER_KEYPAIR_PATH=~/.cryptobot-demo/demo-wallet.json SIGNER_TOKEN=<serv
 export SIGNER_ALLOWED_DESTINATIONS=<rebalance vault pubkey>
 mvn -f signer/pom.xml spring-boot:run                                   # :8096
 
-# 2. service
+# 2. service — JWT_SECRET (≥32 bytes) or AUTH_JWKS_URI is REQUIRED: since KAN-350 no profile
+#    ships a default secret; without either, the service refuses to start.
 export JWT_SECRET=<same as auth/runtime> AUTH_JWKS_URI=http://127.0.0.1:8081/.well-known/jwks.json
 export CRYPTOBOT_REBALANCE_VAULT=<rebalance vault pubkey>
 export CRYPTOBOT_SIGNER_ENABLED=true CRYPTOBOT_SIGNER_TOKEN=<service token>
