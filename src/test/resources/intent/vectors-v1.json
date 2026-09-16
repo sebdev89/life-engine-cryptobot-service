@@ -1,0 +1,90 @@
+{
+  "_comment": "KAN-435 — fixed test vectors for intent schema_version 1. `input` is what an agent may emit (loose order, whitespace, lower-case action, numbers as numbers or strings, explicit nulls); `canonical` is RFC 8785 of the parsed intent; `hash` is sha256 of the canonical bytes, computed independently with `printf '%s' <canonical> | sha256sum`. Changing any of these is a schema change: bump schema_version.",
+  "vectors": [
+    {
+      "name": "paper §6 example — SWAP",
+      "input": {
+        "schema_version": "1",
+        "agent_id": "crypto-agent-42",
+        "action": "SWAP",
+        "input_asset": "USDC",
+        "output_asset": "SOL",
+        "input_amount": "250000000",
+        "max_slippage_bps": 50,
+        "strategy_id": "momentum-v3",
+        "policy_version": "7",
+        "valid_until_slot": 421872223,
+        "nonce": 829147
+      },
+      "canonical": "{\"action\":\"SWAP\",\"agent_id\":\"crypto-agent-42\",\"input_amount\":\"250000000\",\"input_asset\":\"USDC\",\"max_slippage_bps\":50,\"nonce\":829147,\"output_asset\":\"SOL\",\"policy_version\":\"7\",\"schema_version\":\"1\",\"strategy_id\":\"momentum-v3\",\"valid_until_slot\":421872223}",
+      "hash": "sha256:877dcaf96566ba02b058d41c01af02ff69d8d4c60dc375a610f3f9f15aa89081"
+    },
+    {
+      "name": "same SWAP, as a sloppy LLM emits it — reordered, lower-case action and assets, amount as number, bps as string, explicit nulls, padded ids",
+      "input": {
+        "nonce": "829147",
+        "valid_until_slot": "421872223",
+        "strategy_id": " momentum-v3 ",
+        "input_amount": 250000000,
+        "max_slippage_bps": "50",
+        "output_asset": "sol",
+        "input_asset": " usdc",
+        "action": "swap",
+        "agent_id": "crypto-agent-42",
+        "policy_version": "7",
+        "schema_version": "1",
+        "target_intent_hash": null,
+        "target_weights_bps": null,
+        "counter_asset": null
+      },
+      "canonical": "{\"action\":\"SWAP\",\"agent_id\":\"crypto-agent-42\",\"input_amount\":\"250000000\",\"input_asset\":\"USDC\",\"max_slippage_bps\":50,\"nonce\":829147,\"output_asset\":\"SOL\",\"policy_version\":\"7\",\"schema_version\":\"1\",\"strategy_id\":\"momentum-v3\",\"valid_until_slot\":421872223}",
+      "hash": "sha256:877dcaf96566ba02b058d41c01af02ff69d8d4c60dc375a610f3f9f15aa89081"
+    },
+    {
+      "name": "HOLD — the explicit no-trade decision is still an intent with an identity",
+      "input": {
+        "schema_version": "1",
+        "agent_id": "crypto-agent-42",
+        "action": "HOLD",
+        "strategy_id": "momentum-v3",
+        "policy_version": "7",
+        "valid_until_slot": 421872223,
+        "nonce": 829148
+      },
+      "canonical": "{\"action\":\"HOLD\",\"agent_id\":\"crypto-agent-42\",\"nonce\":829148,\"policy_version\":\"7\",\"schema_version\":\"1\",\"strategy_id\":\"momentum-v3\",\"valid_until_slot\":421872223}",
+      "hash": "sha256:3d0c56261f547e95e3e68de9edc0ac8ca6041612982e6ee7c61a1cb011381d2a"
+    },
+    {
+      "name": "REBALANCE — weights keyed by asset, sorted by the canonicalizer, sum 10000",
+      "input": {
+        "schema_version": "1",
+        "agent_id": "crypto-agent-42",
+        "action": "REBALANCE",
+        "target_weights_bps": { "sol": 5000, "USDC": 4000, "Bonk": 1000 },
+        "counter_asset": "usdc",
+        "max_slippage_bps": 30,
+        "strategy_id": "momentum-v3",
+        "policy_version": "7",
+        "valid_until_slot": 421872223,
+        "nonce": 829149
+      },
+      "canonical": "{\"action\":\"REBALANCE\",\"agent_id\":\"crypto-agent-42\",\"counter_asset\":\"USDC\",\"max_slippage_bps\":30,\"nonce\":829149,\"policy_version\":\"7\",\"schema_version\":\"1\",\"strategy_id\":\"momentum-v3\",\"target_weights_bps\":{\"BONK\":1000,\"SOL\":5000,\"USDC\":4000},\"valid_until_slot\":421872223}",
+      "hash": "sha256:45ac074021ba5f27f743ade801956710499676c568acf2e441975c930a5fdfd7"
+    },
+    {
+      "name": "CANCEL — points at the SWAP above by its hash (upper-case hex is normalized)",
+      "input": {
+        "schema_version": "1",
+        "agent_id": "crypto-agent-42",
+        "action": "CANCEL",
+        "target_intent_hash": "SHA256:877DCAF96566BA02B058D41C01AF02FF69D8D4C60DC375A610F3F9F15AA89081",
+        "strategy_id": "momentum-v3",
+        "policy_version": "7",
+        "valid_until_slot": 421872223,
+        "nonce": 829150
+      },
+      "canonical": "{\"action\":\"CANCEL\",\"agent_id\":\"crypto-agent-42\",\"nonce\":829150,\"policy_version\":\"7\",\"schema_version\":\"1\",\"strategy_id\":\"momentum-v3\",\"target_intent_hash\":\"sha256:877dcaf96566ba02b058d41c01af02ff69d8d4c60dc375a610f3f9f15aa89081\",\"valid_until_slot\":421872223}",
+      "hash": "sha256:6b26a991d1bbbde90e80719a4a7a3c41590a1f69cafa6f8950162d4abd211113"
+    }
+  ]
+}

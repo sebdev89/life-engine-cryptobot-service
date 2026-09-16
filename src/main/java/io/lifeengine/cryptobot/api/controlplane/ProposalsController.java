@@ -4,6 +4,7 @@ import io.lifeengine.cryptobot.application.controlplane.AuditService;
 import io.lifeengine.cryptobot.application.controlplane.ControlPlaneExceptions;
 import io.lifeengine.cryptobot.application.controlplane.ExecutionService;
 import io.lifeengine.cryptobot.application.controlplane.ProposalService;
+import io.lifeengine.cryptobot.domain.intent.IntentHash;
 import io.lifeengine.cryptobot.domain.transactions.ActionProposal;
 import io.lifeengine.cryptobot.domain.transactions.AuditEvent;
 import io.lifeengine.cryptobot.infrastructure.persistence.controlplane.DeadLetterRepository;
@@ -89,6 +90,10 @@ public class ProposalsController {
      * Second, explicit click. Only APPROVED + executable + devnet. Everything else is a 409 with the
      * reason. Idempotent on {@code Idempotency-Key} (or body {@code operationId}): the same key
      * never produces a second transaction; a different key while in flight is a 409 (KAN-403).
+     *
+     * <p>The key is either a UUID or an intent hash {@code sha256:<64 hex>} (KAN-435): the hash of
+     * the canonical intent is the identity of the operation, so re-submitting the same intent is
+     * idempotent by construction — the operationId is derived from the hash, never invented.
      */
     @PostMapping(path = "/{proposalId}/execute")
     public Mono<ActionProposal> execute(@PathVariable UUID proposalId,
@@ -102,11 +107,20 @@ public class ProposalsController {
             operationId = UUID.randomUUID();
         } else {
             try {
-                operationId = UUID.fromString(raw.trim());
+                operationId = operationIdOf(raw.trim());
             } catch (IllegalArgumentException ex) {
-                return Mono.error(new ControlPlaneExceptions.InvalidRequest("INVALID_OPERATION_ID", "Idempotency-Key / operationId must be a UUID"));
+                return Mono.error(new ControlPlaneExceptions.InvalidRequest("INVALID_OPERATION_ID",
+                        "Idempotency-Key / operationId must be a UUID or an intent hash sha256:<64 hex>"));
             }
         }
         return execution.execute(p.userId(), proposalId, Principals.actor(p), operationId);
+    }
+
+    /** {@code sha256:…} ⇒ the intent's operationId (first 128 bits of the hash); anything else must be a UUID. */
+    static UUID operationIdOf(String key) {
+        if (key.regionMatches(true, 0, IntentHash.PREFIX, 0, IntentHash.PREFIX.length())) {
+            return IntentHash.parse(key).toOperationId();
+        }
+        return UUID.fromString(key);
     }
 }
