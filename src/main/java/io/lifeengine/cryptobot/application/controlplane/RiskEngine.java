@@ -6,11 +6,13 @@ import io.lifeengine.cryptobot.domain.portfolio.Position;
 import io.lifeengine.cryptobot.domain.risk.RiskFinding;
 import io.lifeengine.cryptobot.domain.risk.RiskReport;
 import io.lifeengine.cryptobot.domain.risk.RiskSeverity;
+import io.lifeengine.cryptobot.observability.CryptobotMetrics;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.Clock;
 import java.util.ArrayList;
 import java.util.List;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 /**
@@ -28,10 +30,18 @@ public class RiskEngine {
     public static final String EMPTY_PORTFOLIO = "EMPTY_PORTFOLIO";
 
     private final RiskRulesProperties rules;
+    private final CryptobotMetrics metrics;
     private final Clock clock;
 
+    /** Test-friendly: rules only, metrics go to a private registry nobody scrapes. */
     public RiskEngine(RiskRulesProperties rules) {
+        this(rules, CryptobotMetrics.noop());
+    }
+
+    @Autowired
+    public RiskEngine(RiskRulesProperties rules, CryptobotMetrics metrics) {
         this.rules = rules;
+        this.metrics = metrics;
         this.clock = Clock.systemUTC();
     }
 
@@ -122,6 +132,7 @@ public class RiskEngine {
                 case LOW -> 5;
             };
         }
+        metrics.riskAnalysis(overall.name());
         return new RiskReport(findings, overall, Math.min(100, score), clock.instant());
     }
 }

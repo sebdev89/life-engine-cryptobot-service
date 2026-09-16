@@ -2,6 +2,7 @@ package io.lifeengine.cryptobot.adapters.solana;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.lifeengine.cryptobot.observability.CryptobotMetrics;
 import java.math.BigDecimal;
 import java.math.BigInteger;
 import java.time.Instant;
@@ -12,6 +13,7 @@ import java.util.Map;
 import java.util.concurrent.atomic.AtomicLong;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
 import org.springframework.web.reactive.function.client.WebClient;
@@ -36,9 +38,16 @@ public class SolanaRpcClient {
     private final WebClient webClient;
     private final SolanaRpcProperties properties;
     private final ObjectMapper objectMapper;
+    private final CryptobotMetrics metrics;
     private final AtomicLong requestIds = new AtomicLong(1);
 
+    /** Test-friendly: no metrics exported. */
     public SolanaRpcClient(WebClient.Builder builder, SolanaRpcProperties properties, ObjectMapper objectMapper) {
+        this(builder, properties, objectMapper, CryptobotMetrics.noop());
+    }
+
+    @Autowired
+    public SolanaRpcClient(WebClient.Builder builder, SolanaRpcProperties properties, ObjectMapper objectMapper, CryptobotMetrics metrics) {
         // A busy mainnet wallet returns hundreds of token accounts in jsonParsed form — well over
         // WebClient's 256 KiB default. 16 MiB keeps the reader honest without being unbounded.
         this.webClient = builder
@@ -46,6 +55,7 @@ public class SolanaRpcClient {
                 .build();
         this.properties = properties;
         this.objectMapper = objectMapper;
+        this.metrics = metrics;
     }
 
     public record TokenAccountBalance(
@@ -221,7 +231,19 @@ public class SolanaRpcClient {
                 .onErrorMap(
                         ex -> !(ex instanceof SolanaRpcException),
                         ex -> new SolanaRpcException(method, -1, "Solana RPC call failed: " + ex.getMessage(), null, ex))
-                .doOnError(ex -> log.warn("solana_rpc_failed cluster={} method={} error={}", cluster.id(), method, ex.getMessage()));
+                .doOnError(ex -> {
+                    metrics.solanaRpcError(method, cluster.id(), errorKind(ex));
+                    log.warn("solana_rpc_failed cluster={} method={} error={}", cluster.id(), method, ex.getMessage());
+                });
+    }
+
+    /** {@code rpc}: the node answered with a JSON-RPC error · {@code timeout} · {@code transport}: anything else (connection, HTTP, bad JSON). */
+    static String errorKind(Throwable ex) {
+        if (ex instanceof SolanaRpcException rpc && rpc.getCause() == null) {
+            return "rpc";
+        }
+        Throwable cause = ex.getCause() == null ? ex : ex.getCause();
+        return cause instanceof java.util.concurrent.TimeoutException ? "timeout" : "transport";
     }
 
     private JsonNode parse(String raw) {

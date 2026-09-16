@@ -3,6 +3,7 @@ package io.lifeengine.cryptobot.application.controlplane;
 import io.lifeengine.cryptobot.adapters.solana.Base58;
 import io.lifeengine.cryptobot.adapters.solana.SolanaCluster;
 import io.lifeengine.cryptobot.adapters.solana.SolanaRpcClient;
+import io.lifeengine.cryptobot.adapters.solana.SolanaRpcException;
 import io.lifeengine.cryptobot.adapters.solana.tx.SolanaKeypair;
 import io.lifeengine.cryptobot.domain.transactions.ActionProposal;
 import io.lifeengine.cryptobot.domain.transactions.ExecutionRecord;
@@ -10,6 +11,7 @@ import io.lifeengine.cryptobot.domain.transactions.PreparedTransaction;
 import io.lifeengine.cryptobot.domain.transactions.ProposalStatus;
 import io.lifeengine.cryptobot.domain.wallet.Wallet;
 import io.lifeengine.cryptobot.integration.signer.SignerClient;
+import io.lifeengine.cryptobot.observability.CryptobotMetrics;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
@@ -17,6 +19,7 @@ import java.util.Arrays;
 import java.util.Base64;
 import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicReference;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -43,10 +46,11 @@ public class ExecutionService {
     private final SignerClient signer;
     private final SolanaRpcClient rpc;
     private final AuditService audit;
+    private final CryptobotMetrics metrics;
     private final Clock clock;
 
     public ExecutionService(ProposalService proposals, WalletService wallets, SimulationService simulation, PolicyEngine policy,
-            SignerClient signer, SolanaRpcClient rpc, AuditService audit) {
+            SignerClient signer, SolanaRpcClient rpc, AuditService audit, CryptobotMetrics metrics) {
         this.proposals = proposals;
         this.wallets = wallets;
         this.simulation = simulation;
@@ -54,6 +58,7 @@ public class ExecutionService {
         this.signer = signer;
         this.rpc = rpc;
         this.audit = audit;
+        this.metrics = metrics;
         this.clock = Clock.systemUTC();
     }
 
@@ -71,6 +76,10 @@ public class ExecutionService {
         Instant start = clock.instant();
         ActionProposal executing = p.withStatus(ProposalStatus.EXECUTING, start);
         long lamports = p.transaction().lamports();
+        String asset = ProposalService.assetOf(p.plan());
+        // Which step of the pipeline we are in, so a failure is counted where it happened
+        // ("dónde se cae"), not just as "failed".
+        AtomicReference<CryptobotMetrics.FailureStage> stage = new AtomicReference<>(CryptobotMetrics.FailureStage.PREFLIGHT);
         return proposals.save(executing)
                 // 1. Fresh blockhash: the one from approval time is almost certainly expired.
                 .flatMap(saved -> simulation.prepareTransfer(wallet, lamports))
@@ -79,19 +88,35 @@ public class ExecutionService {
                         .flatMap(sim -> sim.ok() ? Mono.just(tx)
                                 : Mono.error(new ControlPlaneExceptions.Conflict("Pre-flight simulation failed: " + sim.error()))))
                 // 3. Sign in the isolated signer, then verify the signature ourselves.
+                .doOnNext(tx -> stage.set(CryptobotMetrics.FailureStage.SIGN))
                 .flatMap(tx -> signer.sign(p.id(), tx.unsignedTransactionBase64(), wallet.address())
                         .map(resp -> verifySigned(tx, resp, wallet)))
                 // 4. Broadcast.
+                .doOnNext(signed -> stage.set(CryptobotMetrics.FailureStage.BROADCAST))
                 .flatMap(signed -> rpc.sendTransaction(wallet.cluster(), signed.signedBase64())
                         .flatMap(sig -> {
                             Instant submitted = clock.instant();
+                            stage.set(CryptobotMetrics.FailureStage.ONCHAIN);
+                            // Funnel step 3: the chain has the transaction.
+                            metrics.tradeSubmitted(asset);
                             ExecutionRecord rec = new ExecutionRecord("SUBMITTED", sig, wallet.cluster().explorerTxUrl(sig), signed.signer(), submitted, null, null, null);
                             return proposals.save(executing.withExecution(rec, submitted))
                                     .flatMap(s -> audit.record(s.ownerUserId(), s.walletId(), s.id(), EV_SUBMITTED, actor,
                                             ProposalService.payload("signature", sig, "lamports", lamports, "signer", signed.signer(), "blockhash", signed.tx().recentBlockhash())).thenReturn(s))
-                                    .flatMap(s -> confirm(wallet.cluster(), sig).map(status -> finish(s, status, actor)).flatMap(m -> m));
+                                    .flatMap(s -> confirm(wallet.cluster(), sig)
+                                            .doOnNext(status -> metrics.solanaConfirmationLatency(
+                                                    Duration.between(submitted, clock.instant()), confirmationResult(status), wallet.cluster().id()))
+                                            .map(status -> finish(s, status, actor, asset)).flatMap(m -> m));
                         }))
-                .onErrorResume(ex -> fail(executing, actor, ex));
+                .onErrorResume(ex -> fail(executing, actor, ex, stage.get(), asset));
+    }
+
+    /** {@code failed} | {@code confirmed} | {@code finalized} | {@code pending}: the label of the latency timer and of the confirmed counter. */
+    private static String confirmationResult(SolanaRpcClient.SignatureStatus status) {
+        if (status.failed()) {
+            return "failed";
+        }
+        return status.confirmationStatus() == null ? "pending" : status.confirmationStatus();
     }
 
     private record Signed(PreparedTransaction tx, String signedBase64, String signer) {}
@@ -131,14 +156,18 @@ public class ExecutionService {
                 .onErrorResume(Pending.class, ex -> Mono.just(new SolanaRpcClient.SignatureStatus(signature, "pending", false, null)));
     }
 
-    private Mono<ActionProposal> finish(ActionProposal p, SolanaRpcClient.SignatureStatus status, String actor) {
+    private Mono<ActionProposal> finish(ActionProposal p, SolanaRpcClient.SignatureStatus status, String actor, String asset) {
         Instant now = clock.instant();
         ExecutionRecord prev = p.execution();
         if (status.failed()) {
+            metrics.tradeFailed(CryptobotMetrics.FailureStage.ONCHAIN, asset);
             ExecutionRecord rec = new ExecutionRecord("FAILED", prev.signature(), prev.explorerUrl(), prev.signerPublicKey(), prev.submittedAt(), null, status.confirmationStatus(), status.error());
             return proposals.save(p.withExecution(rec, now).withStatus(ProposalStatus.FAILED, now))
                     .flatMap(s -> audit.record(s.ownerUserId(), s.walletId(), s.id(), EV_FAILED, actor, ProposalService.payload("signature", prev.signature(), "error", status.error())).thenReturn(s));
         }
+        // Funnel step 4. "pending" means we stopped polling before the chain answered: the row says
+        // EXECUTED but nobody has seen the confirmation — the gap KAN-403 (reconciliación) closes.
+        metrics.tradeConfirmed(status.confirmationStatus(), asset);
         ExecutionRecord rec = new ExecutionRecord("EXECUTED", prev.signature(), prev.explorerUrl(), prev.signerPublicKey(), prev.submittedAt(), now, status.confirmationStatus(), null);
         log.info("proposal_executed proposalId={} signature={} confirmation={}", p.id(), prev.signature(), status.confirmationStatus());
         return proposals.save(p.withExecution(rec, now).withStatus(ProposalStatus.EXECUTED, now))
@@ -146,9 +175,11 @@ public class ExecutionService {
                         ProposalService.payload("signature", prev.signature(), "explorerUrl", prev.explorerUrl(), "confirmation", status.confirmationStatus())).thenReturn(s));
     }
 
-    private Mono<ActionProposal> fail(ActionProposal executing, String actor, Throwable ex) {
+    private Mono<ActionProposal> fail(ActionProposal executing, String actor, Throwable ex, CryptobotMetrics.FailureStage stage, String asset) {
         Instant now = clock.instant();
-        log.warn("proposal_execution_failed proposalId={} error={}", executing.id(), ex.toString());
+        // An RPC failure is counted as such whatever step it interrupted: it is the dependency, not the step.
+        metrics.tradeFailed(ex instanceof SolanaRpcException ? CryptobotMetrics.FailureStage.RPC : stage, asset);
+        log.warn("proposal_execution_failed proposalId={} stage={} error={}", executing.id(), stage, ex.toString());
         ExecutionRecord rec = new ExecutionRecord("FAILED", null, null, null, now, null, null, ex.getMessage());
         return proposals.save(executing.withExecution(rec, now).withStatus(ProposalStatus.FAILED, now))
                 .flatMap(s -> audit.record(s.ownerUserId(), s.walletId(), s.id(), EV_FAILED, actor, ProposalService.payload("error", ex.getMessage())).thenReturn(s));

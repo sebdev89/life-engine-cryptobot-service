@@ -8,6 +8,7 @@ import io.lifeengine.cryptobot.domain.MarketReviewVerdict;
 import io.lifeengine.cryptobot.infrastructure.persistence.r2dbc.MarketReviewRunRepository;
 import io.lifeengine.cryptobot.infrastructure.runtime.RuntimeClient;
 import io.lifeengine.cryptobot.infrastructure.runtime.RuntimeRunDetail;
+import io.lifeengine.cryptobot.observability.CryptobotMetrics;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
@@ -55,14 +56,24 @@ public class MarketReviewRunService {
     private final MarketReviewRunRepository repository;
     private final RuntimeClient runtimeClient;
     private final ObjectMapper objectMapper;
+    private final CryptobotMetrics metrics;
     private final Clock clock;
 
     @Autowired
     public MarketReviewRunService(
             MarketReviewRunRepository repository,
             RuntimeClient runtimeClient,
+            ObjectMapper objectMapper,
+            CryptobotMetrics metrics) {
+        this(repository, runtimeClient, objectMapper, Clock.systemUTC(), metrics);
+    }
+
+    /** Test-friendly: no metrics exported. */
+    public MarketReviewRunService(
+            MarketReviewRunRepository repository,
+            RuntimeClient runtimeClient,
             ObjectMapper objectMapper) {
-        this(repository, runtimeClient, objectMapper, Clock.systemUTC());
+        this(repository, runtimeClient, objectMapper, Clock.systemUTC(), CryptobotMetrics.noop());
     }
 
     /** Test-friendly constructor; lets unit tests inject a fixed {@link Clock}. */
@@ -71,10 +82,20 @@ public class MarketReviewRunService {
             RuntimeClient runtimeClient,
             ObjectMapper objectMapper,
             Clock clock) {
+        this(repository, runtimeClient, objectMapper, clock, CryptobotMetrics.noop());
+    }
+
+    MarketReviewRunService(
+            MarketReviewRunRepository repository,
+            RuntimeClient runtimeClient,
+            ObjectMapper objectMapper,
+            Clock clock,
+            CryptobotMetrics metrics) {
         this.repository = repository;
         this.runtimeClient = runtimeClient;
         this.objectMapper = objectMapper;
         this.clock = clock;
+        this.metrics = metrics;
     }
 
     /** Persists a brand-new local linkage row in {@code RUNNING} status. */
@@ -168,6 +189,10 @@ public class MarketReviewRunService {
         String summary = extractFinalSummary(detail);
         Map<String, Object> metadataPatch = buildMetadataPatch(detail);
         Instant finishedAt = detail.finishedAt() != null ? detail.finishedAt() : Instant.now(clock);
+        if (runtimeStatus.isTerminal()) {
+            // Terminal outcome of the analysis (started is counted when the run is kicked off).
+            metrics.marketAnalysis(runtimeStatus.name(), local.symbol());
+        }
 
         MarketReviewRun reconciled =
                 local.withReconciledTerminalState(

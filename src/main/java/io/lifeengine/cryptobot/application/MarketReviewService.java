@@ -13,6 +13,7 @@ import io.lifeengine.cryptobot.domain.MarketSnapshot;
 import io.lifeengine.cryptobot.infrastructure.runtime.RuntimeClient;
 import io.lifeengine.cryptobot.infrastructure.runtime.RuntimeStartRunPayload;
 import io.lifeengine.cryptobot.infrastructure.runtime.RuntimeStartRunResponse;
+import io.lifeengine.cryptobot.observability.CryptobotMetrics;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.LinkedHashMap;
@@ -21,6 +22,7 @@ import java.util.Map;
 import java.util.UUID;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Schedulers;
@@ -47,17 +49,30 @@ public class MarketReviewService {
     private final RuntimeClient runtimeClient;
     private final MarketReviewRunService marketReviewRunService;
     private final ObjectMapper objectMapper;
+    private final CryptobotMetrics metrics;
     private final Clock clock;
 
+    /** Test-friendly: no metrics exported. */
     public MarketReviewService(
             MarketSnapshotProvider snapshotProvider,
             RuntimeClient runtimeClient,
             MarketReviewRunService marketReviewRunService,
             ObjectMapper objectMapper) {
+        this(snapshotProvider, runtimeClient, marketReviewRunService, objectMapper, CryptobotMetrics.noop());
+    }
+
+    @Autowired
+    public MarketReviewService(
+            MarketSnapshotProvider snapshotProvider,
+            RuntimeClient runtimeClient,
+            MarketReviewRunService marketReviewRunService,
+            ObjectMapper objectMapper,
+            CryptobotMetrics metrics) {
         this.snapshotProvider = snapshotProvider;
         this.runtimeClient = runtimeClient;
         this.marketReviewRunService = marketReviewRunService;
         this.objectMapper = objectMapper;
+        this.metrics = metrics;
         this.clock = Clock.systemUTC();
     }
 
@@ -174,7 +189,13 @@ public class MarketReviewService {
         RuntimeStartRunPayload payload =
                 new RuntimeStartRunPayload(
                         runtimeClient.runtimeWorkflowId(), inputJson, correlationId, Map.of("source", "cryptobot-service"));
-        return runtimeClient.startRun(payload, bearerToken);
+        return runtimeClient
+                .startRun(payload, bearerToken)
+                // market_analysis_total{result="started"}: the Runtime accepted the run. The terminal
+                // outcome is counted by MarketReviewRunService when it reconciles. "start_failed" is
+                // the Runtime refusing or being unreachable — the analysis never existed.
+                .doOnSuccess(r -> metrics.marketAnalysis("started", snapshot.symbol()))
+                .doOnError(ex -> metrics.marketAnalysis("start_failed", snapshot.symbol()));
     }
 
     private MarketReviewResponse assemble(

@@ -133,6 +133,11 @@ cryptobot:
     # Shared service token (NOT a key). Must match SIGNER_TOKEN of cryptobot-signer.
     token: ${CRYPTOBOT_SIGNER_TOKEN:}
     timeout: 8s
+  # ---- Business metrics (KAN-425): /actuator/prometheus, names in observability/CryptobotMetrics ----
+  metrics:
+    # Extra values allowed in the `asset` label, on top of policy.allowed-assets and monitoring.symbols.
+    # Any other symbol is reported as `other` so a caller cannot create series (cardinality is bounded).
+    assets: ${CRYPTOBOT_METRICS_ASSETS:}
   advisor:
     workflow-id: ${CRYPTOBOT_ADVISOR_WORKFLOW_ID:crypto.portfolio-advisor.v1}
     timeout: ${CRYPTOBOT_ADVISOR_TIMEOUT:90s}
