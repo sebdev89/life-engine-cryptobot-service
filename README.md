@@ -23,7 +23,8 @@ wallet → portfolio → risk detection → AI analysis → rebalance proposal
 | Policy | Kill switch · asset allowlist · max USD · max % of portfolio · cooldown · devnet only · lamport cap · vault configured · simulation passed · signer controls the wallet. Each rule is named in the audit trail. | `PolicyEngine` |
 | Approve | Explicit human decision, recorded with who/when/note. `execute` before `APPROVED` is a 409. | `ProposalService` |
 | Execute (devnet) | Second explicit click. Re-simulates on a fresh blockhash, asks the **isolated signer** (separate process, own secret) to sign, verifies the signature against the wallet key, broadcasts, confirms, links the explorer. | `ExecutionService` · `signer/` |
-| Audit | Append-only `audit_event` per transition: created, simulated, policy evaluated, awaiting approval, approved/rejected, submitted, executed/failed. | `AuditService` |
+| Audit | Append-only `audit_event` per transition: created, simulated, policy evaluated, awaiting approval, approved/rejected, started, signed, submitted, executed/failed, reconciled. | `AuditService` |
+| Reliable execution (KAN-403) | `operationId` idempotency key bound **before** signing; optimistic version + status guard on every write; signature persisted **before** broadcast; `EXECUTING`/`SUBMITTED` rows reconciled against `getSignatureStatuses` at startup and every 30 s — never re-sent; transactional outbox (`trade.*` events) with `SKIP LOCKED` worker, backoff and dead-letter queue. | `ExecutionService` · `ReconciliationService` · `OutboxPublisher` |
 
 Legacy (pre-hackathon, still available, not part of the demo): Binance-public watchlist / price
 zones / journal / indicators and the 5-agent `crypto.market-review.v1` — now also fed by Solana via
@@ -80,8 +81,9 @@ All endpoints take `Authorization: Bearer <Life Engine JWT>`. Everything is scop
 | `GET /api/cryptobot/wallets` · `GET …/{id}/portfolio` · `POST …/{id}/refresh` · `GET …/{id}/activity` | read |
 | `POST /api/cryptobot/wallets/{id}/ask` `{question}` | advisor answer + `runtimeRunId` + SSE path |
 | `POST /api/cryptobot/wallets/{id}/proposals` `{targetWeights:{SOL:50}}` | plan → simulate → policy → `AWAITING_APPROVAL` / `BLOCKED_BY_POLICY` |
-| `POST /api/cryptobot/proposals/{id}/approve` · `/reject` · `/execute` | human decision · devnet execution |
-| `GET /api/cryptobot/proposals/{id}` · `/audit` | proposal with its trail |
+| `POST /api/cryptobot/proposals/{id}/approve` · `/reject` | human decision |
+| `POST /api/cryptobot/proposals/{id}/execute` (header `Idempotency-Key: <uuid>` or body `{operationId}`) | devnet execution. Same key ⇒ same result, never a second transaction; different key while `EXECUTING`/`SUBMITTED` ⇒ 409 (KAN-403) |
+| `GET /api/cryptobot/proposals/{id}` · `/audit` · `/events` | proposal with its trail · durable `trade.*` events (outbox, with delivery state) and dead letters |
 | `GET /api/cryptobot/quotes/{asset}?ars=<monto>&network=<red>` · `?side=SELL&amount=<unidades>` | ARS quotes across Argentine exchanges, ranked "recibís X" (KAN-355) |
 
 ### ARS quotes across exchanges (KAN-355)
@@ -133,11 +135,17 @@ Manual validation against the oracle (dev only, needs network): `scripts/validat
 - Execution is devnet-only by configuration (`cryptobot.policy.execution-cluster`), not by
   convention; mainnet wallets are read-only paper trades.
 - Tenant = the JWT subject, resolved server-side. No client-supplied tenant header exists.
+- No financial operation depends on HTTP alone (KAN-403, Endgame §31): the state machine is
+  durable (`version` + status guard in the `UPDATE`), the signature is persisted before
+  `sendTransaction`, a broadcast that times out is *uncertain* (left in flight for reconciliation),
+  and a never-seen signature past its `lastValidBlockHeight` is `FAILED` **without retry** —
+  Solana only deduplicates while the blockhash lives (~90 s), so a retry would be a double trade.
+  Ambiguity after `max-attempts` goes to `dead_letter` (`dlq_size > 0` is the alert).
 
 ## Tests
 
 ```bash
-./mvnw test                     # 144 tests: adapters (recorded responses), engines, state machine, HTTP flow with fake RPC + Runtime, ARS quotes (fixtures, no network)
+./mvnw test                     # 173 tests: adapters (recorded responses), engines, state machine, HTTP flow with fake RPC + Runtime, ARS quotes (fixtures, no network), idempotency + crash/reconciliation + outbox (KAN-403)
 ./mvnw -f signer/pom.xml test   # 10 tests: signing policy (every refusal reason), token, signature verification
 cd ../cryptobot-ui && npx ng test
 ```
@@ -161,4 +169,5 @@ README and the Docker files. The exact list lives in the vault:
 
 Full list with defaults in `src/main/resources/application.yml` under `cryptobot.solana`,
 `cryptobot.marketdata`, `cryptobot.quotes`, `cryptobot.risk`, `cryptobot.policy`,
-`cryptobot.signer`, `cryptobot.advisor`. Nothing secret has a default.
+`cryptobot.signer`, `cryptobot.advisor`, `cryptobot.reliability` (outbox publisher and
+reconciliation job: intervals, batch sizes, `max-attempts`, `grace`). Nothing secret has a default.

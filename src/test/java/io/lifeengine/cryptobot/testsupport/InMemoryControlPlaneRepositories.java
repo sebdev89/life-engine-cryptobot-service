@@ -2,19 +2,28 @@ package io.lifeengine.cryptobot.testsupport;
 
 import io.lifeengine.cryptobot.adapters.solana.SolanaCluster;
 import io.lifeengine.cryptobot.domain.advisor.AdvisorMessage;
+import io.lifeengine.cryptobot.application.controlplane.ControlPlaneExceptions;
 import io.lifeengine.cryptobot.domain.portfolio.PortfolioSnapshot;
+import io.lifeengine.cryptobot.domain.reliability.DeadLetter;
+import io.lifeengine.cryptobot.domain.reliability.OutboxEvent;
 import io.lifeengine.cryptobot.domain.transactions.ActionProposal;
 import io.lifeengine.cryptobot.domain.transactions.AuditEvent;
+import io.lifeengine.cryptobot.domain.transactions.ProposalTransition;
 import io.lifeengine.cryptobot.domain.wallet.Wallet;
 import io.lifeengine.cryptobot.infrastructure.persistence.controlplane.ActionProposalRepository;
 import io.lifeengine.cryptobot.infrastructure.persistence.controlplane.AdvisorMessageRepository;
 import io.lifeengine.cryptobot.infrastructure.persistence.controlplane.AuditEventRepository;
+import io.lifeengine.cryptobot.infrastructure.persistence.controlplane.DeadLetterRepository;
+import io.lifeengine.cryptobot.infrastructure.persistence.controlplane.OutboxRepository;
 import io.lifeengine.cryptobot.infrastructure.persistence.controlplane.PortfolioSnapshotRepository;
 import io.lifeengine.cryptobot.infrastructure.persistence.controlplane.WalletRepository;
+import java.time.Instant;
+import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.function.Function;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 import reactor.core.publisher.Flux;
@@ -33,6 +42,8 @@ public final class InMemoryControlPlaneRepositories {
     public static final List<AdvisorMessage> MESSAGES = new CopyOnWriteArrayList<>();
     public static final Map<UUID, ActionProposal> PROPOSALS = new ConcurrentHashMap<>();
     public static final List<AuditEvent> AUDIT = new CopyOnWriteArrayList<>();
+    public static final Map<UUID, OutboxEvent> OUTBOX = new ConcurrentHashMap<>();
+    public static final List<DeadLetter> DEAD_LETTERS = new CopyOnWriteArrayList<>();
 
     public static void reset() {
         WALLETS.clear();
@@ -40,6 +51,14 @@ public final class InMemoryControlPlaneRepositories {
         MESSAGES.clear();
         PROPOSALS.clear();
         AUDIT.clear();
+        OUTBOX.clear();
+        DEAD_LETTERS.clear();
+    }
+
+    /** Outbox events of one proposal, oldest first — what the tests assert on. */
+    public static List<OutboxEvent> outboxOf(UUID proposalId) {
+        return OUTBOX.values().stream().filter(e -> e.aggregateId().equals(proposalId))
+                .sorted(Comparator.comparing(OutboxEvent::createdAt)).toList();
     }
 
     public static WalletRepository wallets() {
@@ -112,14 +131,37 @@ public final class InMemoryControlPlaneRepositories {
         return new ActionProposalRepository() {
             @Override
             public Mono<ActionProposal> insert(ActionProposal proposal) {
-                PROPOSALS.put(proposal.id(), proposal);
-                return Mono.just(proposal);
+                ActionProposal stored = proposal.withVersion(0);
+                PROPOSALS.put(stored.id(), stored);
+                return Mono.just(stored);
             }
 
+            /**
+             * Same contract as the R2DBC store (KAN-403): the guard on status + version is
+             * checked atomically; audit and outbox rows are written only when it passes; a
+             * duplicated operationId is refused.
+             */
             @Override
-            public Mono<ActionProposal> update(ActionProposal proposal) {
-                PROPOSALS.put(proposal.id(), proposal);
-                return Mono.just(proposal);
+            public Mono<ActionProposal> commit(ProposalTransition t) {
+                return Mono.defer(() -> {
+                    ActionProposal p = t.proposal();
+                    synchronized (PROPOSALS) {
+                        ActionProposal current = PROPOSALS.get(p.id());
+                        if (current == null || !current.ownerUserId().equals(p.ownerUserId())
+                                || current.status() != t.expectedStatus() || current.version() != t.expectedVersion()) {
+                            return Mono.error(new ControlPlaneExceptions.StaleProposal(p.id(), t.expectedStatus() + " v" + t.expectedVersion()));
+                        }
+                        if (p.operationId() != null && PROPOSALS.values().stream()
+                                .anyMatch(o -> !o.id().equals(p.id()) && p.operationId().equals(o.operationId()))) {
+                            return Mono.error(new ControlPlaneExceptions.DuplicateOperation(p.operationId()));
+                        }
+                        ActionProposal stored = p.withVersion(t.expectedVersion() + 1);
+                        PROPOSALS.put(stored.id(), stored);
+                        AUDIT.addAll(t.audit());
+                        t.outbox().forEach(e -> OUTBOX.put(e.id(), e));
+                        return Mono.just(stored);
+                    }
+                });
             }
 
             @Override
@@ -138,6 +180,67 @@ public final class InMemoryControlPlaneRepositories {
             public Flux<ActionProposal> findByOwner(UUID ownerUserId, int limit) {
                 return Flux.fromIterable(PROPOSALS.values()).filter(p -> p.ownerUserId().equals(ownerUserId))
                         .sort(Comparator.comparing(ActionProposal::createdAt).reversed()).take(limit);
+            }
+
+            @Override
+            public Flux<ActionProposal> findInFlight(Instant updatedBefore, int limit) {
+                return Flux.fromIterable(PROPOSALS.values())
+                        .filter(p -> p.status().inFlight() && p.updatedAt().isBefore(updatedBefore))
+                        .sort(Comparator.comparing(ActionProposal::updatedAt)).take(limit);
+            }
+        };
+    }
+
+    public static OutboxRepository outbox() {
+        return new OutboxRepository() {
+            @Override
+            public Mono<Long> processDue(Instant now, int batchSize, Function<OutboxEvent, Mono<Outcome>> work) {
+                List<OutboxEvent> due = OUTBOX.values().stream()
+                        .filter(e -> e.status() == OutboxEvent.Status.PENDING && !e.nextAttemptAt().isAfter(now))
+                        .sorted(Comparator.comparing(OutboxEvent::nextAttemptAt).thenComparing(OutboxEvent::createdAt))
+                        .limit(batchSize).toList();
+                return Flux.fromIterable(due)
+                        .concatMap(e -> work.apply(e).doOnNext(outcome -> {
+                            if (outcome instanceof Outcome.Published p) {
+                                OUTBOX.put(e.id(), e.published(p.at()));
+                            } else if (outcome instanceof Outcome.Retry r) {
+                                OUTBOX.put(e.id(), e.retryLater(r.nextAttemptAt(), r.error()));
+                            } else if (outcome instanceof Outcome.Dead d) {
+                                OUTBOX.put(e.id(), e.failed(d.error()));
+                                DEAD_LETTERS.add(d.letter());
+                            }
+                        }))
+                        .count();
+            }
+
+            @Override
+            public Flux<OutboxEvent> findByAggregate(UUID aggregateId) {
+                return Flux.fromIterable(outboxOf(aggregateId));
+            }
+
+            @Override
+            public Mono<Long> countByStatus(OutboxEvent.Status status) {
+                return Mono.just(OUTBOX.values().stream().filter(e -> e.status() == status).count());
+            }
+        };
+    }
+
+    public static DeadLetterRepository deadLetters() {
+        return new DeadLetterRepository() {
+            @Override
+            public Mono<DeadLetter> append(DeadLetter letter) {
+                DEAD_LETTERS.add(letter);
+                return Mono.just(letter);
+            }
+
+            @Override
+            public Flux<DeadLetter> findByProposal(UUID proposalId) {
+                return Flux.fromIterable(new ArrayList<>(DEAD_LETTERS)).filter(d -> proposalId.equals(d.proposalId()));
+            }
+
+            @Override
+            public Mono<Long> countUnresolved() {
+                return Mono.just(DEAD_LETTERS.stream().filter(d -> d.resolvedAt() == null).count());
             }
         };
     }

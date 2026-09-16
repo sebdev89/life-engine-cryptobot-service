@@ -5,6 +5,8 @@ import io.lifeengine.cryptobot.domain.advisor.AdvisorAnswer;
 import io.lifeengine.cryptobot.domain.advisor.AdvisorMessage;
 import io.lifeengine.cryptobot.domain.portfolio.PortfolioDiff;
 import io.lifeengine.cryptobot.domain.portfolio.PortfolioSnapshot;
+import io.lifeengine.cryptobot.domain.reliability.DeadLetter;
+import io.lifeengine.cryptobot.domain.reliability.OutboxEvent;
 import io.lifeengine.cryptobot.domain.risk.RiskReport;
 import io.lifeengine.cryptobot.domain.transactions.ActionProposal;
 import io.lifeengine.cryptobot.domain.transactions.AuditEvent;
@@ -46,7 +48,13 @@ public final class ControlPlaneDtos {
 
     public record DecisionRequest(String note) {}
 
+    /** Optional body of {@code POST …/execute}; the {@code Idempotency-Key} header takes precedence (KAN-403). */
+    public record ExecuteRequest(String operationId) {}
+
     public record ProposalView(ActionProposal proposal, List<AuditEvent> audit) {}
+
+    /** The durable event stream of one proposal: outbox events (with delivery state) and dead letters (KAN-403). */
+    public record ProposalEvents(UUID proposalId, String status, UUID operationId, List<OutboxEvent> events, List<DeadLetter> deadLetters) {}
 
     public record ApiError(String code, String message, List<String> details) {
         public ApiError(String code, String message) {

@@ -23,6 +23,11 @@ public class AuditEventR2dbcStore implements AuditEventRepository {
 
     @Override
     public Mono<AuditEvent> append(AuditEvent e) {
+        return insert(db, docs, e).thenReturn(e);
+    }
+
+    /** The INSERT alone, so {@link ActionProposalR2dbcStore#commit} can run it inside its transaction. */
+    static Mono<Long> insert(DatabaseClient db, JsonDocs docs, AuditEvent e) {
         DatabaseClient.GenericExecuteSpec spec = db.sql(
                         "INSERT INTO audit_event (id, owner_user_id, wallet_id, proposal_id, event_type, actor, payload, created_at)"
                                 + " VALUES (:id, :owner, :wallet, :proposal, :type, :actor, :payload, :created)")
@@ -34,7 +39,7 @@ public class AuditEventR2dbcStore implements AuditEventRepository {
                 .bind("created", e.createdAt());
         spec = e.walletId() == null ? spec.bindNull("wallet", UUID.class) : spec.bind("wallet", e.walletId());
         spec = e.proposalId() == null ? spec.bindNull("proposal", UUID.class) : spec.bind("proposal", e.proposalId());
-        return spec.fetch().rowsUpdated().thenReturn(e);
+        return spec.fetch().rowsUpdated();
     }
 
     @Override

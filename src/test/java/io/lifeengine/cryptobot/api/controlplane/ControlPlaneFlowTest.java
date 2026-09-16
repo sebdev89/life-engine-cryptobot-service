@@ -57,6 +57,7 @@ class ControlPlaneFlowTest {
 
     @Autowired private WebTestClient web;
     @Autowired private MeterRegistry meters;
+    @Autowired private io.lifeengine.cryptobot.application.reliability.OutboxPublisher outboxPublisher;
 
     private double counter(String name, String... tags) {
         Counter c = meters.find(name).tags(tags).counter();
@@ -209,6 +210,30 @@ class ControlPlaneFlowTest {
         audit.forEach(e -> types.add(e.path("eventType").asText()));
         assertThat(types).containsExactly("PROPOSAL_CREATED", "SIMULATED", "POLICY_EVALUATED", "AWAITING_APPROVAL", "APPROVED");
         assertThat(audit.get(4).path("actor").asText()).isEqualTo("operator@test.local");
+
+        // 7b. KAN-403: the durable event stream was written with the state (trade.requested, trade.approved),
+        // PENDING until the publisher's tick, then PUBLISHED — visible to the owner, invisible to anyone else.
+        JsonNode events = JSON.readTree(web.get().uri("/api/cryptobot/proposals/" + proposalId + "/events").header(HttpHeaders.AUTHORIZATION, token)
+                .exchange().expectStatus().isOk().expectBody().returnResult().getResponseBody());
+        assertThat(events.path("proposalId").asText()).isEqualTo(proposalId);
+        assertThat(events.path("status").asText()).isEqualTo("APPROVED");
+        List<String> eventTypes = new java.util.ArrayList<>();
+        events.path("events").forEach(e -> eventTypes.add(e.path("eventType").asText()));
+        assertThat(eventTypes).containsExactly("trade.requested", "trade.approved");
+        assertThat(events.path("events").get(0).path("status").asText()).isEqualTo("PENDING");
+        assertThat(events.path("events").get(1).path("payload").path("by").asText()).isEqualTo("operator@test.local");
+        assertThat(events.path("deadLetters").size()).isZero();
+        assertThat(outboxPublisher.tick().block()).isEqualTo(2);
+        JsonNode published = JSON.readTree(web.get().uri("/api/cryptobot/proposals/" + proposalId + "/events").header(HttpHeaders.AUTHORIZATION, token)
+                .exchange().expectStatus().isOk().expectBody().returnResult().getResponseBody());
+        published.path("events").forEach(e -> assertThat(e.path("status").asText()).isEqualTo("PUBLISHED"));
+        web.get().uri("/api/cryptobot/proposals/" + proposalId + "/events").header(HttpHeaders.AUTHORIZATION, bearer(UUID.randomUUID()))
+                .exchange().expectStatus().isNotFound();
+
+        // 7c. KAN-403: a malformed Idempotency-Key is a 400 before anything is looked at.
+        web.post().uri("/api/cryptobot/proposals/" + proposalId + "/execute").header(HttpHeaders.AUTHORIZATION, token)
+                .header("Idempotency-Key", "not-a-uuid")
+                .exchange().expectStatus().isBadRequest().expectBody().jsonPath("$.code").isEqualTo("INVALID_OPERATION_ID");
 
         // The other user cannot touch the proposal either.
         web.get().uri("/api/cryptobot/proposals/" + proposalId).header(HttpHeaders.AUTHORIZATION, bearer(UUID.randomUUID()))

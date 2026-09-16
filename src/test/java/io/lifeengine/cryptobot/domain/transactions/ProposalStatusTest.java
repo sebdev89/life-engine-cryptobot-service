@@ -17,6 +17,24 @@ class ProposalStatusTest {
     }
 
     @Test
+    void submittedSitsBetweenExecutingAndTheChainsVerdict() {
+        // KAN-403: EXECUTING → SUBMITTED → EXECUTED|FAILED; reconciliation may also close EXECUTING directly.
+        assertThat(ProposalStatus.EXECUTING.canTransitionTo(ProposalStatus.SUBMITTED)).isTrue();
+        assertThat(ProposalStatus.SUBMITTED.canTransitionTo(ProposalStatus.EXECUTED)).isTrue();
+        assertThat(ProposalStatus.SUBMITTED.canTransitionTo(ProposalStatus.FAILED)).isTrue();
+        assertThat(ProposalStatus.SUBMITTED.canTransitionTo(ProposalStatus.EXECUTING)).isFalse();
+        assertThat(ProposalStatus.APPROVED.canTransitionTo(ProposalStatus.SUBMITTED)).isFalse();
+        assertThat(ProposalStatus.EXECUTING.inFlight()).isTrue();
+        assertThat(ProposalStatus.SUBMITTED.inFlight()).isTrue();
+        assertThat(ProposalStatus.SUBMITTED.terminal()).isFalse();
+        for (ProposalStatus s : ProposalStatus.values()) {
+            if (s != ProposalStatus.EXECUTING && s != ProposalStatus.SUBMITTED) {
+                assertThat(s.inFlight()).as(s.name()).isFalse();
+            }
+        }
+    }
+
+    @Test
     void terminalStatesAreDeadEnds() {
         for (ProposalStatus s : ProposalStatus.values()) {
             if (s.terminal()) {

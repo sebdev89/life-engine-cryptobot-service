@@ -45,7 +45,7 @@ class PolicyEngineTest {
         SimulationOutcome sim = new SimulationOutcome(null, new SimulationOutcome.Onchain(simOk, simOk ? null : "boom", 150L, List.of(), wallet.cluster().id()));
         return new ActionProposal(UUID.randomUUID(), wallet.id(), wallet.ownerUserId(), wallet.address(), wallet.cluster().id(), ProposalStatus.SIMULATED,
                 "REBALANCE", "t", null, "tester", new RebalanceIntent(Map.of("SOL", targetSolPct), "USDC"), plan, null, null, null, sim, tx, null, null,
-                null, null, NOW.plusSeconds(1800), NOW, NOW);
+                null, null, NOW.plusSeconds(1800), NOW, NOW, null, 0);
     }
 
     @Test

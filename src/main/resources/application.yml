@@ -133,6 +133,27 @@ cryptobot:
     # Shared service token (NOT a key). Must match SIGNER_TOKEN of cryptobot-signer.
     token: ${CRYPTOBOT_SIGNER_TOKEN:}
     timeout: 8s
+  # ---- Reliable execution (KAN-403, Endgame §31) ----
+  # Outbox: events are written in the same transaction as the proposal state; the publisher hands
+  # them to the OutboxSink (a structured log line until the broker of KAN-402) with backoff, and
+  # dead-letters them after max-attempts. Reconciliation: at startup and every `interval`, in-flight
+  # proposals (EXECUTING/SUBMITTED) older than `grace` are resolved against getSignatureStatuses —
+  # never re-sent. Ambiguous after max-attempts ⇒ dead letter (dlq_size > 0 is the alert).
+  reliability:
+    outbox:
+      enabled: ${CRYPTOBOT_OUTBOX_ENABLED:true}
+      poll-interval: ${CRYPTOBOT_OUTBOX_POLL_INTERVAL:2s}
+      batch-size: 50
+      max-attempts: 8
+      initial-backoff: 1s
+      max-backoff: 5m
+    reconciliation:
+      enabled: ${CRYPTOBOT_RECONCILIATION_ENABLED:true}
+      interval: ${CRYPTOBOT_RECONCILIATION_INTERVAL:30s}
+      # An in-flight row younger than this is assumed to belong to a live request and is left alone.
+      grace: ${CRYPTOBOT_RECONCILIATION_GRACE:2m}
+      max-attempts: 20
+      batch-size: 100
   # ---- Business metrics (KAN-425): /actuator/prometheus, names in observability/CryptobotMetrics ----
   metrics:
     # Extra values allowed in the `asset` label, on top of policy.allowed-assets and monitoring.symbols.

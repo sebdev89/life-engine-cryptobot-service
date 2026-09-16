@@ -61,6 +61,12 @@ cryptobot:
     max-lamports-per-tx: 2000000000
   signer:
     enabled: false
+  # KAN-403: no background loops in the test slice; tests call tick()/sweep() explicitly.
+  reliability:
+    outbox:
+      enabled: false
+    reconciliation:
+      enabled: false
   advisor:
     workflow-id: crypto.portfolio-advisor.v1
     timeout: 5s

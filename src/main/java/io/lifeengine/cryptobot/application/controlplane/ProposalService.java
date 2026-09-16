@@ -1,6 +1,8 @@
 package io.lifeengine.cryptobot.application.controlplane;
 
 import io.lifeengine.cryptobot.domain.policy.PolicyDecision;
+import io.lifeengine.cryptobot.domain.reliability.OutboxEvent;
+import io.lifeengine.cryptobot.domain.reliability.TradeEvents;
 import io.lifeengine.cryptobot.domain.risk.RiskReport;
 import io.lifeengine.cryptobot.domain.strategy.RebalanceIntent;
 import io.lifeengine.cryptobot.domain.strategy.RebalanceLeg;
@@ -8,6 +10,7 @@ import io.lifeengine.cryptobot.domain.strategy.RebalancePlan;
 import io.lifeengine.cryptobot.domain.transactions.ActionProposal;
 import io.lifeengine.cryptobot.domain.transactions.ApprovalRecord;
 import io.lifeengine.cryptobot.domain.transactions.ProposalStatus;
+import io.lifeengine.cryptobot.domain.transactions.ProposalTransition;
 import io.lifeengine.cryptobot.domain.wallet.Wallet;
 import io.lifeengine.cryptobot.infrastructure.persistence.controlplane.ActionProposalRepository;
 import io.lifeengine.cryptobot.integration.signer.SignerClient;
@@ -27,7 +30,8 @@ import reactor.core.publisher.Mono;
 
 /**
  * The pipeline the product is about: plan → risk → simulate → policy → wait for a human.
- * Each step is a persisted transition and an audit event. Nothing here can sign or send.
+ * Each step is one atomic {@link ProposalTransition}: state, audit trail and outbox event are
+ * written together or not at all (KAN-403). Nothing here can sign or send.
  */
 @Service
 public class ProposalService {
@@ -42,6 +46,7 @@ public class ProposalService {
     public static final String EV_APPROVED = "APPROVED";
     public static final String EV_REJECTED = "REJECTED";
     public static final String EV_EXPIRED = "EXPIRED";
+    static final String SERVICE_ACTOR = "cryptobot-service";
 
     private final ActionProposalRepository proposals;
     private final PortfolioService portfolio;
@@ -89,7 +94,7 @@ public class ProposalService {
             String title = "Rebalance: " + String.join(", ", intent.targetWeights().keySet()) + " → " + intent.targetWeights().values();
             ActionProposal p = new ActionProposal(UUID.randomUUID(), wallet.id(), wallet.ownerUserId(), wallet.address(), wallet.cluster().id(),
                     ProposalStatus.PROPOSED, "REBALANCE", title, blankToNull(reasoningSummary), actor, intent, plan, view.risk(), riskAfter,
-                    null, null, null, null, null, runtimeRunId, view.snapshot().id(), now.plus(policy.properties().proposalTtl()), now, now);
+                    null, null, null, null, null, runtimeRunId, view.snapshot().id(), now.plus(policy.properties().proposalTtl()), now, now, null, 0);
             return proposals.insert(p)
                     .flatMap(saved -> audit.record(saved.ownerUserId(), saved.walletId(), saved.id(), EV_CREATED, actor,
                             payload("plan", plan.summary(), "turnoverUsd", plan.turnoverUsd(), "riskBefore", view.risk().overall(), "riskAfter", riskAfter.overall(),
@@ -104,12 +109,12 @@ public class ProposalService {
                 .flatMap(sim -> {
                     Instant now = clock.instant();
                     ActionProposal next = p.withSimulation(sim.outcome(), sim.transaction(), now).withStatus(ProposalStatus.SIMULATED, now);
-                    return proposals.update(next)
-                            .flatMap(saved -> audit.record(saved.ownerUserId(), saved.walletId(), saved.id(), EV_SIMULATED, "cryptobot-service",
+                    return proposals.commit(ProposalTransition.from(p, next)
+                            .audit(audit.event(p.ownerUserId(), p.walletId(), p.id(), EV_SIMULATED, SERVICE_ACTOR,
                                     payload("onchainOk", sim.outcome().onchain().ok(), "onchainError", sim.outcome().onchain().error(),
                                             "unitsConsumed", sim.outcome().onchain().unitsConsumed(),
                                             "expectedOut", sim.outcome().economic() == null ? null : sim.outcome().economic().expectedBuyAmount(),
-                                            "lamports", sim.transaction() == null ? null : sim.transaction().lamports())).thenReturn(saved));
+                                            "lamports", sim.transaction() == null ? null : sim.transaction().lamports()))));
                 });
     }
 
@@ -128,14 +133,19 @@ public class ProposalService {
                     p.id(), decision.allowed(), decision.executable(), decision.violations().size(), decision.executionViolations().size());
             // Funnel step 1: the trade was requested — it either reached the human or policy stopped it.
             metrics.tradeRequested(next.name(), assetOf(p.plan()));
-            return proposals.update(updated)
-                    .flatMap(saved -> audit.record(saved.ownerUserId(), saved.walletId(), saved.id(), EV_POLICY, "cryptobot-service",
-                            payload("allowed", decision.allowed(), "executable", decision.executable(),
-                                    "violations", decision.violations().stream().map(v -> v.rule() + ": " + v.message()).toList(),
-                                    "executionViolations", decision.executionViolations().stream().map(v -> v.rule() + ": " + v.message()).toList(),
-                                    "rulesApplied", decision.rulesApplied())).thenReturn(saved))
-                    .flatMap(saved -> audit.record(saved.ownerUserId(), saved.walletId(), saved.id(), decision.allowed() ? EV_AWAITING : EV_BLOCKED,
-                            "cryptobot-service", payload("expiresAt", saved.expiresAt())).thenReturn(saved));
+            ProposalTransition transition = ProposalTransition.from(p, updated)
+                    .audit(audit.event(p.ownerUserId(), p.walletId(), p.id(), EV_POLICY, SERVICE_ACTOR,
+                                    payload("allowed", decision.allowed(), "executable", decision.executable(),
+                                            "violations", decision.violations().stream().map(v -> v.rule() + ": " + v.message()).toList(),
+                                            "executionViolations", decision.executionViolations().stream().map(v -> v.rule() + ": " + v.message()).toList(),
+                                            "rulesApplied", decision.rulesApplied())),
+                            audit.event(p.ownerUserId(), p.walletId(), p.id(), decision.allowed() ? EV_AWAITING : EV_BLOCKED, SERVICE_ACTOR,
+                                    payload("expiresAt", updated.expiresAt())));
+            if (decision.allowed()) {
+                transition = transition.publish(tradeEvent(updated, TradeEvents.REQUESTED, now,
+                        payload("plan", p.plan().summary(), "turnoverUsd", p.plan().turnoverUsd(), "executable", decision.executable(), "expiresAt", updated.expiresAt())));
+            }
+            return proposals.commit(transition);
         });
     }
 
@@ -153,14 +163,17 @@ public class ProposalService {
                 return Mono.error(new ControlPlaneExceptions.Conflict("Proposal is " + p.status() + "; only AWAITING_APPROVAL proposals can be decided"));
             }
             Instant now = clock.instant();
-            ProposalStatus next = decision == ApprovalRecord.Decision.APPROVED ? ProposalStatus.APPROVED : ProposalStatus.REJECTED;
+            boolean approved = decision == ApprovalRecord.Decision.APPROVED;
+            ProposalStatus next = approved ? ProposalStatus.APPROVED : ProposalStatus.REJECTED;
             ActionProposal updated = p.withApproval(new ApprovalRecord(decision, actor, now, blankToNull(note)), now).withStatus(next, now);
             // Funnel step 2: the human decided.
             metrics.approval(next.name());
-            return proposals.update(updated)
-                    .flatMap(saved -> audit.record(saved.ownerUserId(), saved.walletId(), saved.id(),
-                            decision == ApprovalRecord.Decision.APPROVED ? EV_APPROVED : EV_REJECTED, actor,
-                            payload("note", note, "executable", saved.policy() != null && saved.policy().executable())).thenReturn(saved));
+            boolean executable = updated.policy() != null && updated.policy().executable();
+            return proposals.commit(ProposalTransition.from(p, updated)
+                    .audit(audit.event(p.ownerUserId(), p.walletId(), p.id(), approved ? EV_APPROVED : EV_REJECTED, actor,
+                            payload("note", note, "executable", executable)))
+                    .publish(tradeEvent(updated, approved ? TradeEvents.APPROVED : TradeEvents.REJECTED, now,
+                            payload("by", actor, "note", note, "executable", executable))));
         });
     }
 
@@ -171,8 +184,9 @@ public class ProposalService {
                 .flatMap(this::expireIfDue);
     }
 
-    public Mono<ActionProposal> save(ActionProposal p) {
-        return proposals.update(p);
+    /** One atomic step (state + audit + outbox). The execution path and the reconciler go through here. */
+    public Mono<ActionProposal> commit(ProposalTransition transition) {
+        return proposals.commit(transition);
     }
 
     public Flux<ActionProposal> listForWallet(UUID walletId, int limit) {
@@ -190,9 +204,30 @@ public class ProposalService {
         }
         Instant now = clock.instant();
         metrics.approval(ProposalStatus.EXPIRED.name());
-        return proposals.update(p.withStatus(ProposalStatus.EXPIRED, now))
-                .flatMap(saved -> audit.record(saved.ownerUserId(), saved.walletId(), saved.id(), EV_EXPIRED, "cryptobot-service",
-                        payload("expiresAt", saved.expiresAt())).thenReturn(saved));
+        ActionProposal expired = p.withStatus(ProposalStatus.EXPIRED, now);
+        return proposals.commit(ProposalTransition.from(p, expired)
+                        .audit(audit.event(p.ownerUserId(), p.walletId(), p.id(), EV_EXPIRED, SERVICE_ACTOR, payload("expiresAt", p.expiresAt())))
+                        .publish(tradeEvent(expired, TradeEvents.EXPIRED, now, payload("expiresAt", p.expiresAt()))))
+                // Two readers expiring the same row at once: the second one loses the guard and just reads.
+                .onErrorResume(ControlPlaneExceptions.StaleProposal.class, ex -> proposals.findByIdAndOwner(p.id(), p.ownerUserId()));
+    }
+
+    /** The outbox event of a proposal step; always carries the identifiers a consumer needs to correlate. */
+    public static OutboxEvent tradeEvent(ActionProposal p, String type, Instant now, Map<String, Object> extra) {
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("proposalId", p.id().toString());
+        body.put("walletId", p.walletId().toString());
+        body.put("cluster", p.cluster());
+        body.put("status", p.status().name());
+        if (p.operationId() != null) {
+            body.put("operationId", p.operationId().toString());
+        }
+        String asset = assetOf(p.plan());
+        if (asset != null) {
+            body.put("asset", asset);
+        }
+        body.putAll(extra);
+        return OutboxEvent.pending(OutboxEvent.AGGREGATE_PROPOSAL, p.id(), p.ownerUserId(), type, body, now);
     }
 
     /**
@@ -200,7 +235,7 @@ public class ProposalService {
      * a rebalance sells the over-weighted asset into the counter asset). Bounded downstream by the
      * metrics allow-list, so a symbol outside the policy shows up as {@code other}.
      */
-    static String assetOf(RebalancePlan plan) {
+    public static String assetOf(RebalancePlan plan) {
         if (plan == null || plan.legs().isEmpty()) {
             return null;
         }
@@ -211,7 +246,7 @@ public class ProposalService {
                 .orElse(plan.legs().get(0).symbol());
     }
 
-    static Map<String, Object> payload(Object... kv) {
+    public static Map<String, Object> payload(Object... kv) {
         Map<String, Object> m = new LinkedHashMap<>();
         for (int i = 0; i + 1 < kv.length; i += 2) {
             if (kv[i + 1] != null) {
