@@ -3,6 +3,7 @@ package io.lifeengine.cryptobot.application.controlplane;
 import io.lifeengine.cryptobot.domain.policy.PolicyDecision;
 import io.lifeengine.cryptobot.domain.risk.RiskReport;
 import io.lifeengine.cryptobot.domain.strategy.RebalanceIntent;
+import io.lifeengine.cryptobot.domain.strategy.RebalanceLeg;
 import io.lifeengine.cryptobot.domain.strategy.RebalancePlan;
 import io.lifeengine.cryptobot.domain.transactions.ActionProposal;
 import io.lifeengine.cryptobot.domain.transactions.ApprovalRecord;
@@ -10,6 +11,7 @@ import io.lifeengine.cryptobot.domain.transactions.ProposalStatus;
 import io.lifeengine.cryptobot.domain.wallet.Wallet;
 import io.lifeengine.cryptobot.infrastructure.persistence.controlplane.ActionProposalRepository;
 import io.lifeengine.cryptobot.integration.signer.SignerClient;
+import io.lifeengine.cryptobot.observability.CryptobotMetrics;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.LinkedHashMap;
@@ -49,6 +51,7 @@ public class ProposalService {
     private final PolicyEngine policy;
     private final SignerClient signer;
     private final AuditService audit;
+    private final CryptobotMetrics metrics;
     private final Clock clock;
 
     public ProposalService(
@@ -59,7 +62,8 @@ public class ProposalService {
             SimulationService simulation,
             PolicyEngine policy,
             SignerClient signer,
-            AuditService audit) {
+            AuditService audit,
+            CryptobotMetrics metrics) {
         this.proposals = proposals;
         this.portfolio = portfolio;
         this.planner = planner;
@@ -68,6 +72,7 @@ public class ProposalService {
         this.policy = policy;
         this.signer = signer;
         this.audit = audit;
+        this.metrics = metrics;
         this.clock = Clock.systemUTC();
     }
 
@@ -75,8 +80,10 @@ public class ProposalService {
         return portfolio.latest(wallet).flatMap(view -> {
             RebalancePlan plan = planner.plan(view.snapshot(), intent);
             if (plan.isNoop()) {
+                metrics.strategyCreated("noop", null);
                 return Mono.error(new ControlPlaneExceptions.InvalidRequest("NOOP", "Portfolio is already within the requested targets"));
             }
+            metrics.strategyCreated("proposed", assetOf(plan));
             RiskReport riskAfter = riskEngine.evaluate(planner.project(view.snapshot(), plan), null);
             Instant now = clock.instant();
             String title = "Rebalance: " + String.join(", ", intent.targetWeights().keySet()) + " → " + intent.targetWeights().values();
@@ -119,6 +126,8 @@ public class ProposalService {
             ActionProposal updated = p.withPolicy(decision, now).withStatus(next, now);
             log.info("proposal_policy proposalId={} allowed={} executable={} violations={} executionViolations={}",
                     p.id(), decision.allowed(), decision.executable(), decision.violations().size(), decision.executionViolations().size());
+            // Funnel step 1: the trade was requested — it either reached the human or policy stopped it.
+            metrics.tradeRequested(next.name(), assetOf(p.plan()));
             return proposals.update(updated)
                     .flatMap(saved -> audit.record(saved.ownerUserId(), saved.walletId(), saved.id(), EV_POLICY, "cryptobot-service",
                             payload("allowed", decision.allowed(), "executable", decision.executable(),
@@ -146,6 +155,8 @@ public class ProposalService {
             Instant now = clock.instant();
             ProposalStatus next = decision == ApprovalRecord.Decision.APPROVED ? ProposalStatus.APPROVED : ProposalStatus.REJECTED;
             ActionProposal updated = p.withApproval(new ApprovalRecord(decision, actor, now, blankToNull(note)), now).withStatus(next, now);
+            // Funnel step 2: the human decided.
+            metrics.approval(next.name());
             return proposals.update(updated)
                     .flatMap(saved -> audit.record(saved.ownerUserId(), saved.walletId(), saved.id(),
                             decision == ApprovalRecord.Decision.APPROVED ? EV_APPROVED : EV_REJECTED, actor,
@@ -178,9 +189,26 @@ public class ProposalService {
             return Mono.just(p);
         }
         Instant now = clock.instant();
+        metrics.approval(ProposalStatus.EXPIRED.name());
         return proposals.update(p.withStatus(ProposalStatus.EXPIRED, now))
                 .flatMap(saved -> audit.record(saved.ownerUserId(), saved.walletId(), saved.id(), EV_EXPIRED, "cryptobot-service",
                         payload("expiresAt", saved.expiresAt())).thenReturn(saved));
+    }
+
+    /**
+     * The {@code asset} label of a plan: the symbol of the leg that gets executed (the SELL leg;
+     * a rebalance sells the over-weighted asset into the counter asset). Bounded downstream by the
+     * metrics allow-list, so a symbol outside the policy shows up as {@code other}.
+     */
+    static String assetOf(RebalancePlan plan) {
+        if (plan == null || plan.legs().isEmpty()) {
+            return null;
+        }
+        return plan.legs().stream()
+                .filter(l -> l.action() == RebalanceLeg.Action.SELL)
+                .map(RebalanceLeg::symbol)
+                .findFirst()
+                .orElse(plan.legs().get(0).symbol());
     }
 
     static Map<String, Object> payload(Object... kv) {

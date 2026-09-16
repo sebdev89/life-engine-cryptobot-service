@@ -9,6 +9,10 @@ import io.jsonwebtoken.security.Keys;
 import io.lifeengine.cryptobot.CryptobotServiceApplication;
 import io.lifeengine.cryptobot.testsupport.InMemoryControlPlaneRepositories;
 import io.lifeengine.cryptobot.testsupport.StubRepositoriesConfiguration;
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.Meter;
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.Tag;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.List;
@@ -52,6 +56,12 @@ class ControlPlaneFlowTest {
     private static final ObjectMapper JSON = new ObjectMapper();
 
     @Autowired private WebTestClient web;
+    @Autowired private MeterRegistry meters;
+
+    private double counter(String name, String... tags) {
+        Counter c = meters.find(name).tags(tags).counter();
+        return c == null ? 0 : c.count();
+    }
 
     @BeforeAll
     static void startMocks() throws Exception {
@@ -100,6 +110,11 @@ class ControlPlaneFlowTest {
     void fullDemoFlowAsPaperTradeWithCompleteAuditTrail() throws Exception {
         UUID user = UUID.randomUUID();
         String token = bearer(user);
+        // KAN-425: the business counters before the flow, on the real registry (they accumulate across tests).
+        double risk0 = counter("risk.analysis", "result", "high");
+        double strategy0 = counter("strategies", "result", "proposed", "asset", "SOL");
+        double requested0 = counter("trade.requested", "result", "awaiting_approval", "asset", "SOL");
+        double approved0 = counter("approvals", "result", "approved");
 
         // 1. Register → portfolio valued from the fake chain: 7 SOL @ $100 + 300 USDC = $1000, SOL 70%.
         JsonNode created = JSON.readTree(web.post().uri("/api/cryptobot/wallets").header(HttpHeaders.AUTHORIZATION, token)
@@ -198,6 +213,41 @@ class ControlPlaneFlowTest {
         // The other user cannot touch the proposal either.
         web.get().uri("/api/cryptobot/proposals/" + proposalId).header(HttpHeaders.AUTHORIZATION, bearer(UUID.randomUUID()))
                 .exchange().expectStatus().isNotFound();
+
+        // 8. KAN-425: the funnel moved exactly as the flow did — requested → approved, never submitted.
+        assertThat(counter("risk.analysis", "result", "high")).isGreaterThan(risk0);
+        assertThat(counter("strategies", "result", "proposed", "asset", "SOL")).isEqualTo(strategy0 + 1);
+        assertThat(counter("trade.requested", "result", "awaiting_approval", "asset", "SOL")).isEqualTo(requested0 + 1);
+        assertThat(counter("approvals", "result", "approved")).isEqualTo(approved0 + 1);
+        assertThat(counter("trade.submitted", "asset", "SOL")).isZero();
+        // Every meter carries the build identity, and no label is a wallet, a user or a proposal id.
+        assertThat(meters.get("trade.requested").counter().getId().getTag("environment")).isNotNull();
+        for (Meter m : meters.getMeters()) {
+            if (!m.getId().getName().startsWith("trade.") && !m.getId().getName().equals("strategies")) {
+                continue;
+            }
+            for (Tag t : m.getId().getTags()) {
+                assertThat(t.getValue()).doesNotContain(walletId).doesNotContain(proposalId).doesNotContain(user.toString()).doesNotContain(ADDRESS);
+            }
+        }
+    }
+
+    @Test
+    void metricsAreScrapedByPrometheusWithTheIssueNames() {
+        String scrape = web.get().uri("/actuator/prometheus").exchange().expectStatus().isOk()
+                .expectBody(String.class).returnResult().getResponseBody();
+        assertThat(scrape)
+                .contains("dlq_size{")
+                .contains("outbox_pending{")
+                .contains("outbox_failed{")
+                .contains("reconciliation_mismatch_total{")
+                .contains("duplicate_trade_suppressed_total{")
+                .contains("trade_reconciled_total{")
+                .contains("intelligence_receipts_total{")
+                .contains("deterministic_inference_total{")
+                .contains("deterministic_mismatch_total{")
+                .contains("trade_failed_total{")
+                .contains("service=\"cryptobot-service\"");
     }
 
     @Test
