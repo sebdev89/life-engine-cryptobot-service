@@ -134,6 +134,15 @@ public class SolanaRpcClient {
                         });
     }
 
+    /**
+     * Current block height (not slot). A transaction whose {@code lastValidBlockHeight} is below
+     * this can never be included any more — the fact reconciliation uses to fail a never-seen
+     * signature without retrying it (KAN-403).
+     */
+    public Mono<Long> getBlockHeight(SolanaCluster cluster) {
+        return call(cluster, "getBlockHeight", List.of(Map.of("commitment", "confirmed"))).map(JsonNode::asLong);
+    }
+
     public Mono<LatestBlockhash> getLatestBlockhash(SolanaCluster cluster) {
         return call(cluster, "getLatestBlockhash", List.of(Map.of("commitment", "finalized")))
                 .map(

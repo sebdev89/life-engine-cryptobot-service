@@ -38,13 +38,13 @@ import java.util.concurrent.atomic.AtomicLong;
  *   trade.failed                  → trade_failed_total{stage,asset}        preflight | sign | broadcast | onchain | rpc | other
  *   solana.rpc.errors             → solana_rpc_errors_total{method,cluster,kind}
  *   solana.confirmation.latency   → solana_confirmation_latency_seconds{result,cluster}
- *   --- registered at 0 until KAN-403 (outbox / reconciliación / duplicados) feeds them ---
- *   trade.reconciled              → trade_reconciled_total{result}         matched | corrected
- *   reconciliation.mismatch       → reconciliation_mismatch_total
- *   duplicate.trade.suppressed    → duplicate_trade_suppressed_total
- *   outbox.pending                → outbox_pending          (gauge)
- *   outbox.failed                 → outbox_failed           (gauge)
- *   dlq.size                      → dlq_size                (gauge)
+ *   --- KAN-403 (outbox / reconciliación / duplicados) ---
+ *   trade.reconciled              → trade_reconciled_total{result}         matched (still pending, consistent) | corrected (row moved by the chain's verdict)
+ *   reconciliation.mismatch       → reconciliation_mismatch_total          a SUBMITTED row the chain never saw (blockhash expired)
+ *   duplicate.trade.suppressed    → duplicate_trade_suppressed_total       same operationId replayed: no new transaction
+ *   outbox.pending                → outbox_pending          (gauge)       PENDING outbox rows, refreshed every publisher tick
+ *   outbox.failed                 → outbox_failed           (gauge)       retries exhausted (each one has a dead letter)
+ *   dlq.size                      → dlq_size                (gauge)       unresolved dead letters — > 0 is the alert
  *   --- registered at 0 until KAN-390 (Decision Receipts / determinismo) feeds them ---
  *   intelligence.receipts         → intelligence_receipts_total{result}    issued | verified
  *   deterministic.inference       → deterministic_inference_total

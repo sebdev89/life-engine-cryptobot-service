@@ -32,6 +32,23 @@ public final class ControlPlaneExceptions {
         }
     }
 
+    /**
+     * The row moved under the caller (optimistic lock or status guard failed, KAN-403). Mapped to
+     * 409: the caller re-reads; it never overwrites.
+     */
+    public static class StaleProposal extends Conflict {
+        public StaleProposal(java.util.UUID proposalId, String expected) {
+            super("Proposal " + proposalId + " changed concurrently (expected " + expected + ")");
+        }
+    }
+
+    /** An {@code operationId} already used by another execution. */
+    public static class DuplicateOperation extends Conflict {
+        public DuplicateOperation(java.util.UUID operationId) {
+            super("operationId " + operationId + " is already bound to another execution");
+        }
+    }
+
     public static class PolicyBlocked extends RuntimeException {
         private final List<String> violations;
 

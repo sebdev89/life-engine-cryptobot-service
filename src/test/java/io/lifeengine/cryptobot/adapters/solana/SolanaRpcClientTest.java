@@ -56,6 +56,15 @@ class SolanaRpcClientTest {
     }
 
     @Test
+    void getBlockHeightReadsThePlainNumber() {
+        // KAN-403: reconciliation compares this with the signed transaction's lastValidBlockHeight.
+        server.enqueue(json("{\"jsonrpc\":\"2.0\",\"result\":312345678,\"id\":1}"));
+        StepVerifier.create(client.getBlockHeight(SolanaCluster.DEVNET))
+                .expectNext(312_345_678L)
+                .verifyComplete();
+    }
+
+    @Test
     void simulateTransactionReportsErrAndLogs() {
         server.enqueue(json("{\"jsonrpc\":\"2.0\",\"result\":{\"context\":{\"slot\":1},\"value\":{\"err\":{\"InstructionError\":[0,{\"Custom\":1}]},\"logs\":[\"Program 11111111111111111111111111111111 invoke [1]\",\"Transfer: insufficient lamports\"],\"unitsConsumed\":150}},\"id\":1}"));
         StepVerifier.create(client.simulateTransaction(SolanaCluster.DEVNET, "AA==", false))

@@ -93,4 +93,14 @@ public class StubRepositoriesConfiguration {
     io.lifeengine.cryptobot.infrastructure.persistence.controlplane.AuditEventRepository auditEventRepository() {
         return InMemoryControlPlaneRepositories.audit();
     }
+
+    @Bean
+    io.lifeengine.cryptobot.infrastructure.persistence.controlplane.OutboxRepository outboxRepository() {
+        return InMemoryControlPlaneRepositories.outbox();
+    }
+
+    @Bean
+    io.lifeengine.cryptobot.infrastructure.persistence.controlplane.DeadLetterRepository deadLetterRepository() {
+        return InMemoryControlPlaneRepositories.deadLetters();
+    }
 }
