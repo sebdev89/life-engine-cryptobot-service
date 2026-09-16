@@ -50,7 +50,8 @@ export SIGNER_KEYPAIR_PATH=~/.cryptobot-demo/demo-wallet.json SIGNER_TOKEN=<serv
 export SIGNER_ALLOWED_DESTINATIONS=<rebalance vault pubkey>
 mvn -f signer/pom.xml spring-boot:run                                   # :8096
 
-# 2. service
+# 2. service — JWT_SECRET (≥32 bytes) or AUTH_JWKS_URI is REQUIRED: since KAN-350 no profile
+#    ships a default secret; without either, the service refuses to start.
 export JWT_SECRET=<same as auth/runtime> AUTH_JWKS_URI=http://127.0.0.1:8081/.well-known/jwks.json
 export CRYPTOBOT_REBALANCE_VAULT=<rebalance vault pubkey>
 export CRYPTOBOT_SIGNER_ENABLED=true CRYPTOBOT_SIGNER_TOKEN=<service token>
@@ -146,6 +147,22 @@ Manual validation against the oracle (dev only, needs network): `scripts/validat
   and a never-seen signature past its `lastValidBlockHeight` is `FAILED` **without retry** —
   Solana only deduplicates while the blockhash lives (~90 s), so a retry would be a double trade.
   Ambiguity after `max-attempts` goes to `dead_letter` (`dlq_size > 0` is the alert).
+- The LLM never executes: it emits an **intent** with a finite vocabulary (KAN-435, paper §6-7).
+  `domain.intent.IntentSchema` refuses anything outside the schema (unknown field, unknown
+  action, float amount, missing/forbidden field per action, duplicate JSON key); the accepted
+  intent is canonicalized (RFC 8785 + NFC, `JsonCanonicalizer`) and `H_I = SHA-256(C)` is its
+  identity end to end (`IntentHash`, rendered `sha256:<hex>`). Two semantically equal intents
+  hash equal; the first 128 bits of the hash are the `operationId` of KAN-403, so
+  `Idempotency-Key: sha256:…` on `/execute` makes re-submitting the same intent idempotent by
+  construction. Fixed vectors, verified against `sha256sum`: `src/test/resources/intent/vectors-v1.json`.
+
+  ```text
+  always        : schema_version="1", agent_id, action, strategy_id, policy_version, valid_until_slot, nonce
+  BUY SELL SWAP : + input_asset, output_asset, input_amount (u64 as string, minimal units), max_slippage_bps
+  REBALANCE     : + target_weights_bps {asset: bps, sum 10000}, counter_asset, max_slippage_bps
+  CANCEL        : + target_intent_hash
+  HOLD          : nothing else
+  ```
 
 ### Deterministic policy layer (KAN-436, paper §8 / §11 / §17 / §18)
 
@@ -174,7 +191,7 @@ Any change to the canonical form is `schema_version` 2 and a new vectors file �
 ## Tests
 
 ```bash
-./mvnw test                     # 218 tests: adapters (recorded responses), engines, state machine, HTTP flow with fake RPC + Runtime, ARS quotes (fixtures, no network), idempotency + crash/reconciliation + outbox (KAN-403), deterministic policy: decision table + golden vectors + 2-implementation agreement (KAN-436)
+./mvnw test                     # 260 tests: adapters (recorded responses), engines, state machine, HTTP flow with fake RPC + Runtime, ARS quotes (fixtures, no network), idempotency + crash/reconciliation + outbox (KAN-403), intent schema + canonicalization vectors (KAN-435), deterministic policy: decision table + golden vectors + 2-implementation agreement (KAN-436)
 ./mvnw -f signer/pom.xml test   # 10 tests: signing policy (every refusal reason), token, signature verification
 cd ../cryptobot-ui && npx ng test
 ```

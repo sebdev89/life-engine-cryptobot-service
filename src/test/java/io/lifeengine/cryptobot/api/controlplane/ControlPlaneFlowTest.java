@@ -252,6 +252,16 @@ class ControlPlaneFlowTest {
                 .header("Idempotency-Key", "not-a-uuid")
                 .exchange().expectStatus().isBadRequest().expectBody().jsonPath("$.code").isEqualTo("INVALID_OPERATION_ID");
 
+        // 7d. KAN-435: an intent hash is a valid key — it derives the operationId, so the request gets past
+        // the key check and is refused for the real reason (not executable ⇒ 409). A malformed hash is still a 400.
+        web.post().uri("/api/cryptobot/proposals/" + proposalId + "/execute").header(HttpHeaders.AUTHORIZATION, token)
+                .header("Idempotency-Key", "sha256:877dcaf96566ba02b058d41c01af02ff69d8d4c60dc375a610f3f9f15aa89081")
+                .exchange().expectStatus().isEqualTo(409).expectBody().jsonPath("$.message").value(m -> assertThat(m.toString()).contains("not executable"));
+        web.post().uri("/api/cryptobot/proposals/" + proposalId + "/execute").header(HttpHeaders.AUTHORIZATION, token)
+                .header("Idempotency-Key", "sha256:not-hex")
+                .exchange().expectStatus().isBadRequest().expectBody().jsonPath("$.code").isEqualTo("INVALID_OPERATION_ID");
+        assertThat(SolanaDispatcher.sendCount).isZero();
+
         // The other user cannot touch the proposal either.
         web.get().uri("/api/cryptobot/proposals/" + proposalId).header(HttpHeaders.AUTHORIZATION, bearer(UUID.randomUUID()))
                 .exchange().expectStatus().isNotFound();
