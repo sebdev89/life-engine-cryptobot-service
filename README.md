@@ -188,10 +188,42 @@ whose hashes come from `sha256sum`, not from this code; and a second, independen
 of the table compared with the engine over a 5 000-input seeded corpus (`PolicyDeterminismTest`).
 Any change to the canonical form is `schema_version` 2 and a new vectors file — v1 is frozen.
 
+### Adversarial benchmark, invariants and chaos (KAN-440, paper §29 / §30 / §36)
+
+`src/test/java/io/lifeengine/cryptobot/benchmark/` is the paper's key experiment as a test:
+a seeded generator plays the **fully compromised agent** and emits 10 000 intents — 7 000
+inside the policy, 3 000 across the 13 attack classes of §29 (invalid asset, oversized amount,
+stale/manipulated oracle, expired intent, reused nonce, invalid signature, wrong policy version,
+serialization attack, integer overflow, rounding attack, unauthorized agent, prompt-injected
+action) — through `AuthorityLayer`, the execution envelope: `IntentSchema` → Ed25519 over the
+canonical bytes → `(I, S)` from the authoritative state → `DeterministicPolicyEngine` → the
+independent `ReferencePolicyValidator` must produce the same verdict hash → ALLOW executes,
+ESCALATE waits, DENY stops. The envelope is test code composed of production primitives; what
+is which is spelled out in its Javadoc (the `TradingIntent → IntentFacts` mapping is the part
+still pending in production, see proposal `intent-to-policy-binding`).
+
+Measured (`./mvnw test -Dtest='io.lifeengine.cryptobot.benchmark.*Test'`, report in
+`target/benchmark/*.md|json`): **7 000 / 7 000 authorized, 3 000 / 3 000 blocked (BlockRate 1.0),
+0 policy violations executed**; same corpus twice ⇒ identical verdict hashes; engine and
+reference validator agree on all 6 970 verdicts; 2 000 random byte-level mutations ⇒ 0
+executions outside policy. Invariants I1–I7 (`InvariantsTest`: trade limit, replay,
+authorization, policy binding, asset restriction, fail-closed, reproducibility) hold over the
+corpus plus targeted cases (revoke a live agent, rotate `H_R`, blank every state fact, replay
+every executed intent). Chaos (`ChaosTest`, §30): oracle offline · validator offline or
+disagreeing · RPC without slot · broadcast uncertain · policy unavailable · duplicate · state
+partition · signer unavailable · malformed · old schema ⇒ DENY or PAUSE, never execution.
+Latency per stage is in the report (Ed25519 verification dominates, ~320 µs p50 per intent);
+inference and on-chain latency are **not** measured here — no LLM and no RPC in the loop.
+
+Two holes the benchmark found in `IntentSchema` and closed in the same PR: `{…}{}` (trailing
+tokens) parsed as one document, and a leading/trailing control character (`"paper-v1 "`)
+was trimmed away instead of refused. Meters for the funnel: `policy_verdicts_total{decision,
+escalation}` and `policy_predicate_failed_total{predicate}`.
+
 ## Tests
 
 ```bash
-./mvnw test                     # 260 tests: adapters (recorded responses), engines, state machine, HTTP flow with fake RPC + Runtime, ARS quotes (fixtures, no network), idempotency + crash/reconciliation + outbox (KAN-403), intent schema + canonicalization vectors (KAN-435), deterministic policy: decision table + golden vectors + 2-implementation agreement (KAN-436)
+./mvnw test                     # 291 tests: adapters (recorded responses), engines, state machine, HTTP flow with fake RPC + Runtime, ARS quotes (fixtures, no network), idempotency + crash/reconciliation + outbox (KAN-403), intent schema + canonicalization vectors (KAN-435), deterministic policy: decision table + golden vectors + 2-implementation agreement (KAN-436), adversarial benchmark 10 000 intents + invariants I1–I7 + chaos (KAN-440)
 ./mvnw -f signer/pom.xml test   # 10 tests: signing policy (every refusal reason), token, signature verification
 cd ../cryptobot-ui && npx ng test
 ```

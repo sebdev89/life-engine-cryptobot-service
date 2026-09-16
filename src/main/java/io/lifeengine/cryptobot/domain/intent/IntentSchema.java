@@ -36,6 +36,9 @@ public final class IntentSchema {
 
     private static final ObjectMapper JSON = JsonMapper.builder()
             .enable(JsonParser.Feature.STRICT_DUPLICATE_DETECTION)
+            // "{…}{}" is two documents, not one: Jackson would read the first and drop the rest, and
+            // another parser might not (KAN-440 benchmark, serialization attack "trailing garbage").
+            .enable(DeserializationFeature.FAIL_ON_TRAILING_TOKENS)
             .enable(DeserializationFeature.USE_BIG_INTEGER_FOR_INTS)
             .enable(DeserializationFeature.USE_BIG_DECIMAL_FOR_FLOATS)
             .build();
@@ -117,7 +120,7 @@ public final class IntentSchema {
     // ---- field decoders ---------------------------------------------------------------------
 
     private static IntentAction action(String raw) {
-        String normalized = raw.trim().toUpperCase(Locale.ROOT);
+        String normalized = TradingIntent.text(TradingIntent.F_ACTION, raw).toUpperCase(Locale.ROOT);
         for (IntentAction a : IntentAction.values()) {
             if (a.name().equals(normalized)) {
                 return a;
@@ -173,7 +176,7 @@ public final class IntentSchema {
             throw new IntentSchemaViolation(field, "floating-point is not an integer: " + v);
         }
         if (v instanceof String s) {
-            String t = s.trim();
+            String t = TradingIntent.text(field, s);
             if (!DECIMAL_DIGITS.matcher(t).matches()) {
                 throw new IntentSchemaViolation(field, "must be an integer or a string of decimal digits, got \"" + s + "\"");
             }

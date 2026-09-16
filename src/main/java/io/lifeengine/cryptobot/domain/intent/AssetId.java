@@ -1,6 +1,5 @@
 package io.lifeengine.cryptobot.domain.intent;
 
-import java.text.Normalizer;
 import java.util.Locale;
 import java.util.regex.Pattern;
 
@@ -34,10 +33,7 @@ public record AssetId(String value) {
 
     /** Parses untrusted text: trims, NFC-normalizes, upper-cases a symbol, keeps a mint verbatim. */
     public static AssetId of(String raw) {
-        if (raw == null) {
-            throw new IntentSchemaViolation("asset", "missing");
-        }
-        String s = Normalizer.normalize(raw.trim(), Normalizer.Form.NFC);
+        String s = TradingIntent.text("asset", raw);
         if (SYMBOL.matcher(s).matches()) {
             return new AssetId(s.toUpperCase(Locale.ROOT));
         }
