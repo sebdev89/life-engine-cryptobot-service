@@ -149,6 +149,9 @@ public class ProposalService {
                     verdict.decision(), verdict.escalation(), verdict.tier(), verdict.policyHash());
             // Funnel step 1: the trade was requested — it either reached the human or policy stopped it.
             metrics.tradeRequested(next.name(), assetOf(p.plan()));
+            // Authority layer (KAN-440): which verdict, and — on DENY — which predicates said no.
+            metrics.policyVerdict(verdict.decision().name(), verdict.escalation().name());
+            verdict.failedPredicates().forEach(pred -> metrics.policyPredicateFailed(pred.name()));
             ProposalTransition transition = ProposalTransition.from(p, updated)
                     .audit(audit.event(p.ownerUserId(), p.walletId(), p.id(), EV_POLICY, SERVICE_ACTOR,
                                     payload("allowed", decision.allowed(), "executable", decision.executable(),

@@ -37,7 +37,7 @@ public record IntentHash(String value) {
     }
 
     public static IntentHash parse(String value) {
-        return new IntentHash(value == null ? null : value.trim().toLowerCase(java.util.Locale.ROOT));
+        return new IntentHash(value == null ? null : TradingIntent.text("intent_hash", value).toLowerCase(java.util.Locale.ROOT));
     }
 
     public static boolean isValid(String value) {

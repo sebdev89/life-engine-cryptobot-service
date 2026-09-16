@@ -4,9 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import io.lifeengine.cryptobot.domain.policy.PolicyInput.IntentFacts;
 import io.lifeengine.cryptobot.domain.policy.PolicyInput.StateFacts;
-import io.lifeengine.cryptobot.domain.policy.PolicyVerdict.AutonomyTier;
 import io.lifeengine.cryptobot.domain.policy.PolicyVerdict.Decision;
-import io.lifeengine.cryptobot.domain.policy.PolicyVerdict.Escalation;
 import java.util.ArrayList;
 import java.util.EnumMap;
 import java.util.List;
@@ -20,72 +18,14 @@ import org.junit.jupiter.api.Test;
 
 /**
  * "Same {@code (I, S, R)} ⇒ same decision, in two implementations and in two executions" — the
- * acceptance criterion of KAN-436 and paper §20 (independent validation). {@link Reference} is a
- * second implementation of the decision table, written as a flat rule list with none of the
- * engine's helpers; the two are compared over a seeded corpus that covers every tier, every
- * predicate, the boundaries, unknowns and out-of-range integers.
+ * acceptance criterion of KAN-436 and paper §20 (independent validation).
+ * {@link ReferencePolicyValidator} is a second implementation of the decision table, written as
+ * a flat rule list with none of the engine's helpers; the two are compared over a seeded corpus
+ * that covers every tier, every predicate, the boundaries, unknowns and out-of-range integers.
  */
 class PolicyDeterminismTest {
 
     static final PolicyRules R = PolicyRulesTest.paper();
-
-    /** Independent implementation: one boolean per predicate, hand-inlined, no shared code. */
-    static final class Reference {
-
-        record Out(Decision decision, Escalation escalation, AutonomyTier tier, List<PolicyPredicate> failed) {}
-
-        static Out decide(PolicyRules r, IntentFacts i, StateFacts s) {
-            Map<PolicyPredicate, Boolean> ok = new EnumMap<>(PolicyPredicate.class);
-            String version = i.policyVersion() == null ? null : java.text.Normalizer.normalize(i.policyVersion().trim(), java.text.Normalizer.Form.NFC);
-            ok.put(PolicyPredicate.POLICY_BOUND, version != null && !version.isEmpty() && version.equals(r.version()));
-            ok.put(PolicyPredicate.ASSET_ALLOWED, i.asset() != null && r.allowedAssets().contains(i.asset().trim().toUpperCase(java.util.Locale.ROOT)));
-            boolean valueKnown = i.tradeValueCents() != null && i.tradeValueCents() >= 0 && i.tradeValueCents() <= 9_007_199_254_740_991L;
-            ok.put(PolicyPredicate.TRADE_WITHIN_MAX, valueKnown && i.tradeValueCents() <= r.maxTradeValueCents());
-            boolean dailyKnown = s.dailyExposureCents() != null && s.dailyExposureCents() >= 0 && s.dailyExposureCents() <= 9_007_199_254_740_991L;
-            ok.put(PolicyPredicate.DAILY_LIMIT, valueKnown && dailyKnown && Math.addExact(s.dailyExposureCents(), i.tradeValueCents()) <= r.dailyLimitCents());
-            ok.put(PolicyPredicate.ASSET_CONCENTRATION, s.assetExposureAfterBps() != null && s.assetExposureAfterBps() >= 0 && s.assetExposureAfterBps() <= 10_000
-                    && s.assetExposureAfterBps() <= r.maxAssetExposureBps());
-            ok.put(PolicyPredicate.SLIPPAGE_WITHIN_MAX, i.maxSlippageBps() != null && i.maxSlippageBps() >= 0 && i.maxSlippageBps() <= 10_000
-                    && i.maxSlippageBps() <= r.maxSlippageBps());
-            ok.put(PolicyPredicate.ORACLE_FRESH, s.oracleAgeSeconds() != null && s.oracleAgeSeconds() >= 0 && s.oracleAgeSeconds() <= 9_007_199_254_740_991L
-                    && s.oracleAgeSeconds() <= r.maxOracleAgeSeconds());
-            ok.put(PolicyPredicate.AGENT_PERMITTED, s.agentPermitted() != null && s.agentPermitted());
-            String strategy = i.strategyId() == null ? null : java.text.Normalizer.normalize(i.strategyId().trim(), java.text.Normalizer.Form.NFC);
-            ok.put(PolicyPredicate.STRATEGY_ENABLED, strategy != null && r.enabledStrategies().contains(strategy));
-            ok.put(PolicyPredicate.NONCE_UNUSED, s.nonceUnused() != null && s.nonceUnused());
-            boolean slotsKnown = s.currentSlot() != null && i.validUntilSlot() != null && s.currentSlot() >= 0 && i.validUntilSlot() >= 0
-                    && s.currentSlot() <= 9_007_199_254_740_991L && i.validUntilSlot() <= 9_007_199_254_740_991L;
-            ok.put(PolicyPredicate.NOT_EXPIRED, slotsKnown && s.currentSlot() <= i.validUntilSlot());
-
-            List<PolicyPredicate> failed = new ArrayList<>();
-            for (PolicyPredicate p : PolicyPredicate.values()) {
-                if (!ok.get(p)) {
-                    failed.add(p);
-                }
-            }
-            AutonomyTier tier;
-            if (!valueKnown) {
-                tier = AutonomyTier.OVER_LIMIT;
-            } else if (i.tradeValueCents() <= r.autonomousUpToCents()) {
-                tier = AutonomyTier.AUTONOMOUS;
-            } else if (i.tradeValueCents() <= r.secondAgentUpToCents()) {
-                tier = AutonomyTier.SECOND_AGENT;
-            } else if (i.tradeValueCents() <= r.maxTradeValueCents()) {
-                tier = AutonomyTier.HUMAN_SIGNATURE;
-            } else {
-                tier = AutonomyTier.OVER_LIMIT;
-            }
-            if (!failed.isEmpty()) {
-                return new Out(Decision.DENY, Escalation.NONE, tier, failed);
-            }
-            return switch (tier) {
-                case AUTONOMOUS -> new Out(Decision.ALLOW, Escalation.NONE, tier, failed);
-                case SECOND_AGENT -> new Out(Decision.ESCALATE, Escalation.REQUIRE_SECOND_AGENT, tier, failed);
-                case HUMAN_SIGNATURE -> new Out(Decision.ESCALATE, Escalation.REQUIRE_HUMAN_SIGNATURE, tier, failed);
-                case OVER_LIMIT -> new Out(Decision.DENY, Escalation.NONE, tier, failed);
-            };
-        }
-    }
 
     /** Values that hit every band and every edge; nulls and out-of-range on purpose. */
     static final Long[] CENTS = {null, -1L, 0L, 1L, 99_999L, 100_000L, 100_001L, 999_999L, 1_000_000L, 1_000_001L, 4_999_999L, 5_000_000L, 5_000_001L,
@@ -134,7 +74,7 @@ class PolicyDeterminismTest {
         Map<Decision, Integer> seen = new EnumMap<>(Decision.class);
         for (PolicyInput in : corpus) {
             PolicyVerdict engine = DeterministicPolicyEngine.evaluate(R, in);
-            Reference.Out ref = Reference.decide(R, in.intent(), in.state());
+            ReferencePolicyValidator.Out ref = ReferencePolicyValidator.decide(R, in.intent(), in.state());
             assertThat(engine.decision()).as("decision for %s", in.canonicalJson()).isEqualTo(ref.decision());
             assertThat(engine.escalation()).as("escalation for %s", in.canonicalJson()).isEqualTo(ref.escalation());
             assertThat(engine.tier()).as("tier for %s", in.canonicalJson()).isEqualTo(ref.tier());

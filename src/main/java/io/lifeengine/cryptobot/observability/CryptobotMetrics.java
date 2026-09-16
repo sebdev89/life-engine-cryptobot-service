@@ -45,6 +45,9 @@ import java.util.concurrent.atomic.AtomicLong;
  *   outbox.pending                → outbox_pending          (gauge)       PENDING outbox rows, refreshed every publisher tick
  *   outbox.failed                 → outbox_failed           (gauge)       retries exhausted (each one has a dead letter)
  *   dlq.size                      → dlq_size                (gauge)       unresolved dead letters — > 0 is the alert
+ *   --- KAN-440 (authority layer: the deterministic verdict, what the funnel's "blocked" is made of) ---
+ *   policy.verdicts               → policy_verdicts_total{decision,escalation}  allow | deny | escalate × none | require_second_agent | require_human_signature
+ *   policy.predicate.failed       → policy_predicate_failed_total{predicate}    one increment per failed predicate of a DENY (a verdict may count several)
  *   --- registered at 0 until KAN-390 (Decision Receipts / determinismo) feeds them ---
  *   intelligence.receipts         → intelligence_receipts_total{result}    issued | verified
  *   deterministic.inference       → deterministic_inference_total
@@ -77,6 +80,8 @@ public class CryptobotMetrics {
     static final String OUTBOX_PENDING = "outbox.pending";
     static final String OUTBOX_FAILED = "outbox.failed";
     static final String DLQ_SIZE = "dlq.size";
+    static final String POLICY_VERDICTS = "policy.verdicts";
+    static final String POLICY_PREDICATE_FAILED = "policy.predicate.failed";
     static final String SOLANA_RPC_ERRORS = "solana.rpc.errors";
     static final String SOLANA_CONFIRMATION_LATENCY = "solana.confirmation.latency";
     static final String INTELLIGENCE_RECEIPTS = "intelligence.receipts";
@@ -163,6 +168,18 @@ public class CryptobotMetrics {
 
     public void tradeFailed(FailureStage stage, String symbol) {
         counter(TRADE_FAILED, "stage", stage.label(), "asset", asset(symbol)).increment();
+    }
+
+    // ---- KAN-440: the deterministic verdict (paper §18) ---------------------------------------
+
+    /** One {@code DeterministicPolicyEngine} verdict: {@code decision} ALLOW | DENY | ESCALATE, {@code escalation} NONE | REQUIRE_SECOND_AGENT | REQUIRE_HUMAN_SIGNATURE. */
+    public void policyVerdict(String decision, String escalation) {
+        counter(POLICY_VERDICTS, "decision", low(decision), "escalation", low(escalation)).increment();
+    }
+
+    /** One failed predicate of a DENY verdict; a verdict with three failures increments three series. */
+    public void policyPredicateFailed(String predicate) {
+        counter(POLICY_PREDICATE_FAILED, "predicate", low(predicate)).increment();
     }
 
     // ---- Solana ------------------------------------------------------------------------------
@@ -257,6 +274,11 @@ public class CryptobotMetrics {
         for (FailureStage s : FailureStage.values()) {
             counter(TRADE_FAILED, "stage", s.label(), "asset", ASSET_NONE);
         }
+        // The verdict panel (KAN-440): every decision at 0 so "0 DENY" reads as measured, not missing.
+        counter(POLICY_VERDICTS, "decision", "allow", "escalation", "none");
+        counter(POLICY_VERDICTS, "decision", "deny", "escalation", "none");
+        counter(POLICY_VERDICTS, "decision", "escalate", "escalation", "require_second_agent");
+        counter(POLICY_VERDICTS, "decision", "escalate", "escalation", "require_human_signature");
     }
 
     private Counter counter(String name, String... tags) {
