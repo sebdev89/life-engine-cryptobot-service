@@ -59,6 +59,16 @@ cryptobot:
     cooldown: 60s
     rebalance-vault: 9xQeWvG816bUx9EPjHmaT23yvVM2ZWbrrpZb9PusVFin
     max-lamports-per-tx: 2000000000
+    authorization:
+      version: test-policy-v1
+      autonomous-up-to-usd: 100
+      second-agent-up-to-usd: 250
+      daily-limit-usd: 2500
+      max-asset-exposure-bps: 8000
+      max-slippage-bps: 100
+      executor-slippage-bps: 50
+      max-oracle-age: 15m
+      enabled-strategies: REBALANCE
   signer:
     enabled: false
   # KAN-403: no background loops in the test slice; tests call tick()/sweep() explicitly.

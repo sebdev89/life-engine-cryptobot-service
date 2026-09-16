@@ -68,7 +68,7 @@ final class ExecutionHarness {
         RebalancePlan plan = new RebalancePlan(List.of(
                 new RebalanceLeg(RebalanceLeg.Action.SELL, "SOL", "So111", new BigDecimal("2"), new BigDecimal("200"), new BigDecimal("70"), new BigDecimal("50"), "USDC")),
                 new BigDecimal("1000"), Map.of(), Map.of(), new BigDecimal("200"), "SELL 2 SOL");
-        PolicyDecision executable = new PolicyDecision(true, true, List.of(), List.of(), List.of(), now);
+        PolicyDecision executable = new PolicyDecision(true, true, List.of(), List.of(), List.of(), now, null);
         ApprovalRecord approval = new ApprovalRecord(ApprovalRecord.Decision.APPROVED, "op", now, null);
         approved = repo.insert(new ActionProposal(UUID.randomUUID(), wallet.id(), wallet.ownerUserId(), wallet.address(), "devnet",
                 ProposalStatus.APPROVED, "REBALANCE", "t", null, "op", null, plan, null, null, executable, null, tx, approval, null, null, null,

@@ -21,6 +21,7 @@ wallet → portfolio → risk detection → AI analysis → rebalance proposal
 | Propose | *"SOL 70 % → 50 %"* → planner computes the legs; the LLM never sets amounts. | `RebalancePlanner` |
 | Simulate | Economic (spot × amount, fee) **and** on-chain: the exact unsigned transaction goes through `simulateTransaction` (`sigVerify=false`, so read-only wallets simulate too). | `SimulationService` |
 | Policy | Kill switch · asset allowlist · max USD · max % of portfolio · cooldown · devnet only · lamport cap · vault configured · simulation passed · signer controls the wallet. Each rule is named in the audit trail. | `PolicyEngine` |
+| Deterministic authorization (KAN-436) | Versioned policy `R_v` (integers only, `H_R = SHA-256` of its canonical JSON) evaluated as a pure function over `(I, S)`: 11 predicates (`Valid(I) = ∧ Pᵢ`, unknown ⇒ deny) then a tier by trade value → **ALLOW / ESCALATE(second agent \| human signature) / DENY**. The verdict, `H_R`, the input hash and the verdict hash travel with the proposal and the `POLICY_EVALUATED` audit event; execution refuses a proposal decided under another `H_R`. | `domain/policy/DeterministicPolicyEngine` |
 | Approve | Explicit human decision, recorded with who/when/note. `execute` before `APPROVED` is a 409. | `ProposalService` |
 | Execute (devnet) | Second explicit click. Re-simulates on a fresh blockhash, asks the **isolated signer** (separate process, own secret) to sign, verifies the signature against the wallet key, broadcasts, confirms, links the explorer. | `ExecutionService` · `signer/` |
 | Audit | Append-only `audit_event` per transition: created, simulated, policy evaluated, awaiting approval, approved/rejected, started, signed, submitted, executed/failed, reconciled. | `AuditService` |
@@ -135,6 +136,10 @@ Manual validation against the oracle (dev only, needs network): `scripts/validat
   `SIGNER_ENABLED=false` (signer).
 - Execution is devnet-only by configuration (`cryptobot.policy.execution-cluster`), not by
   convention; mainnet wallets are read-only paper trades.
+- Authorization is a versioned, hashed policy evaluated by a pure function (KAN-436): unknown
+  state, a stale snapshot, a strategy that is not enabled or an intent bound to another policy
+  version is a DENY, never a default. A proposal approved under one `H_R` does not execute under
+  another.
 - Tenant = the JWT subject, resolved server-side. No client-supplied tenant header exists.
 - No financial operation depends on HTTP alone (KAN-403, Endgame §31): the state machine is
   durable (`version` + status guard in the `UPDATE`), the signature is persisted before
@@ -159,10 +164,34 @@ Manual validation against the oracle (dev only, needs network): `scripts/validat
   HOLD          : nothing else
   ```
 
+### Deterministic policy layer (KAN-436, paper §8 / §11 / §17 / §18)
+
+A prompt that says *"never trade more than $10,000"* is guidance. `trade_value_cents <=
+max_trade_value_cents` is authority. The authority lives in `domain/policy/`, pure Java, no
+Spring, no clock, no I/O:
+
+| | |
+|---|---|
+| `PolicyRules` (`R_v`) | `version`, `allowed_assets`, `enabled_strategies`, `max_trade_value_cents`, `daily_limit_cents`, `max_asset_exposure_bps`, `max_slippage_bps`, `max_oracle_age_seconds`, `autonomous_up_to_cents`, `second_agent_up_to_cents`. Sets are sorted and NFC, money in cents, ratios in bps. Refuses non-monotonic tiers at construction: **no valid policy, no service**. `hash()` = `sha256:` of the RFC 8785 text. |
+| `PolicyInput` (`I`, `S`) | `IntentFacts` (agent, strategy, policy version, asset, trade value, slippage, valid-until slot) + `StateFacts` (daily exposure, exposure after, oracle age, agent permitted, nonce unused, current slot). Every field boxed: **`null` = unknown = the predicate fails**. The canonical input lists only known facts, so its hash says what was known. |
+| `PolicyPredicate` | `POLICY_BOUND` · `ASSET_ALLOWED` · `TRADE_WITHIN_MAX` · `DAILY_LIMIT` · `ASSET_CONCENTRATION` · `SLIPPAGE_WITHIN_MAX` · `ORACLE_FRESH` · `AGENT_PERMITTED` · `STRATEGY_ENABLED` · `NONCE_UNUSED` · `NOT_EXPIRED` — all evaluated, no short-circuit, reported in this order. |
+| `PolicyVerdict` | `decision ∈ {ALLOW, DENY, ESCALATE}`, `escalation ∈ {NONE, REQUIRE_SECOND_AGENT, REQUIRE_HUMAN_SIGNATURE}`, `tier`, failed predicates, `policy_hash`, `input_hash`; `hash()` is the verdict's own commitment. |
+
+Tiers (defaults in `cryptobot.policy.authorization`, shared cap `cryptobot.policy.max-trade-usd`):
+`≤ $100` ALLOW · `≤ $250` second agent · `≤ $500` human signature · above DENY. Today every
+proposal still waits for the human whatever the tier says: ALLOW and REQUIRE_SECOND_AGENT are
+**recorded, not acted on** (no autonomous execution, no second validator yet).
+
+Reproducibility is tested three ways: the decision table row by row; golden vectors
+(`src/test/resources/policy/vectors-v1.json`) whose canonical strings were written by hand and
+whose hashes come from `sha256sum`, not from this code; and a second, independent implementation
+of the table compared with the engine over a 5 000-input seeded corpus (`PolicyDeterminismTest`).
+Any change to the canonical form is `schema_version` 2 and a new vectors file — v1 is frozen.
+
 ## Tests
 
 ```bash
-./mvnw test                     # 212 tests: adapters (recorded responses), engines, state machine, HTTP flow with fake RPC + Runtime, ARS quotes (fixtures, no network), idempotency + crash/reconciliation + outbox (KAN-403), intent schema + canonicalization vectors (KAN-435)
+./mvnw test                     # 260 tests: adapters (recorded responses), engines, state machine, HTTP flow with fake RPC + Runtime, ARS quotes (fixtures, no network), idempotency + crash/reconciliation + outbox (KAN-403), intent schema + canonicalization vectors (KAN-435), deterministic policy: decision table + golden vectors + 2-implementation agreement (KAN-436)
 ./mvnw -f signer/pom.xml test   # 10 tests: signing policy (every refusal reason), token, signature verification
 cd ../cryptobot-ui && npx ng test
 ```

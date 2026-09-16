@@ -1,6 +1,7 @@
 package io.lifeengine.cryptobot.application.controlplane;
 
 import io.lifeengine.cryptobot.domain.policy.PolicyDecision;
+import io.lifeengine.cryptobot.domain.policy.PolicyVerdict;
 import io.lifeengine.cryptobot.domain.reliability.OutboxEvent;
 import io.lifeengine.cryptobot.domain.reliability.TradeEvents;
 import io.lifeengine.cryptobot.domain.risk.RiskReport;
@@ -15,7 +16,9 @@ import io.lifeengine.cryptobot.domain.wallet.Wallet;
 import io.lifeengine.cryptobot.infrastructure.persistence.controlplane.ActionProposalRepository;
 import io.lifeengine.cryptobot.integration.signer.SignerClient;
 import io.lifeengine.cryptobot.observability.CryptobotMetrics;
+import java.math.BigDecimal;
 import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -100,7 +103,7 @@ public class ProposalService {
                             payload("plan", plan.summary(), "turnoverUsd", plan.turnoverUsd(), "riskBefore", view.risk().overall(), "riskAfter", riskAfter.overall(),
                                     "runtimeRunId", runtimeRunId)).thenReturn(saved))
                     .flatMap(saved -> simulate(saved, wallet, view.snapshot()))
-                    .flatMap(sim -> evaluatePolicy(sim, wallet));
+                    .flatMap(sim -> evaluatePolicy(sim, wallet, view.snapshot().capturedAt()));
         });
     }
 
@@ -118,19 +121,32 @@ public class ProposalService {
                 });
     }
 
-    private Mono<ActionProposal> evaluatePolicy(ActionProposal p, Wallet wallet) {
-        Mono<Optional<Instant>> lastExecuted = proposals.findByWallet(wallet.id(), 20)
+    /**
+     * The authoritative state {@code S} the policy needs comes from this wallet's own history:
+     * the last execution (cooldown) and the notional executed in the last 24 h (daily exposure),
+     * from the most recent proposals. The snapshot's valuation time is the oracle age.
+     */
+    private Mono<ActionProposal> evaluatePolicy(ActionProposal p, Wallet wallet, Instant pricesAsOf) {
+        Instant now = clock.instant();
+        Mono<PolicyEngine.WalletState> state = proposals.findByWallet(wallet.id(), 20)
                 .filter(x -> x.status() == ProposalStatus.EXECUTED && x.execution() != null && x.execution().submittedAt() != null)
-                .map(x -> x.execution().submittedAt())
                 .collectList()
-                .map(list -> list.stream().max(Instant::compareTo));
-        return Mono.zip(lastExecuted, signer.identity()).flatMap(t -> {
+                .map(executed -> {
+                    Optional<Instant> last = executed.stream().map(x -> x.execution().submittedAt()).max(Instant::compareTo);
+                    BigDecimal last24h = executed.stream()
+                            .filter(x -> !x.execution().submittedAt().isBefore(now.minus(Duration.ofHours(24))))
+                            .map(x -> x.plan() == null || x.plan().turnoverUsd() == null ? BigDecimal.ZERO : x.plan().turnoverUsd())
+                            .reduce(BigDecimal.ZERO, BigDecimal::add);
+                    return new PolicyEngine.WalletState(last, last24h, pricesAsOf);
+                });
+        return Mono.zip(state, signer.identity()).flatMap(t -> {
             PolicyDecision decision = policy.evaluate(p, wallet, t.getT1(), t.getT2().map(SignerClient.Identity::publicKey));
-            Instant now = clock.instant();
+            PolicyVerdict verdict = decision.authorization();
             ProposalStatus next = decision.allowed() ? ProposalStatus.AWAITING_APPROVAL : ProposalStatus.BLOCKED_BY_POLICY;
             ActionProposal updated = p.withPolicy(decision, now).withStatus(next, now);
-            log.info("proposal_policy proposalId={} allowed={} executable={} violations={} executionViolations={}",
-                    p.id(), decision.allowed(), decision.executable(), decision.violations().size(), decision.executionViolations().size());
+            log.info("proposal_policy proposalId={} allowed={} executable={} violations={} executionViolations={} decision={} escalation={} tier={} policyHash={}",
+                    p.id(), decision.allowed(), decision.executable(), decision.violations().size(), decision.executionViolations().size(),
+                    verdict.decision(), verdict.escalation(), verdict.tier(), verdict.policyHash());
             // Funnel step 1: the trade was requested — it either reached the human or policy stopped it.
             metrics.tradeRequested(next.name(), assetOf(p.plan()));
             ProposalTransition transition = ProposalTransition.from(p, updated)
@@ -138,7 +154,11 @@ public class ProposalService {
                                     payload("allowed", decision.allowed(), "executable", decision.executable(),
                                             "violations", decision.violations().stream().map(v -> v.rule() + ": " + v.message()).toList(),
                                             "executionViolations", decision.executionViolations().stream().map(v -> v.rule() + ": " + v.message()).toList(),
-                                            "rulesApplied", decision.rulesApplied())),
+                                            "rulesApplied", decision.rulesApplied(),
+                                            "decision", verdict.decision().name(), "escalation", verdict.escalation().name(), "tier", verdict.tier().name(),
+                                            "failedPredicates", verdict.failedPredicates().stream().map(Enum::name).toList(),
+                                            "policyVersion", verdict.policyVersion(), "policyHash", verdict.policyHash(),
+                                            "inputHash", verdict.inputHash(), "verdictHash", verdict.hash())),
                             audit.event(p.ownerUserId(), p.walletId(), p.id(), decision.allowed() ? EV_AWAITING : EV_BLOCKED, SERVICE_ACTOR,
                                     payload("expiresAt", updated.expiresAt())));
             if (decision.allowed()) {

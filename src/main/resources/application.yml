@@ -127,6 +127,23 @@ cryptobot:
     rebalance-vault: ${CRYPTOBOT_REBALANCE_VAULT:}
     max-lamports-per-tx: ${CRYPTOBOT_POLICY_MAX_LAMPORTS:2000000000}
     proposal-ttl: 30m
+    # KAN-436 — versioned deterministic policy R_v (paper §8/§11/§18). Converted to integers at
+    # startup; H_R = SHA-256 of the canonical record is committed in every verdict. Tiers by trade
+    # value: ≤ autonomous-up-to ⇒ ALLOW · ≤ second-agent-up-to ⇒ ESCALATE(second agent) ·
+    # ≤ max-trade-usd (above) ⇒ ESCALATE(human signature) · beyond ⇒ DENY. Bump `version` when
+    # any value changes: proposals evaluated under another hash are refused at execution.
+    authorization:
+      version: ${CRYPTOBOT_POLICY_VERSION:cryptobot-policy-v1}
+      autonomous-up-to-usd: ${CRYPTOBOT_POLICY_AUTONOMOUS_UP_TO_USD:100}
+      second-agent-up-to-usd: ${CRYPTOBOT_POLICY_SECOND_AGENT_UP_TO_USD:250}
+      daily-limit-usd: ${CRYPTOBOT_POLICY_DAILY_LIMIT_USD:2500}
+      max-asset-exposure-bps: ${CRYPTOBOT_POLICY_MAX_ASSET_EXPOSURE_BPS:8000}
+      max-slippage-bps: ${CRYPTOBOT_POLICY_MAX_SLIPPAGE_BPS:100}
+      # The tolerance the executor applies; must be within max-slippage-bps or every trade is denied.
+      executor-slippage-bps: ${CRYPTOBOT_POLICY_EXECUTOR_SLIPPAGE_BPS:50}
+      # A plan priced on an older snapshot is denied (ORACLE_FRESH): refresh the wallet first.
+      max-oracle-age: ${CRYPTOBOT_POLICY_MAX_ORACLE_AGE:15m}
+      enabled-strategies: REBALANCE
   signer:
     enabled: ${CRYPTOBOT_SIGNER_ENABLED:false}
     base-url: ${CRYPTOBOT_SIGNER_BASE_URL:http://localhost:8096}
