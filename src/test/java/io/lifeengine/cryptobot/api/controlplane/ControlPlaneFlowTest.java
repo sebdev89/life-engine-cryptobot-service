@@ -185,6 +185,8 @@ class ControlPlaneFlowTest {
         assertThat(verified.path("valid").asBoolean()).isTrue();
         assertThat(verified.path("signatureValid").asBoolean()).isTrue();
         assertThat(verified.path("parentsPresent").asBoolean()).isTrue();
+        assertThat(verified.path("reproduced").isNull()).as("an LLM answer is L0: nothing to re-execute").isTrue();
+        assertThat(verified.path("reproduction").path("reason").asText()).isEqualTo("NOT_L1");
         // The other user gets a 404, not the receipt.
         web.get().uri("/api/cryptobot/receipts/" + analysisHash).header(HttpHeaders.AUTHORIZATION, bearer(UUID.randomUUID()))
                 .exchange().expectStatus().isNotFound();
@@ -248,6 +250,26 @@ class ControlPlaneFlowTest {
         JsonNode riskEdges = JSON.readTree(web.get().uri("/api/cryptobot/receipts/" + riskAfter.path("receiptHash").asText()).header(HttpHeaders.AUTHORIZATION, token)
                 .exchange().expectStatus().isOk().expectBody().returnResult().getResponseBody());
         assertThat(riskEdges.path("parents").get(0).path("role").asText()).isEqualTo("VALIDATES");
+        // KAN-392: the RISK_DECISION is L1 for real — it names the engine version and weightsHash, declares its canonical
+        // input (RISK_INPUT) and its discrete verdict (risk-decision/1), and verify re-runs the engine and gets the same hash.
+        assertThat(riskAfter.path("body").path("reproducibility").asText()).isEqualTo("L1_REPRODUCIBLE");
+        assertThat(riskAfter.path("body").path("engine").path("version").asText()).isEqualTo("1.0.0");
+        assertThat(riskAfter.path("body").path("output").path("schema").asText()).isEqualTo("risk-decision/1");
+        assertThat(riskAfter.path("body").path("inputs").toString()).contains("RISK_INPUT");
+        assertThat(riskAfter.path("canonicalJson").asText()).doesNotContain("of the portfolio").doesNotContain("%").doesNotContain("drawdown");
+        JsonNode riskVerified = JSON.readTree(web.post().uri("/api/cryptobot/receipts/" + riskAfter.path("receiptHash").asText() + "/verify")
+                .header(HttpHeaders.AUTHORIZATION, token).exchange().expectStatus().isOk().expectBody().returnResult().getResponseBody());
+        assertThat(riskVerified.path("valid").asBoolean()).isTrue();
+        assertThat(riskVerified.path("reproduced").asBoolean()).isTrue();
+        assertThat(riskVerified.path("reproduction").path("reason").asText()).isEqualTo("REPRODUCED");
+        assertThat(riskVerified.path("reproduction").path("weightsHash").asText()).isEqualTo(riskAfter.path("body").path("engine").path("weightsHash").asText());
+        assertThat(riskVerified.path("reproduction").path("actualOutputHash").asText()).isEqualTo(riskAfter.path("body").path("output").path("hash").asText());
+        // The rebalance planner also claims L1 but this build has no re-executor for it: neither confirmed nor refuted.
+        JsonNode strategyVerified = JSON.readTree(web.post().uri("/api/cryptobot/receipts/" + strategy.path("receiptHash").asText() + "/verify")
+                .header(HttpHeaders.AUTHORIZATION, token).exchange().expectStatus().isOk().expectBody().returnResult().getResponseBody());
+        assertThat(strategyVerified.path("valid").asBoolean()).isTrue();
+        assertThat(strategyVerified.path("reproduced").isNull()).isTrue();
+        assertThat(strategyVerified.path("reproduction").path("reason").asText()).isEqualTo("ENGINE_UNKNOWN");
         JsonNode sim = proposalReceipts.get(2);
         assertThat(sim.path("body").path("inputs").toString()).contains("TRANSACTION");
         assertThat(sim.path("body").path("parents").get(0).asText()).isEqualTo(strategy.path("receiptHash").asText());

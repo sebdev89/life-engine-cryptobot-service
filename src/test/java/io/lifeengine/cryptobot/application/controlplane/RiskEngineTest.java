@@ -15,7 +15,7 @@ import org.junit.jupiter.api.Test;
 
 class RiskEngineTest {
 
-    private final RiskEngine engine = new RiskEngine(new RiskRulesProperties(null, null, null, null, null));
+    private final RiskEngine engine = new RiskEngine();
 
     @Test
     void solAtSeventyPercentIsHighConcentration() {

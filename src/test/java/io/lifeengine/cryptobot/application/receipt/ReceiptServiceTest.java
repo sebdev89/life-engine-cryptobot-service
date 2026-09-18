@@ -120,7 +120,8 @@ class ReceiptServiceTest {
         assertThat(ok.signatureValid()).isTrue();
         assertThat(ok.parentsPresent()).isTrue();
         assertThat(ok.keyId()).isEqualTo("unit-key");
-        assertThat(ok.reproduced()).isNull(); // L1 re-execution is not claimed by this version
+        assertThat(ok.reproduced()).isNull(); // L0: nothing to re-execute (KAN-392 only re-runs L1 receipts of a known engine)
+        assertThat(ok.reproduction().reason()).isEqualTo(DeterministicReproducer.REASON_NOT_L1);
 
         // Another owner cannot even see it.
         assertThatThrownBy(() -> service.verify(UUID.randomUUID(), child.receiptHash()).block()).isInstanceOf(ControlPlaneExceptions.NotFound.class);
