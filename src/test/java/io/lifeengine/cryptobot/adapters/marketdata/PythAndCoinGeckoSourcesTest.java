@@ -11,8 +11,8 @@ import java.util.Map;
 import okhttp3.mockwebserver.MockResponse;
 import okhttp3.mockwebserver.MockWebServer;
 import okhttp3.mockwebserver.RecordedRequest;
-import org.junit.jupiter.api.AfterAll;
-import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.web.reactive.function.client.WebClient;
 import reactor.test.StepVerifier;
@@ -24,20 +24,21 @@ class PythAndCoinGeckoSourcesTest {
     private static final String SOL_FEED = "ef0d8b6fda2ceba41da15d4095d1da392a0d2f8ed0c6c7bc0f4cfac8c280b56d";
     private static final String USDC_FEED = "eaa020c61cc479712813461ce153894a96a6c00b21ed0cfc2798d1f9a9e9c94a";
     private static final Map<String, String> ASKED = Map.of(TokenRegistry.NATIVE_SOL_MINT, "SOL", TokenRegistry.USDC_MINT, "USDC");
-    private static MockWebServer server;
+    // One server per test: a recorded request a test does not take must not be read by the next one.
+    private MockWebServer server;
 
-    @BeforeAll
-    static void start() throws Exception {
+    @BeforeEach
+    void start() throws Exception {
         server = new MockWebServer();
         server.start();
     }
 
-    @AfterAll
-    static void stop() throws Exception {
+    @AfterEach
+    void stop() throws Exception {
         server.shutdown();
     }
 
-    private static MarketDataProperties props(boolean pythEnabled, boolean geckoEnabled) {
+    private MarketDataProperties props(boolean pythEnabled, boolean geckoEnabled) {
         String base = "http://localhost:" + server.getPort();
         return new MarketDataProperties(base, Duration.ofSeconds(2), Map.of(), Map.of(), false,
                 new MarketDataProperties.Pyth(pythEnabled, base, Map.of("SOL", "0x" + SOL_FEED, "USDC", USDC_FEED)),

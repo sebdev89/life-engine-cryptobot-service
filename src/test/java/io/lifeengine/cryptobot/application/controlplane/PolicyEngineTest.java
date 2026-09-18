@@ -284,8 +284,14 @@ class PolicyEngineTest {
                 8_000, 100, 50, Duration.ofMinutes(15), List.of("REBALANCE"));
         assertThat(engine(defaults(), v2).executionPreconditions(approved)).singleElement().asString().contains("Policy changed since evaluation");
 
+        // A pre-KAN-436 row has neither a verdict nor (pre-KAN-439) an oracle reading: both are named, both refuse.
         ActionProposal legacy = approved.withPolicy(new PolicyDecision(true, true, List.of(), List.of(), List.of(), NOW, null), NOW);
-        assertThat(v1.executionPreconditions(legacy)).singleElement().asString().contains("No policy verdict");
+        assertThat(v1.executionPreconditions(legacy)).hasSize(2)
+                .anySatisfy(m -> assertThat(m).contains("No policy verdict"))
+                .anySatisfy(m -> assertThat(m).contains("No oracle reading"));
+        // A verdict without a reading (evaluated between KAN-436 and KAN-439) does not execute either.
+        ActionProposal noReading = approved.withPolicy(new PolicyDecision(true, true, List.of(), List.of(), List.of(), NOW, decided.authorization()), NOW);
+        assertThat(v1.executionPreconditions(noReading)).singleElement().asString().contains("No oracle reading");
     }
 
     // ---- KAN-439: CorrectRules + CorruptState ⇏ SafeExecution (paper §22) --------------------------

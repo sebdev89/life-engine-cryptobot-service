@@ -69,6 +69,6 @@ class ExecutionServiceOracleTest {
         assertThat(receipt.body().inputs()).extracting(ReceiptInput::type).contains(ReceiptInput.ORACLE_READING, ReceiptInput.TRANSACTION, ReceiptInput.APPROVAL);
         String expected = h.approved.policy().oracle().quotesHash();
         assertThat(receipt.body().inputs()).filteredOn(i -> i.type().equals(ReceiptInput.ORACLE_READING)).extracting(ReceiptInput::hash).containsExactly(expected);
-        assertThat(h.registry.find("oracle.execution.refused").counter()).isNull();
+        assertThat(h.count("oracle.execution.refused")).isZero(); // registered at 0, never incremented
     }
 }

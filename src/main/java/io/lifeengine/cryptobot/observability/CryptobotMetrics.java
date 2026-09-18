@@ -331,6 +331,8 @@ public class CryptobotMetrics {
         counter(POLICY_VERDICTS, "decision", "deny", "escalation", "none");
         counter(POLICY_VERDICTS, "decision", "escalate", "escalation", "require_second_agent");
         counter(POLICY_VERDICTS, "decision", "escalate", "escalation", "require_human_signature");
+        // KAN-439: "0 refused by the oracle at execution" is measured, not missing.
+        counter(ORACLE_EXECUTION_REFUSED);
     }
 
     private Counter counter(String name, String... tags) {

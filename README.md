@@ -15,7 +15,7 @@ wallet → portfolio → risk detection → AI analysis → rebalance proposal
 | Step | What happens | Where |
 |---|---|---|
 | Track a wallet | Any public Solana address (devnet, or mainnet read-only). SOL + SPL/Token-2022 balances, recent signatures. | `adapters/solana/SolanaRpcClient` |
-| Value it | Jupiter Price v3 by mint (keyless), labelled fallback when the oracle is down. Devnet mints are valued as the mainnet asset they represent. | `adapters/marketdata` |
+| Value it | **Multi-source oracle (KAN-439, paper §22)**: Jupiter Price v3, Pyth Hermes and CoinGecko — keyless, read-only, independent mechanisms — asked concurrently; the price is the **median** of the fresh sources, accepted only with quorum (≥ 2), every source within the deviation bound of the median and no circuit-breaker trip; otherwise there is no price. The portfolio view then shows the labelled static fallback and the policy denies. Devnet mints are valued as the mainnet asset they represent. | `domain/oracle/PriceOracle` · `application/oracle/PriceOracleService` · `adapters/marketdata` |
 | Detect risk | Deterministic rules: concentration (≥ 60 % HIGH, ≥ 40 % MEDIUM), no stablecoin buffer, dust, unpriced tokens, sharp move since the last snapshot. Since KAN-392 the rules are a **versioned pure-Java engine** (`risk-engine 1.0.0`): integer input in basis points / micro-dollars, integer weights in a hashed JSON (`weightsHash`), discrete output (action, 0–9 buckets, reason codes) — the only L1 step of the pipeline; the prose is rendered afterwards and never enters a hash. | `domain/risk/DeterministicRiskEngine` · `application/controlplane/RiskEngine` (adapter) |
 | Ask in natural language | *"¿Cuál es mi mayor riesgo?"* → Life Engine Runtime workflow `crypto.portfolio-advisor.v1` (one LLM stage, strict JSON). The model sees positions, weights and findings — **never a key, never a transaction**. | `AdvisorService` · runtime `ext/cryptomarketreview/portfolio` |
 | Propose | *"SOL 70 % → 50 %"* → planner computes the legs; the LLM never sets amounts. | `RebalancePlanner` |
@@ -192,6 +192,26 @@ Reproducibility is tested three ways: the decision table row by row; golden vect
 whose hashes come from `sha256sum`, not from this code; and a second, independent implementation
 of the table compared with the engine over a 5 000-input seeded corpus (`PolicyDeterminismTest`).
 Any change to the canonical form is `schema_version` 2 and a new vectors file — v1 is frozen.
+
+### Oracle integrity — CorrectRules + CorruptState ⇏ SafeExecution (KAN-439, paper §22)
+
+A deterministic engine fed a price of $18 instead of $180 authorises a catastrophe
+deterministically. So the state `S` the policy sees is not "a price": it is a **consensus** that
+had to pass the data-integrity assumptions of the execution envelope, and those assumptions are
+committed with the decision.
+
+| | |
+|---|---|
+| `PriceSource` | One independent USD feed: `jupiter-price-v3` (DEX aggregator), `pyth-hermes` (pull oracle; the only one with its own `publish_time`), `coingecko-simple` (CEX aggregator). Keyless, read-only. A failure, a timeout or an unknown mint is an **absent observation**, never a price and never an error. |
+| `PriceOracle` (pure) | `consensus(asset, observations, previous, now, limits)`: rejects invalid, future, stale (> `max_age`) and duplicate-source observations with a reason; needs **quorum** (`min_sources`, never < 2); takes the **median**; refuses if any source used is further than `max_deviation_bps` from it (`DEVIATION_EXCEEDED`: the $18 source cannot win, nor be averaged in); refuses if the median moved more than `max_move_bps` against the last accepted consensus younger than `move_interval` (`CIRCUIT_BREAKER`). Any refusal ⇒ no price ⇒ **DENY**. |
+| `OracleLimits` | The integrity assumptions, integers only, `hash()` = `sha256:` of the RFC 8785 form. Defaults: quorum 2 · age 120 s · deviation 100 bps · breaker 1 000 bps per 5 min (`cryptobot.marketdata.oracle.*`, env `CRYPTOBOT_ORACLE_*`). |
+| `OracleReading` | What one decision was priced with: one consensus per asset the plan touches, the limits, the instant. `quotesHash()` covers **every quote seen — used and rejected —** in a canonical order; it is the **state reference** of the decision and goes into the `POLICY_EVALUATED` audit event and the `EXECUTION` receipt as input `ORACLE_READING`. Same quotes, same limits ⇒ same median, same refusals, same hash on any machine. |
+| `ORACLE_INTEGRITY` rule | Applied at evaluation **and again at execution with a fresh reading**, before anything is signed: every asset of the plan has an accepted consensus, and the price each leg was built on is within `max_move_bps` of the median — a plan priced on a corrupt snapshot is refused by the world, not executed. `ORACLE_FRESH` now measures the oldest fact used (snapshot or consensus). A proposal decided without a reading (pre-KAN-439 rows) does not execute. |
+
+Nothing but sources, mints, prices and timestamps enters a reading; the breaker's reference is
+per process (not persisted yet — a restart starts without one). Metrics:
+`cryptobot_oracle_source_fetch_total{source,ok}`, `cryptobot_oracle_source_latency_seconds{source}`,
+`cryptobot_oracle_consensus_total{asset,result}`, `oracle_execution_refused_total`.
 
 ### Adversarial benchmark, invariants and chaos (KAN-440, paper §29 / §30 / §36)
 

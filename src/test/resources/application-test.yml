@@ -32,8 +32,18 @@ cryptobot:
       devnet-url: http://localhost:0
       mainnet-url: http://localhost:0
       timeout: 2s
+  # KAN-439: no network in tests — every price source is off and points at a closed port. With no source the
+  # oracle has no consensus: the portfolio is valued from the labelled fallback and the policy DENIES. The flow
+  # test enables the three sources against its own fake feed (all agreeing on SOL $100 / USDC $1).
   marketdata:
     jupiter-enabled: false
+    jupiter-base-url: http://localhost:0
+    pyth:
+      enabled: false
+      base-url: http://localhost:0
+    coingecko:
+      enabled: false
+      base-url: http://localhost:0
     fallback-prices:
       SOL: 100
       USDC: 1
