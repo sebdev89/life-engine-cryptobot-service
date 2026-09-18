@@ -64,7 +64,7 @@ class MarketReviewServiceUnitTest {
                 new RuntimeClient(
                         org.springframework.web.reactive.function.client.WebClient.builder(),
                         new io.lifeengine.cryptobot.infrastructure.runtime.RuntimeClientProperties(
-                                "http://localhost:0", "crypto.market-review.v1")) {
+                                "http://localhost:0", "crypto.market-review.v1", null)) {
                     @Override
                     public Mono<RuntimeStartRunResponse> startRun(
                             io.lifeengine.cryptobot.infrastructure.runtime.RuntimeStartRunPayload payload,
@@ -160,7 +160,7 @@ class MarketReviewServiceUnitTest {
                 new RuntimeClient(
                         org.springframework.web.reactive.function.client.WebClient.builder(),
                         new io.lifeengine.cryptobot.infrastructure.runtime.RuntimeClientProperties(
-                                "http://localhost:0", "crypto.market-review.v1")) {
+                                "http://localhost:0", "crypto.market-review.v1", null)) {
                     @Override
                     public Mono<RuntimeRunDetail> getRun(UUID runId, String bearerToken) {
                         Assertions.assertThat(runId).isEqualTo(runtimeRunId);

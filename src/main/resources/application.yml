@@ -7,8 +7,11 @@ spring:
   # R2DBC is the runtime data plane (used by application services & controllers).
   r2dbc:
     url: ${CRYPTOBOT_R2DBC_URL:r2dbc:postgresql://localhost:5433/life_engine_cryptobot}
-    username: ${CRYPTOBOT_DB_USER:life_engine}
-    password: ${CRYPTOBOT_DB_PASSWORD:life_engine}
+    # KAN-69 — sin default de credencial en el archivo común: CRYPTOBOT_DB_USER / _PASSWORD llegan
+    # por entorno (.env.local en local; SOPS/compose en los ambientes). application-local.yml
+    # conserva el par de desarrollo, que sólo aplica con el perfil `local`.
+    username: ${CRYPTOBOT_DB_USER:}
+    password: ${CRYPTOBOT_DB_PASSWORD:}
     pool:
       enabled: true
       initial-size: 2
@@ -19,8 +22,8 @@ spring:
   flyway:
     enabled: true
     url: ${CRYPTOBOT_JDBC_URL:jdbc:postgresql://localhost:5433/life_engine_cryptobot}
-    user: ${CRYPTOBOT_DB_USER:life_engine}
-    password: ${CRYPTOBOT_DB_PASSWORD:life_engine}
+    user: ${CRYPTOBOT_DB_USER:}
+    password: ${CRYPTOBOT_DB_PASSWORD:}
     locations: classpath:db/migration
     schemas: public
     baseline-on-migrate: true
@@ -36,6 +39,23 @@ cryptobot:
   runtime:
     base-url: ${CRYPTOBOT_RUNTIME_BASE_URL:http://localhost:8090}
     workflow-id: crypto.market-review.v1
+    # KAN-69 — con qué credencial se llama a Runtime.
+    #   passthrough (default): las llamadas de un usuario viajan con SU JWT (Runtime ve identidad y
+    #     tenant reales; modelo de fase 1). El loop de monitoreo, sin usuario, usa el token S2S.
+    #   service: TODAS las llamadas con el token S2S (aud=runtime, sub=service:cryptobot). Exige el
+    #     cliente `cryptobot` en Auth y `service:cryptobot` en el allowlist de Runtime.
+    auth-mode: ${CRYPTOBOT_RUNTIME_AUTH_MODE:passthrough}
+  # KAN-69 — credencial service-to-service de CryptoBot: POST {AUTH_INTERNAL_BASE_URL}
+  # /api/auth/internal/service-token (RS256, TTL corto, una audiencia por token). Sin defaults de
+  # credencial; en un ambiente real el servicio no arranca si el camino S2S está activo
+  # (auth-mode=service o monitoring.enabled=true) y faltan. No hay fallback a token estático ni a
+  # request sin Authorization.
+  s2s:
+    auth-base-url: ${AUTH_INTERNAL_BASE_URL:}
+    client-id: ${CRYPTOBOT_S2S_CLIENT_ID:}
+    client-secret: ${CRYPTOBOT_S2S_CLIENT_SECRET:}
+    refresh-margin-seconds: ${CRYPTOBOT_S2S_REFRESH_MARGIN_SECONDS:30}
+    request-timeout-seconds: ${CRYPTOBOT_S2S_TIMEOUT_SECONDS:5}
   snapshot:
     # deterministic-local (default, offline) · binance-public (api.binance.com ticker 24h) ·
     # solana-public (GeckoTerminal pool + Jupiter price; keyless). All read-only.
@@ -48,7 +68,7 @@ cryptobot:
   monitoring:
     # Disabled by default — manual triggers via POST /api/cryptobot/monitoring/run-once
     # are always available. Set CRYPTOBOT_MONITORING_ENABLED=true to enable the periodic
-    # background loop (requires a service-side bearer token; see MonitoringService).
+    # background loop (requires the S2S credential cryptobot.s2s.*; see MonitoringService).
     enabled: ${CRYPTOBOT_MONITORING_ENABLED:false}
     symbols: ${CRYPTOBOT_MONITORING_SYMBOLS:BTCUSDT,SOLUSDT}
     interval: ${CRYPTOBOT_MONITORING_INTERVAL:10m}

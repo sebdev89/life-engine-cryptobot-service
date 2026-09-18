@@ -167,6 +167,14 @@ Manual validation against the oracle (dev only, needs network): `scripts/validat
   version is a DENY, never a default. A proposal approved under one `H_R` does not execute under
   another.
 - Tenant = the JWT subject, resolved server-side. No client-supplied tenant header exists.
+- Calls to Runtime always carry `Authorization: Bearer` (KAN-69). Requests made by a user forward
+  that user's JWT verbatim (`cryptobot.runtime.auth-mode=passthrough`, the default — Runtime sees
+  the real identity and tenant). Headless callers (the monitoring loop) and every call when
+  `auth-mode=service` use the service's own credential: an RS256 token obtained from Auth's
+  client-credentials endpoint (`POST {AUTH_INTERNAL_BASE_URL}/api/auth/internal/service-token`,
+  `aud=runtime`, `sub=service:cryptobot`), cached per audience and renewed before expiry. There is
+  no fallback to a static token or to an unauthenticated request; a real environment refuses to
+  start when the S2S path is active and the credential is missing.
 - No financial operation depends on HTTP alone (KAN-403, Endgame §31): the state machine is
   durable (`version` + status guard in the `UPDATE`), the signature is persisted before
   `sendTransaction`, a broadcast that times out is *uncertain* (left in flight for reconciliation),
@@ -391,6 +399,21 @@ Full list with defaults in `src/main/resources/application.yml` under `cryptobot
 reconciliation job: intervals, batch sizes, `max-attempts`, `grace`), `cryptobot.receipts`
 (`key-id`, `signing-key`, `salt-secret` — see `.env.template`), `cryptobot.anchor` (`enabled`,
 `cluster` = devnet only, `interval`, `batch-size`, `max-attempts`, `finality-wait`). Nothing
-secret has a default.
+secret has a default (`DevSecretNotShippedTest` fails the build if one appears in `application.yml`).
+
+Service-to-service credential towards Runtime (KAN-69):
+
+| Env var | Default | Notes |
+|---|---|---|
+| `CRYPTOBOT_RUNTIME_AUTH_MODE` | `passthrough` | `service` = every Runtime call with the S2S token; needs client `cryptobot` in Auth and `service:cryptobot` in Runtime's allowlist |
+| `AUTH_INTERNAL_BASE_URL` | `""` | internal Auth URL (never the public one); required when the S2S path is active in a real environment |
+| `CRYPTOBOT_S2S_CLIENT_ID` | `""` | `cryptobot`; required as above |
+| `CRYPTOBOT_S2S_CLIENT_SECRET` | `""` | the client's secret in Auth; SOPS/compose, never the repo |
+| `CRYPTOBOT_S2S_REFRESH_MARGIN_SECONDS` / `CRYPTOBOT_S2S_TIMEOUT_SECONDS` | `30` / `5` | |
+| `CRYPTOBOT_DB_USER` / `CRYPTOBOT_DB_PASSWORD` | `""` | required outside profile `local` (which keeps the dev pair) |
+
+"S2S path active" = `CRYPTOBOT_RUNTIME_AUTH_MODE=service` or `CRYPTOBOT_MONITORING_ENABLED=true`
+(the scheduled loop has no user behind it). "Real environment" = profile `prod`/`uat` or `APP_ENV`
+other than `local`/`test`/`dev`.
 The risk thresholds are **not** configuration since KAN-392: they are the versioned weights file
 (`risk-engine/weights-v1.json`) whose hash every receipt names.
