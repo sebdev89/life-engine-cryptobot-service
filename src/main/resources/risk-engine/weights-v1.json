@@ -1,0 +1,26 @@
+{
+  "engine": "risk-engine",
+  "version": "1.0.0",
+  "thresholds": {
+    "concentrationHighBps": 6000,
+    "concentrationMediumBps": 4000,
+    "minStableBps": 1000,
+    "dustUsdMicros": 1000000,
+    "sharpMoveBps": 500
+  },
+  "severityPoints": {
+    "HIGH": 40,
+    "MEDIUM": 20,
+    "LOW": 5
+  },
+  "scoreCap": 100,
+  "buckets": {
+    "riskPointsPerBucket": 10,
+    "confidenceStart": 9,
+    "confidencePenaltyPerUnpriced": 2,
+    "confidencePenaltyNoHistory": 1,
+    "maxPositionBase": 4,
+    "maxPositionPenaltyHighRisk": 1,
+    "maxPositionPenaltySharpDrop": 1
+  }
+}

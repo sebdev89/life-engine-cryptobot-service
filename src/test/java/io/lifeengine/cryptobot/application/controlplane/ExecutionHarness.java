@@ -62,7 +62,7 @@ final class ExecutionHarness {
     final ReceiptService receiptService = new ReceiptService(InMemoryControlPlaneRepositories.receipts(),
             ReceiptSigningKey.generate("test-key"), metrics);
     final Receipts receiptOf = new Receipts(new TenantSalts("test-salt-secret".getBytes(StandardCharsets.UTF_8)),
-            new RiskRulesProperties(null, null, null, null, null), null, new com.fasterxml.jackson.databind.ObjectMapper());
+            null, new com.fasterxml.jackson.databind.ObjectMapper());
     final ExecutionReceipts executionReceipts = new ExecutionReceipts(receiptService, receiptOf, metrics);
 
     final SolanaKeypair keypair = SolanaKeypair.generate();

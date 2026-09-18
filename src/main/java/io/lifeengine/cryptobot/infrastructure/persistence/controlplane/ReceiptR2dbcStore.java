@@ -1,6 +1,7 @@
 package io.lifeengine.cryptobot.infrastructure.persistence.controlplane;
 
 import io.lifeengine.cryptobot.application.controlplane.ControlPlaneExceptions;
+import io.lifeengine.cryptobot.domain.receipt.DeterministicInference;
 import io.lifeengine.cryptobot.domain.receipt.IntelligenceReceipt;
 import io.lifeengine.cryptobot.domain.receipt.ReceiptArtifact;
 import io.lifeengine.cryptobot.domain.receipt.ReceiptBody;
@@ -24,7 +25,7 @@ import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
 /**
- * {@code intelligence_receipt} + {@code receipt_edge} + {@code artifact}. The receipt row stores
+ * {@code intelligence_receipt} + {@code receipt_edge} + {@code artifact} + {@code deterministic_inference} (KAN-392). The receipt row stores
  * the canonical value tree as JSONB (what a lineage API returns) <em>and</em> the exact canonical
  * bytes that were hashed, so {@code verify} can check both that the bytes hash to the id and that
  * the JSON still canonicalises to those bytes.
@@ -47,7 +48,7 @@ public class ReceiptR2dbcStore implements ReceiptRepository {
     }
 
     @Override
-    public Mono<IntelligenceReceipt> insert(IntelligenceReceipt r, List<ReceiptEdge> edges, List<ReceiptArtifact> artifacts) {
+    public Mono<IntelligenceReceipt> insert(IntelligenceReceipt r, List<ReceiptEdge> edges, List<ReceiptArtifact> artifacts, DeterministicInference inference) {
         ReceiptBody b = r.body();
         DatabaseClient.GenericExecuteSpec spec = db.sql(
                         "INSERT INTO intelligence_receipt (receipt_hash, tenant_id, owner_id, kind, schema_version, nonce, wallet_id, proposal_id,"
@@ -86,8 +87,16 @@ public class ReceiptR2dbcStore implements ReceiptRepository {
             return s.fetch().rowsUpdated();
         }).then();
 
+        Mono<Void> inferenceRow = inference == null ? Mono.empty() : Mono.defer(() -> db.sql(
+                        "INSERT INTO deterministic_inference (receipt_hash, tenant_id, engine_id, engine_version, weights_hash, input, input_hash, output, output_hash)"
+                                + " VALUES (:hash, :tenant, :engine, :version, :weights, :input, :inputHash, :output, :outputHash) ON CONFLICT (receipt_hash) DO NOTHING")
+                .bind("hash", r.receiptHash()).bind("tenant", inference.tenantId()).bind("engine", inference.engineId()).bind("version", inference.engineVersion())
+                .bind("weights", inference.weightsHash()).bind("input", docs.write(inference.input())).bind("inputHash", inference.inputHash())
+                .bind("output", docs.write(inference.output())).bind("outputHash", inference.outputHash())
+                .fetch().rowsUpdated().then());
+
         // rows == 0 ⇒ the hash already existed: content-addressed no-op, nothing else to write.
-        return tx.transactional(receipt.flatMap(rows -> rows == 0 ? Mono.empty() : edgeRows.then(artifactRows)))
+        return tx.transactional(receipt.flatMap(rows -> rows == 0 ? Mono.empty() : edgeRows.then(artifactRows).then(inferenceRow)))
                 .onErrorMap(ReceiptR2dbcStore::isIntegrityViolation,
                         ex -> new ControlPlaneExceptions.Conflict("Receipt refused: nonce already used or a parent does not exist (" + r.receiptHash() + "): "
                                 + (ex.getCause() != null ? ex.getCause().getMessage() : ex.getMessage())))
@@ -103,6 +112,19 @@ public class ReceiptR2dbcStore implements ReceiptRepository {
     public Mono<IntelligenceReceipt> findByHash(String receiptHash) {
         return db.sql("SELECT " + COLS + " FROM intelligence_receipt WHERE receipt_hash = :hash")
                 .bind("hash", receiptHash).map((row, meta) -> read(row)).one();
+    }
+
+    @Override
+    @SuppressWarnings("unchecked")
+    public Mono<DeterministicInference> findInference(String receiptHash) {
+        return db.sql("SELECT receipt_hash, tenant_id, engine_id, engine_version, weights_hash, input, input_hash, output, output_hash"
+                        + " FROM deterministic_inference WHERE receipt_hash = :hash")
+                .bind("hash", receiptHash)
+                .map((row, meta) -> new DeterministicInference(row.get("receipt_hash", String.class), row.get("tenant_id", String.class),
+                        row.get("engine_id", String.class), row.get("engine_version", String.class), row.get("weights_hash", String.class),
+                        docs.read(row.get("input", Json.class), Map.class), row.get("input_hash", String.class),
+                        docs.read(row.get("output", Json.class), Map.class), row.get("output_hash", String.class)))
+                .one();
     }
 
     @Override

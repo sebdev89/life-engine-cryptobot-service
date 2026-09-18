@@ -60,7 +60,7 @@ class ProposalServiceTimelockTest {
         wallet = new Wallet(UUID.randomUUID(), Fixtures.OWNER, "wallet", SolanaCluster.DEVNET, "demo", NOW, NOW);
         ReceiptService receipts = new ReceiptService(InMemoryControlPlaneRepositories.receipts(), ReceiptSigningKey.generate("test-key"), metrics);
         Receipts receiptOf = new Receipts(new TenantSalts("test-salt-secret".getBytes(StandardCharsets.UTF_8)),
-                new RiskRulesProperties(null, null, null, null, null), null, new com.fasterxml.jackson.databind.ObjectMapper());
+                null, new com.fasterxml.jackson.databind.ObjectMapper());
         service = new ProposalService(repo, mock(PortfolioService.class), mock(RebalancePlanner.class), mock(RiskEngine.class),
                 mock(SimulationService.class), policy, mock(SignerClient.class), mock(ValidatorClient.class), audit, metrics, receipts, receiptOf,
                 Clock.fixed(NOW, ZoneOffset.UTC));

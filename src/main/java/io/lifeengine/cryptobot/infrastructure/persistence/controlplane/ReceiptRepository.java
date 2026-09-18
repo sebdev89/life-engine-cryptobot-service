@@ -1,5 +1,6 @@
 package io.lifeengine.cryptobot.infrastructure.persistence.controlplane;
 
+import io.lifeengine.cryptobot.domain.receipt.DeterministicInference;
 import io.lifeengine.cryptobot.domain.receipt.IntelligenceReceipt;
 import io.lifeengine.cryptobot.domain.receipt.ReceiptArtifact;
 import io.lifeengine.cryptobot.domain.receipt.ReceiptEdge;
@@ -22,11 +23,17 @@ public interface ReceiptRepository {
      *   <li>Same hash again ⇒ no-op, the stored receipt is returned (content-addressed).
      *   <li>Same {@code (tenantId, nonce)} with a different hash ⇒ {@code Conflict}: a replay.
      *   <li>A parent that does not exist ⇒ {@code Conflict} (FK): the DAG never dangles.
+     *   <li>{@code inference} (nullable) is written in the same transaction: an L1 receipt is never
+     *       stored without the trees that make it re-executable.
      * </ul>
      */
-    Mono<IntelligenceReceipt> insert(IntelligenceReceipt receipt, List<ReceiptEdge> edges, List<ReceiptArtifact> artifacts);
+    Mono<IntelligenceReceipt> insert(IntelligenceReceipt receipt, List<ReceiptEdge> edges, List<ReceiptArtifact> artifacts,
+            DeterministicInference inference);
 
     Mono<IntelligenceReceipt> findByHash(String receiptHash);
+
+    /** The stored input/output trees of an L1 receipt (KAN-392), if the issuing step kept them. */
+    Mono<DeterministicInference> findInference(String receiptHash);
 
     /** Owner-scoped lookup: a receipt of another owner is a 404, not a 403. */
     Mono<IntelligenceReceipt> findByHashAndOwner(String receiptHash, UUID ownerId);

@@ -17,7 +17,7 @@ wallet → portfolio → risk detection → AI analysis → rebalance proposal
 |---|---|---|
 | Track a wallet | Any public Solana address (devnet, or mainnet read-only). SOL + SPL/Token-2022 balances, recent signatures. | `adapters/solana/SolanaRpcClient` |
 | Value it | Jupiter Price v3 by mint (keyless), labelled fallback when the oracle is down. Devnet mints are valued as the mainnet asset they represent. | `adapters/marketdata` |
-| Detect risk | Deterministic rules: concentration (> 60 % HIGH, > 40 % MEDIUM), no stablecoin buffer, dust, unpriced tokens, sharp move since the last snapshot. | `application/controlplane/RiskEngine` |
+| Detect risk | Deterministic rules: concentration (≥ 60 % HIGH, ≥ 40 % MEDIUM), no stablecoin buffer, dust, unpriced tokens, sharp move since the last snapshot. Since KAN-392 the rules are a **versioned pure-Java engine** (`risk-engine 1.0.0`): integer input in basis points / micro-dollars, integer weights in a hashed JSON (`weightsHash`), discrete output (action, 0–9 buckets, reason codes) — the only L1 step of the pipeline; the prose is rendered afterwards and never enters a hash. | `domain/risk/DeterministicRiskEngine` · `application/controlplane/RiskEngine` (adapter) |
 | Ask in natural language | *"¿Cuál es mi mayor riesgo?"* → Life Engine Runtime workflow `crypto.portfolio-advisor.v1` (one LLM stage, strict JSON). The model sees positions, weights and findings — **never a key, never a transaction**. | `AdvisorService` · runtime `ext/cryptomarketreview/portfolio` |
 | Propose | *"SOL 70 % → 50 %"* → planner computes the legs; the LLM never sets amounts. | `RebalancePlanner` |
 | Simulate | Economic (spot × amount, fee) **and** on-chain: the exact unsigned transaction goes through `simulateTransaction` (`sigVerify=false`, so read-only wallets simulate too). | `SimulationService` |
@@ -100,7 +100,7 @@ All endpoints take `Authorization: Bearer <Life Engine JWT>`. Everything is scop
 | `POST /api/cryptobot/proposals/{id}/approve` · `/reject` | human decision |
 | `POST /api/cryptobot/proposals/{id}/execute` (header `Idempotency-Key: <uuid>` or body `{operationId}`) | devnet execution. Same key ⇒ same result, never a second transaction; different key while `EXECUTING`/`SUBMITTED` ⇒ 409 (KAN-403) |
 | `GET /api/cryptobot/proposals/{id}` · `/audit` · `/events` | proposal with its trail · durable `trade.*` events (outbox, with delivery state) and dead letters |
-| `GET /api/cryptobot/receipts/{hash}` · `POST …/verify` · `GET /api/cryptobot/proposals/{id}/receipts` · `GET /api/cryptobot/wallets/{id}/receipts` · `GET /api/cryptobot/receipts/signing-key` | a receipt with its edges · recompute hash + body + signature + parents · the receipts of a proposal (oldest first) / a wallet (newest first) · the public key and the three formulas to verify offline (KAN-391) |
+| `GET /api/cryptobot/receipts/{hash}` · `POST …/verify` · `GET /api/cryptobot/proposals/{id}/receipts` · `GET /api/cryptobot/wallets/{id}/receipts` · `GET /api/cryptobot/receipts/signing-key` | a receipt with its edges · recompute hash + body + signature + parents and, for an L1 `RISK_DECISION`, **re-run the engine** on the stored input and compare `outputHash` (`reproduced`, `reproduction.reason`, KAN-392) · the receipts of a proposal (oldest first) / a wallet (newest first) · the public key and the three formulas to verify offline (KAN-391) |
 | `GET /api/cryptobot/quotes/{asset}?ars=<monto>&network=<red>` · `?side=SELL&amount=<unidades>` | ARS quotes across Argentine exchanges, ranked "recibís X" (KAN-355) |
 
 ### ARS quotes across exchanges (KAN-355)
@@ -316,7 +316,7 @@ this database**. One receipt per step, schema `ir/1`:
 | body | `kind`, `tenantId`/`ownerId` (the JWT subject, server-side), `agentId`, `parents[]`, `inputs[{type,hash}]`, `promptHash`, `model{ref,provider,providerDigest,weightsHash}`, `engine{id,version,weightsHash}`, `runtime{runId,serviceVersion,serviceCommit}`, `params`, `output{hash,schema,artifactRef}`, `compute{inputTokens,outputTokens,units,wallMs}`, `reproducibility`, `startedAt`, `completedAt`, `nonce`, `refs{walletId,proposalId,snapshotId}`. Hashes, ids, versions, counts, timestamps — **never a prompt, an answer, a chunk or a key**. |
 | privacy | the user's question and the payload sent to the Runtime are committed as `H(salt_tenant ‖ 0x00 ‖ text)`, `salt_tenant = HMAC-SHA256(secret, tenantId)`: a short guessable text cannot be confirmed by brute force from the receipt; the salt opens it in an audit. |
 | signature | Ed25519 by the service key (`cryptobot.receipts.signing-key`, 64-byte `seed ‖ pub`, from `secrets/`; `key-id` for rotation) over `"life-engine.cryptobot.receipt.sig" ‖ 0x00 ‖ receiptHashBytes`. No key configured ⇒ ephemeral key, WARN in the log, fine for a dev box. `GET /receipts/signing-key` publishes the public half. |
-| levels | `L0_SIGNED` for everything the LLM or the chain touched; `L1_REPRODUCIBLE` only for the pure-Java engines (`risk-engine`, `rebalance-planner`), whose `output.hash` another node recomputes from the same inputs. `reproduced` in `verify` stays `null` until the engine re-execution of the next issue: a receipt is never marked reproduced because it says so. |
+| levels | `L0_SIGNED` for everything the LLM or the chain touched; `L1_REPRODUCIBLE` only for the pure-Java engines (`risk-engine`, `rebalance-planner`), whose `output.hash` another node recomputes from the same inputs. `verify` re-executes `risk-engine` receipts (KAN-392, below) and reports `reproduced` = `true` / `false` / `null` (not L1, or an engine this build cannot re-run — today the planner); a `false` makes the receipt invalid. A receipt is never marked reproduced because it says so. |
 | replay | `UNIQUE (tenant_id, nonce)`: snapshot id, message id, Runtime run id, proposal id, `sim:<proposal>`, `exec:<operationId>` — the idempotency key of KAN-403 is also the receipt's replay guard; the reconciler leaves the same `EXECUTION` receipt the interrupted path would have. |
 | tables | `intelligence_receipt` (body JSONB + the exact canonical bytes + signature + anchor columns, filled later by the memo batch), `receipt_edge` (child → parent, role `DERIVES_FROM \| VALIDATES \| EXECUTES \| REUSES`), `artifact` (content-addressed outputs, `storage_ref` into the aggregate). Migration `V6`. |
 | what is measured | tokens and latency come from the Runtime run's `LLM_CALL_SUCCEEDED` events; no tokens ⇒ no `compute` block. `cost` is never claimed (no price table yet). Meters: `intelligence_receipts_total{result=issued\|verified\|invalid\|failed}`, `deterministic_inference_total`. |
@@ -326,10 +326,25 @@ Golden vectors (`src/test/resources/receipt/vectors-v1.json`) were produced outs
 signatures and salted commitments (NFC and NFD forms of the same question commit equal). v1 is
 frozen; a change of canonicalization is `ir/2` and a new file.
 
+### Deterministic risk engine (KAN-392, Endgame §5 / §10)
+
+The one thing in the pipeline that is **L1 for real**. Not "deterministic AI": the LLM proposes
+(L0), this validates, classifies and bounds — *the final decision passes through a deterministic,
+versioned, reproducible validator*.
+
+| | |
+|---|---|
+| model | `DeterministicDecision(engineId, engineVersion, weightsHash, canonicalInput) → canonicalOutput`. `risk-engine 1.0.0`: the six rules above plus scoring, as a pure function over `int`/`long` — no floating point, no clock, no randomness, no threads, no native code. Java specifies that arithmetic exactly, so the output bytes are the same on x86_64, ARM64 and the CI runner by construction. |
+| input | `risk-input/1` (`RiskInput`): positions sorted by mint with `exposureBps` (0–10 000), `valueUsdMicros`, `held`/`priced`/`stable`; `totalUsdMicros`; optional `deltaBps` + `largestMoveAsset`. The quantisation from the valued snapshot (`HALF_UP`) is part of the model. Its hash is declared in the receipt as input type `RISK_INPUT`. |
+| weights | `src/main/resources/risk-engine/weights-v1.json`, integers only (thresholds in bps / micro-dollars, severity points, bucket rules). `weightsHash = SHA-256(JCS(file))` — what every `RISK_DECISION` receipt names under `engine.weightsHash`. No runtime override on purpose: a property-driven threshold would make the receipt describe a file the engine was not running. An edited value is a new model ⇒ bump the version. |
+| output | `risk-decision/1` (`RiskVerdict`): `action ∈ {HOLD, BUY, SELL, AVOID}` (+ `asset` for `SELL`), `riskBucket`, `confidenceBucket`, `maxPositionBucket` (0–9), `reasons[]` (codes), `signals[]` (rule, severity, integer metric/threshold), `overall`, `score`. Ties broken by the input's fixed order. `output.hash` = SHA-256 of its canonical bytes. |
+| re-execution | `deterministic_inference` (migration `V7`) keeps the input and output trees next to each L1 receipt, written in the same transaction; `POST /receipts/{hash}/verify` recomputes both hashes from the trees, checks they are the ones the receipt names, runs the engine again and compares. Reasons: `REPRODUCED`, `OUTPUT_HASH_MISMATCH`, `INPUT_HASH_MISMATCH`, `STORED_OUTPUT_HASH_MISMATCH`, `INFERENCE_MISSING`, `WEIGHTS_UNAVAILABLE` (an older weights file this build does not ship), `ENGINE_UNKNOWN` (L1 claimed by an engine without a re-executor), `NOT_L1`. A mismatch increments `deterministic_mismatch_total` and logs `reproducibility_mismatch`. |
+| golden | `src/test/resources/risk-engine/golden-v1.json`: **200 inputs → 200 `inputHash` / `outputHash`**, 21 hand-picked edge cases (empty, exact thresholds, ties, dust, unpriced, the full penalty stack) + 179 generated from a fixed seed, inlined so the file is the evidence. `RiskEngineGoldenTest` re-runs all of them and also pins `weightsHash` and the version: any drift without a version bump is red, locally and in CI. The 200 input hashes and the weights hash were cross-checked with an independent Python JCS + `hashlib` implementation. Regenerate only after a bump: `./mvnw test -Dtest=RiskEngineGoldenTest -Drisk.golden.write=$PWD/src/test/resources/risk-engine/golden-v1.json`. |
+
 ## Tests
 
 ```bash
-./mvnw test                     # 361 tests: independent validator client + fail-closed execution + timelock/cancel + default-policy parity (KAN-438), adapters (recorded responses), engines, state machine, HTTP flow with fake RPC + Runtime, ARS quotes (fixtures, no network), idempotency + crash/reconciliation + outbox (KAN-403), intent schema + canonicalization vectors (KAN-435), deterministic policy: decision table + golden vectors + 2-implementation agreement (KAN-436), adversarial benchmark 10 000 intents + invariants I1–I7 + chaos (KAN-440), PDA derivation + program client vs SDK vectors (KAN-437), receipt vectors + DAG invariants + verify + the 7-kind DAG over the HTTP flow (KAN-391)
+./mvnw test                     # 376 tests (1 skipped: the golden writer): independent validator client + fail-closed execution + timelock/cancel + default-policy parity (KAN-438), adapters (recorded responses), engines, state machine, HTTP flow with fake RPC + Runtime, ARS quotes (fixtures, no network), idempotency + crash/reconciliation + outbox (KAN-403), intent schema + canonicalization vectors (KAN-435), deterministic policy: decision table + golden vectors + 2-implementation agreement (KAN-436), adversarial benchmark 10 000 intents + invariants I1–I7 + chaos (KAN-440), PDA derivation + program client vs SDK vectors (KAN-437), receipt vectors + DAG invariants + verify + the 7-kind DAG over the HTTP flow (KAN-391), risk engine: canonical input/output, action table, tie-breaks, 200-hash golden, L1 re-execution with every reason code (KAN-392)
 ./mvnw -f signer/pom.xml test   # 18 tests: signing policy (every refusal reason), token, signature verification, attestation gate (KAN-438)
 ./mvnw -f validator/pom.xml test  # 25 tests: independent table vs golden vectors, agreement/disagreement/hash pin, attestation, HTTP (KAN-438)
 (cd programs/intent-authority && cargo test)   # 29 tests: on-chain rules, bank simulator, shared vectors (KAN-437)
@@ -354,7 +369,9 @@ README and the Docker files. The exact list lives in the vault:
 ## Configuration
 
 Full list with defaults in `src/main/resources/application.yml` under `cryptobot.solana`,
-`cryptobot.marketdata`, `cryptobot.quotes`, `cryptobot.risk`, `cryptobot.policy`,
+`cryptobot.marketdata`, `cryptobot.quotes`, `cryptobot.policy`,
 `cryptobot.policy.timelock`, `cryptobot.signer`, `cryptobot.validator`, `cryptobot.advisor`, `cryptobot.reliability` (outbox publisher and
 reconciliation job: intervals, batch sizes, `max-attempts`, `grace`), `cryptobot.receipts`
 (`key-id`, `signing-key`, `salt-secret` — see `.env.template`). Nothing secret has a default.
+The risk thresholds are **not** configuration since KAN-392: they are the versioned weights file
+(`risk-engine/weights-v1.json`) whose hash every receipt names.
