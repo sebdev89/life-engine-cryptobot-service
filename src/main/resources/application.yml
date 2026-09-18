@@ -37,9 +37,8 @@ cryptobot:
     base-url: ${CRYPTOBOT_RUNTIME_BASE_URL:http://localhost:8090}
     workflow-id: crypto.market-review.v1
   snapshot:
-    # Phase 1 keeps deterministic-local as the safe default. Switch to `binance-public`
-    # to call api.binance.com/api/v3/ticker/24hr (read-only, no API key) once that path
-    # is verified in your environment.
+    # deterministic-local (default, offline) · binance-public (api.binance.com ticker 24h) ·
+    # solana-public (GeckoTerminal pool + Jupiter price; keyless). All read-only.
     provider: ${CRYPTOBOT_SNAPSHOT_PROVIDER:deterministic-local}
   security:
     enabled: ${CRYPTOBOT_SECURITY_ENABLED:true}
@@ -54,6 +53,143 @@ cryptobot:
     symbols: ${CRYPTOBOT_MONITORING_SYMBOLS:BTCUSDT,SOLUSDT}
     interval: ${CRYPTOBOT_MONITORING_INTERVAL:10m}
     workflow-id: ${CRYPTOBOT_MONITORING_WORKFLOW_ID:crypto.market-review.v1}
+
+  # ---- Colosseum control plane (wallet → portfolio → risk → advisor → proposal → approval) ----
+  solana:
+    # Market data for the market-review pipeline (symbol → DEX pool). Binance stays; Solana is added.
+    market:
+      gecko-terminal-base-url: ${CRYPTOBOT_GECKOTERMINAL_BASE_URL:https://api.geckoterminal.com}
+      jupiter-base-url: ${CRYPTOBOT_JUPITER_BASE_URL:https://lite-api.jup.ag}
+      timeout: 6s
+      pools:
+        SOLUSDC: 58oQChx4yWmvKdwLLZzBi4ChoCc2fqCUWBkwMihLYQo2   # Raydium SOL/USDC
+      mints: {}
+    rpc:
+      devnet-url: ${CRYPTOBOT_SOLANA_DEVNET_RPC:https://api.devnet.solana.com}
+      mainnet-url: ${CRYPTOBOT_SOLANA_MAINNET_RPC:https://api.mainnet-beta.solana.com}
+      timeout: ${CRYPTOBOT_SOLANA_RPC_TIMEOUT:8s}
+  marketdata:
+    jupiter-enabled: ${CRYPTOBOT_JUPITER_ENABLED:true}
+    jupiter-base-url: ${CRYPTOBOT_JUPITER_BASE_URL:https://lite-api.jup.ag}
+    timeout: 6s
+    # Stale-but-honest prices used only when Jupiter is unreachable; the snapshot says "fallback-static".
+    fallback-prices:
+      SOL: 100
+      USDC: 1
+      USDT: 1
+      JUP: 0.5
+      BONK: 0.00002
+      MSOL: 120
+      JITOSOL: 118
+    # devnet mint → mainnet mint it is valued as. Circle devnet USDC is built in; add your own here.
+    aliases: {}
+  # ---- ARS quotes across Argentine exchanges (KAN-355): GET /api/cryptobot/quotes/{asset} ----
+  # Public, keyless, read-only price feeds only. One board per exchange, cached cache-ttl (30–60 s by
+  # design); a failed refresh serves the previous board flagged stale while younger than stale-max.
+  quotes:
+    cache-ttl: ${CRYPTOBOT_QUOTES_CACHE_TTL:45s}
+    stale-max: ${CRYPTOBOT_QUOTES_STALE_MAX:5m}
+    timeout: ${CRYPTOBOT_QUOTES_TIMEOUT:5s}
+    exchanges:
+      bitso:
+        enabled: ${CRYPTOBOT_QUOTES_BITSO_ENABLED:true}
+        base-url: ${CRYPTOBOT_QUOTES_BITSO_BASE_URL:https://api.bitso.com}
+      ripio:
+        enabled: ${CRYPTOBOT_QUOTES_RIPIO_ENABLED:true}
+        base-url: ${CRYPTOBOT_QUOTES_RIPIO_BASE_URL:https://app.ripio.com}
+      buenbit:
+        enabled: ${CRYPTOBOT_QUOTES_BUENBIT_ENABLED:true}
+        base-url: ${CRYPTOBOT_QUOTES_BUENBIT_BASE_URL:https://be.buenbit.com}
+    # Withdrawal fees in units of the asset, by exchange → asset → network. None of the three feeds
+    # publishes fees on a public endpoint, so this table is maintained by hand from each exchange's
+    # fee page and is reported as source=CONFIGURED (never as live). Empty by default on purpose:
+    # an unknown fee is shown as "not applied", a made-up one would rank exchanges wrongly.
+    # Example:
+    #   ripio:
+    #     USDT:
+    #       TRON: 1
+    withdrawal-fees: {}
+  risk:
+    concentration-high-pct: ${CRYPTOBOT_RISK_CONCENTRATION_HIGH:60}
+    concentration-medium-pct: ${CRYPTOBOT_RISK_CONCENTRATION_MEDIUM:40}
+    min-stable-pct: ${CRYPTOBOT_RISK_MIN_STABLE:10}
+    dust-usd: 1
+    sharp-move-pct: 5
+  policy:
+    # Emergency stop. false ⇒ nothing is ever signed or broadcast; proposals still work as paper trades.
+    execution-enabled: ${CRYPTOBOT_EXECUTION_ENABLED:true}
+    execution-cluster: devnet
+    max-trade-usd: ${CRYPTOBOT_POLICY_MAX_TRADE_USD:500}
+    max-trade-pct-of-portfolio: ${CRYPTOBOT_POLICY_MAX_TRADE_PCT:50}
+    allowed-assets: SOL,USDC,USDT
+    cooldown: ${CRYPTOBOT_POLICY_COOLDOWN:60s}
+    # Destination of the executable SOL leg on devnet. Empty ⇒ proposals are approvable but not executable.
+    rebalance-vault: ${CRYPTOBOT_REBALANCE_VAULT:}
+    max-lamports-per-tx: ${CRYPTOBOT_POLICY_MAX_LAMPORTS:2000000000}
+    proposal-ttl: 30m
+    # KAN-436 — versioned deterministic policy R_v (paper §8/§11/§18). Converted to integers at
+    # startup; H_R = SHA-256 of the canonical record is committed in every verdict. Tiers by trade
+    # value: ≤ autonomous-up-to ⇒ ALLOW · ≤ second-agent-up-to ⇒ ESCALATE(second agent) ·
+    # ≤ max-trade-usd (above) ⇒ ESCALATE(human signature) · beyond ⇒ DENY. Bump `version` when
+    # any value changes: proposals evaluated under another hash are refused at execution.
+    authorization:
+      version: ${CRYPTOBOT_POLICY_VERSION:cryptobot-policy-v1}
+      autonomous-up-to-usd: ${CRYPTOBOT_POLICY_AUTONOMOUS_UP_TO_USD:100}
+      second-agent-up-to-usd: ${CRYPTOBOT_POLICY_SECOND_AGENT_UP_TO_USD:250}
+      daily-limit-usd: ${CRYPTOBOT_POLICY_DAILY_LIMIT_USD:2500}
+      max-asset-exposure-bps: ${CRYPTOBOT_POLICY_MAX_ASSET_EXPOSURE_BPS:8000}
+      max-slippage-bps: ${CRYPTOBOT_POLICY_MAX_SLIPPAGE_BPS:100}
+      # The tolerance the executor applies; must be within max-slippage-bps or every trade is denied.
+      executor-slippage-bps: ${CRYPTOBOT_POLICY_EXECUTOR_SLIPPAGE_BPS:50}
+      # A plan priced on an older snapshot is denied (ORACLE_FRESH): refresh the wallet first.
+      max-oracle-age: ${CRYPTOBOT_POLICY_MAX_ORACLE_AGE:15m}
+      enabled-strategies: REBALANCE
+  signer:
+    enabled: ${CRYPTOBOT_SIGNER_ENABLED:false}
+    base-url: ${CRYPTOBOT_SIGNER_BASE_URL:http://localhost:8096}
+    # Shared service token (NOT a key). Must match SIGNER_TOKEN of cryptobot-signer.
+    token: ${CRYPTOBOT_SIGNER_TOKEN:}
+    timeout: 8s
+  # ---- Reliable execution (KAN-403, Endgame §31) ----
+  # Outbox: events are written in the same transaction as the proposal state; the publisher hands
+  # them to the OutboxSink (a structured log line until the broker of KAN-402) with backoff, and
+  # dead-letters them after max-attempts. Reconciliation: at startup and every `interval`, in-flight
+  # proposals (EXECUTING/SUBMITTED) older than `grace` are resolved against getSignatureStatuses —
+  # never re-sent. Ambiguous after max-attempts ⇒ dead letter (dlq_size > 0 is the alert).
+  reliability:
+    outbox:
+      enabled: ${CRYPTOBOT_OUTBOX_ENABLED:true}
+      poll-interval: ${CRYPTOBOT_OUTBOX_POLL_INTERVAL:2s}
+      batch-size: 50
+      max-attempts: 8
+      initial-backoff: 1s
+      max-backoff: 5m
+    reconciliation:
+      enabled: ${CRYPTOBOT_RECONCILIATION_ENABLED:true}
+      interval: ${CRYPTOBOT_RECONCILIATION_INTERVAL:30s}
+      # An in-flight row younger than this is assumed to belong to a live request and is left alone.
+      grace: ${CRYPTOBOT_RECONCILIATION_GRACE:2m}
+      max-attempts: 20
+      batch-size: 100
+  # ---- Business metrics (KAN-425): /actuator/prometheus, names in observability/CryptobotMetrics ----
+  metrics:
+    # Extra values allowed in the `asset` label, on top of policy.allowed-assets and monitoring.symbols.
+    # Any other symbol is reported as `other` so a caller cannot create series (cardinality is bounded).
+    assets: ${CRYPTOBOT_METRICS_ASSETS:}
+  advisor:
+    workflow-id: ${CRYPTOBOT_ADVISOR_WORKFLOW_ID:crypto.portfolio-advisor.v1}
+    timeout: ${CRYPTOBOT_ADVISOR_TIMEOUT:90s}
+    poll-interval: 1500ms
+    locale: ${CRYPTOBOT_ADVISOR_LOCALE:en}
+  # ---- Decision Receipts (KAN-391, Endgame §6-7) ----
+  # signing-key: 64-byte Ed25519 secret (seed ‖ public key, the solana-keygen layout) in base64 or hex.
+  # A secret: from secrets/, never a default here. Empty ⇒ ephemeral key at startup (dev only, WARN in the log).
+  # salt-secret: the secret the per-tenant prompt-commitment salts derive from. Same rules.
+  receipts:
+    key-id: ${CRYPTOBOT_RECEIPT_KEY_ID:}
+    signing-key: ${CRYPTOBOT_RECEIPT_SIGNING_KEY:}
+    salt-secret: ${CRYPTOBOT_RECEIPT_SALT_SECRET:}
+    price-table-version: ${CRYPTOBOT_RECEIPT_PRICE_TABLE:none}
 
 lifeengine:
   # Deployment environment for build identity (/actuator/info) and metric common tags. From APP_ENV —
