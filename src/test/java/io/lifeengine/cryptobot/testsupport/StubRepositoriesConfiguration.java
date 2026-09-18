@@ -103,4 +103,9 @@ public class StubRepositoriesConfiguration {
     io.lifeengine.cryptobot.infrastructure.persistence.controlplane.DeadLetterRepository deadLetterRepository() {
         return InMemoryControlPlaneRepositories.deadLetters();
     }
+
+    @Bean
+    io.lifeengine.cryptobot.infrastructure.persistence.controlplane.ReceiptRepository receiptRepository() {
+        return InMemoryControlPlaneRepositories.receipts();
+    }
 }

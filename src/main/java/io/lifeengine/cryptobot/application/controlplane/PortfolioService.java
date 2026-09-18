@@ -3,6 +3,7 @@ package io.lifeengine.cryptobot.application.controlplane;
 import io.lifeengine.cryptobot.adapters.marketdata.PriceProvider;
 import io.lifeengine.cryptobot.adapters.marketdata.TokenRegistry;
 import io.lifeengine.cryptobot.adapters.solana.SolanaRpcClient;
+import io.lifeengine.cryptobot.application.receipt.ReceiptService;
 import io.lifeengine.cryptobot.domain.portfolio.PortfolioChange;
 import io.lifeengine.cryptobot.domain.portfolio.PortfolioDiff;
 import io.lifeengine.cryptobot.domain.portfolio.PortfolioSnapshot;
@@ -41,6 +42,8 @@ public class PortfolioService {
     private final TokenRegistry registry;
     private final PortfolioSnapshotRepository snapshots;
     private final RiskEngine riskEngine;
+    private final ReceiptService receipts;
+    private final Receipts receiptOf;
     private final Clock clock;
 
     public PortfolioService(
@@ -48,16 +51,27 @@ public class PortfolioService {
             PriceProvider prices,
             TokenRegistry registry,
             PortfolioSnapshotRepository snapshots,
-            RiskEngine riskEngine) {
+            RiskEngine riskEngine,
+            ReceiptService receipts,
+            Receipts receiptOf) {
         this.rpc = rpc;
         this.prices = prices;
         this.registry = registry;
         this.snapshots = snapshots;
         this.riskEngine = riskEngine;
+        this.receipts = receipts;
+        this.receiptOf = receiptOf;
         this.clock = Clock.systemUTC();
     }
 
-    /** Reads the chain and stores a fresh snapshot; returns it with risk + diff vs the previous one. */
+    /**
+     * Reads the chain and stores a fresh snapshot; returns it with risk + diff vs the previous one.
+     *
+     * <p>KAN-391: the two first receipts of the pipeline are issued here — {@code WALLET_SNAPSHOT}
+     * (what the chain and the oracle said) and, derived from it, {@code RISK_DECISION} (what the
+     * deterministic engine concluded, L1). Their nonces are the snapshot id, so a snapshot has
+     * exactly one receipt of each kind.
+     */
     public Mono<PortfolioView> refresh(Wallet wallet) {
         Mono<Long> lamports = rpc.getBalanceLamports(wallet.cluster(), wallet.address());
         Mono<List<SolanaRpcClient.TokenAccountBalance>> tokens = rpc.getTokenAccountsByOwner(wallet.cluster(), wallet.address());
@@ -67,7 +81,12 @@ public class PortfolioService {
         return Mono.zip(lamports, tokens, txCount)
                 .flatMap(t -> value(wallet, t.getT1(), t.getT2(), t.getT3()))
                 .flatMap(snapshot -> previous(wallet.id()).map(Optional::of).defaultIfEmpty(Optional.empty())
-                        .flatMap(prev -> snapshots.insert(snapshot).map(saved -> view(saved, prev.orElse(null)))));
+                        .flatMap(prev -> snapshots.insert(snapshot).flatMap(saved -> {
+                            PortfolioView v = view(saved, prev.orElse(null));
+                            return receipts.issue(receiptOf.walletSnapshot(wallet, saved))
+                                    .flatMap(sr -> receipts.issue(receiptOf.riskDecision(wallet, saved, v.changes(), v.risk(), sr.receiptHash())))
+                                    .thenReturn(v);
+                        })));
     }
 
     /** Latest stored snapshot (or a fresh one if none exists yet). */

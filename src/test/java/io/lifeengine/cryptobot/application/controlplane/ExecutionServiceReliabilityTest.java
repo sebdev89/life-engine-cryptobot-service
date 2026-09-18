@@ -42,7 +42,7 @@ class ExecutionServiceReliabilityTest {
     private final ReliabilityProperties props = new ReliabilityProperties(null,
             new ReliabilityProperties.Reconciliation(true, Duration.ofSeconds(30), Duration.ofMinutes(2), 3, 100));
     private final ReconciliationService reconciliation = new ReconciliationService(h.repo, InMemoryControlPlaneRepositories.deadLetters(),
-            h.rpc, h.audit, h.metrics, props);
+            h.rpc, h.audit, h.metrics, props, h.executionReceipts);
 
     @Test
     @DisplayName("double POST with the same operationId: one sendTransaction, same result, duplicate counted")
@@ -63,6 +63,17 @@ class ExecutionServiceReliabilityTest {
         verify(h.rpc, times(1)).sendTransaction(eq(SolanaCluster.DEVNET), anyString());
         assertThat(h.count("duplicate.trade.suppressed")).isEqualTo(1);
         assertThat(h.count("trade.submitted", "asset", "SOL")).isEqualTo(1);
+
+        // KAN-391: one attempt ⇒ one EXECUTION receipt (nonce = the operation id), signed, with the chain's answer hashed in.
+        assertThat(h.receipts()).hasSize(1);
+        var receipt = h.receipts().get(0);
+        assertThat(receipt.kind()).isEqualTo(io.lifeengine.cryptobot.domain.receipt.ReceiptKind.EXECUTION);
+        assertThat(receipt.body().nonce()).isEqualTo("exec:" + op);
+        assertThat(receipt.body().inputs()).extracting(io.lifeengine.cryptobot.domain.receipt.ReceiptInput::type)
+                .contains(io.lifeengine.cryptobot.domain.receipt.ReceiptInput.TRANSACTION, io.lifeengine.cryptobot.domain.receipt.ReceiptInput.APPROVAL);
+        assertThat(receipt.canonicalJson()).doesNotContain(sig); // the signature is hashed inside output.hash, never listed in clear
+        assertThat(h.receiptService.verify(receipt).block().valid()).isTrue();
+        assertThat(h.count("intelligence.receipts", "result", "issued")).isEqualTo(1);
     }
 
     @Test
@@ -136,6 +147,11 @@ class ExecutionServiceReliabilityTest {
         ActionProposal replay = h.service.execute(h.wallet.ownerUserId(), h.approved.id(), "op", op).block();
         assertThat(replay.status()).isEqualTo(ProposalStatus.EXECUTED);
         verify(h.rpc, times(1)).sendTransaction(eq(SolanaCluster.DEVNET), anyString());
+
+        // KAN-391: the reconciler left the EXECUTION receipt the interrupted path could not; the replay did not mint a second one.
+        assertThat(h.receipts()).hasSize(1);
+        assertThat(h.receipts().get(0).body().nonce()).isEqualTo("exec:" + op);
+        assertThat(h.receipts().get(0).body().reproducibility()).isEqualTo(io.lifeengine.cryptobot.domain.receipt.ReproducibilityLevel.L0_SIGNED);
     }
 
     @Test
@@ -175,6 +191,10 @@ class ExecutionServiceReliabilityTest {
         verify(h.rpc, never()).getSignatureStatus(any(), anyString());
         verify(h.rpc, never()).sendTransaction(any(), anyString());
         assertThat(h.outboxTypes()).containsExactly(TradeEvents.FAILED);
+        // KAN-391: a refused execution is a decision too — it leaves a FAILED EXECUTION receipt.
+        assertThat(h.receipts()).hasSize(1);
+        assertThat(h.receipts().get(0).kind()).isEqualTo(io.lifeengine.cryptobot.domain.receipt.ReceiptKind.EXECUTION);
+        assertThat(h.receipts().get(0).body().output().schema()).isEqualTo("execution/1");
     }
 
     @Test
@@ -250,12 +270,12 @@ class ExecutionServiceReliabilityTest {
         h.service.execute(h.wallet.ownerUserId(), h.approved.id(), "op", UUID.randomUUID()).block();
 
         // "now" is right after the request: inside the 2-minute grace ⇒ untouched.
-        ReconciliationService young = new ReconciliationService(h.repo, InMemoryControlPlaneRepositories.deadLetters(), h.rpc, h.audit, h.metrics, props,
+        ReconciliationService young = new ReconciliationService(h.repo, InMemoryControlPlaneRepositories.deadLetters(), h.rpc, h.audit, h.metrics, props, h.executionReceipts,
                 Clock.fixed(h.current().updatedAt().plusSeconds(10), ZoneOffset.UTC));
         assertThat(young.sweep().block()).isZero();
         assertThat(h.current().status()).isEqualTo(ProposalStatus.SUBMITTED);
 
-        ReconciliationService old = new ReconciliationService(h.repo, InMemoryControlPlaneRepositories.deadLetters(), h.rpc, h.audit, h.metrics, props,
+        ReconciliationService old = new ReconciliationService(h.repo, InMemoryControlPlaneRepositories.deadLetters(), h.rpc, h.audit, h.metrics, props, h.executionReceipts,
                 Clock.fixed(h.current().updatedAt().plus(Duration.ofMinutes(3)), ZoneOffset.UTC));
         assertThat(old.sweep().block()).isEqualTo(1);
         assertThat(h.current().status()).isEqualTo(ProposalStatus.EXECUTED);

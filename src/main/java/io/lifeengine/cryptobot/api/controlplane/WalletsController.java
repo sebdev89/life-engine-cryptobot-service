@@ -83,7 +83,7 @@ public class WalletsController {
                     ? Mono.empty() : proposals.require(p.userId(), req.proposalId());
             return ctx.map(java.util.Optional::of).defaultIfEmpty(java.util.Optional.empty())
                     .flatMap(opt -> advisor.ask(w, Principals.actor(p), req.question(), opt.orElse(null), p.rawToken()))
-                    .map(a -> new ControlPlaneDtos.AskResponse(a.answer(), a.runtimeRunId(), a.runtimeBaseUrl(), a.ssePath()));
+                    .map(a -> new ControlPlaneDtos.AskResponse(a.answer(), a.runtimeRunId(), a.runtimeBaseUrl(), a.ssePath(), a.receiptHash()));
         });
     }
 
