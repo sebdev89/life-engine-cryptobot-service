@@ -16,6 +16,8 @@ public record ReceiptInput(String type, String hash) {
     public static final String PRICE_QUOTES = "PRICE_QUOTES";
     public static final String WALLET_SNAPSHOT = "WALLET_SNAPSHOT";
     public static final String PORTFOLIO_DIFF = "PORTFOLIO_DIFF";
+    /** The canonical, quantised input of the deterministic risk engine ({@code risk-input/1}, KAN-392): what an L1 verifier re-executes. */
+    public static final String RISK_INPUT = "RISK_INPUT";
     public static final String INTENT = "INTENT";
     public static final String TRANSACTION = "TRANSACTION";
     public static final String POLICY_VERDICT = "POLICY_VERDICT";

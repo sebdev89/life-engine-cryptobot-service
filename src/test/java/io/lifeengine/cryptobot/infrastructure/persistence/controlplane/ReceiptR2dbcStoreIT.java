@@ -5,8 +5,10 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.lifeengine.cryptobot.application.controlplane.ControlPlaneExceptions;
+import io.lifeengine.cryptobot.application.receipt.DeterministicReproducer;
 import io.lifeengine.cryptobot.application.receipt.ReceiptDraft;
 import io.lifeengine.cryptobot.application.receipt.ReceiptService;
+import io.lifeengine.cryptobot.domain.receipt.DeterministicInference;
 import io.lifeengine.cryptobot.domain.receipt.Digests;
 import io.lifeengine.cryptobot.domain.receipt.IntelligenceReceipt;
 import io.lifeengine.cryptobot.domain.receipt.ReceiptBody;
@@ -15,6 +17,9 @@ import io.lifeengine.cryptobot.domain.receipt.ReceiptInput;
 import io.lifeengine.cryptobot.domain.receipt.ReceiptKind;
 import io.lifeengine.cryptobot.domain.receipt.ReceiptSigningKey;
 import io.lifeengine.cryptobot.domain.receipt.ReproducibilityLevel;
+import io.lifeengine.cryptobot.domain.risk.DeterministicDecision;
+import io.lifeengine.cryptobot.domain.risk.DeterministicRiskEngine;
+import io.lifeengine.cryptobot.domain.risk.RiskInput;
 import io.r2dbc.postgresql.PostgresqlConnectionConfiguration;
 import io.r2dbc.postgresql.PostgresqlConnectionFactory;
 import java.time.Instant;
@@ -31,8 +36,8 @@ import org.springframework.r2dbc.core.DatabaseClient;
 import org.springframework.transaction.reactive.TransactionalOperator;
 
 /**
- * The real store against a real Postgres (KAN-391): migration {@code V6} applies on top of
- * {@code V1..V5} in a scratch schema, and {@link ReceiptR2dbcStore} keeps the same contract the
+ * The real store against a real Postgres (KAN-391): migrations {@code V6} and {@code V7} (KAN-392)
+ * apply on top of {@code V1..V5} in a scratch schema, and {@link ReceiptR2dbcStore} keeps the same contract the
  * in-memory store promises — content addressing, the nonce guard, the FK on parents, the
  * round-trip of body / canonical bytes / signature / anchor columns.
  *
@@ -130,8 +135,41 @@ class ReceiptR2dbcStoreIT {
 
         // The FK itself, bypassing the service's own check: an edge to a hash that is not there is refused by Postgres.
         IntelligenceReceipt orphan = service.seal(body(ReceiptKind.RISK_DECISION, "risk-b", List.of(), tenant));
-        assertThatThrownBy(() -> store.insert(orphan, List.of(new ReceiptEdge(orphan.receiptHash(), Digests.sha256("ghost"), ReceiptEdge.Role.DERIVES_FROM)), List.of()).block())
+        assertThatThrownBy(() -> store.insert(orphan, List.of(new ReceiptEdge(orphan.receiptHash(), Digests.sha256("ghost"), ReceiptEdge.Role.DERIVES_FROM)), List.of(), null).block())
                 .isInstanceOf(ControlPlaneExceptions.Conflict.class);
         assertThat(store.findByHash(orphan.receiptHash()).block()).as("the transaction rolled back the receipt row too").isNull();
+    }
+
+    @Test
+    @DisplayName("V7 applied (KAN-392): an L1 RISK_DECISION stores its input/output trees, and verify re-executes the engine from what Postgres gives back")
+    void l1RoundTripReproduces() {
+        String tenant = UUID.randomUUID().toString();
+        DeterministicRiskEngine engine = DeterministicRiskEngine.v1();
+        RiskInput input = new RiskInput(List.of(
+                new RiskInput.PositionInput("SOL", "So11111111111111111111111111111111111111112", 7000, 700_000_000L, true, true, false),
+                new RiskInput.PositionInput("USDC", "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v", 3000, 300_000_000L, true, true, true)),
+                1_000_000_000L, null, null);
+        DeterministicDecision d = engine.decide(input);
+        String nonce = "risk-" + UUID.randomUUID();
+        ReceiptBody body = new ReceiptBody(null, ReceiptKind.RISK_DECISION, tenant, OWNER.toString(), "risk-engine@" + DeterministicRiskEngine.VERSION, List.of(),
+                List.of(new ReceiptInput(ReceiptInput.WALLET_SNAPSHOT, Digests.sha256("snapshot")), new ReceiptInput(ReceiptInput.RISK_INPUT, d.inputHash())),
+                null, null, new ReceiptBody.Engine(d.engineId(), d.engineVersion(), d.weightsHash()), null, Map.of(),
+                new ReceiptBody.Output(d.outputHash(), "risk-decision/1", "risk_decision:" + nonce), new ReceiptBody.Compute(null, null, 1, null), null,
+                ReproducibilityLevel.L1_REPRODUCIBLE, T0, T0.plusMillis(3), nonce, new ReceiptBody.Refs(WALLET.toString(), null, null));
+        DeterministicInference inference = DeterministicInference.unbound(tenant, d.engineId(), d.engineVersion(), d.weightsHash(), d.input().toMap(), d.output().toMap());
+        IntelligenceReceipt issued = service.issue(ReceiptDraft.of(body).withInference(inference)).block();
+
+        DeterministicInference stored = store.findInference(issued.receiptHash()).block();
+        assertThat(stored).isNotNull();
+        assertThat(stored.inputHash()).isEqualTo(d.inputHash());
+        assertThat(stored.outputHash()).isEqualTo(d.outputHash());
+        assertThat(DeterministicInference.hashOf(stored.input())).as("JSONB round-trip keeps the canonical form").isEqualTo(d.inputHash());
+        assertThat(DeterministicInference.hashOf(stored.output())).isEqualTo(d.outputHash());
+
+        ReceiptService.Verification v = service.verify(store.findByHash(issued.receiptHash()).block()).block();
+        assertThat(v.valid()).isTrue();
+        assertThat(v.reproduced()).isTrue();
+        assertThat(v.reproduction().reason()).isEqualTo(DeterministicReproducer.REASON_OK);
+        assertThat(v.reproduction().actualOutputHash()).isEqualTo(d.outputHash());
     }
 }
