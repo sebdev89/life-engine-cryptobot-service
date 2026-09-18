@@ -269,7 +269,7 @@ class PolicyEngineTest {
         PolicyDecision decided = v1.evaluate(p, w, fresh(), Optional.of(w.address()));
         ActionProposal approved = p.withPolicy(decided, NOW)
                 .withStatus(ProposalStatus.AWAITING_APPROVAL, NOW)
-                .withApproval(new ApprovalRecord(ApprovalRecord.Decision.APPROVED, "op", NOW, null), NOW)
+                .withApproval(new ApprovalRecord(ApprovalRecord.Decision.APPROVED, "op", NOW, null, NOW), NOW)
                 .withStatus(ProposalStatus.APPROVED, NOW);
         assertThat(v1.executionPreconditions(approved)).isEmpty();
 
@@ -279,5 +279,74 @@ class PolicyEngineTest {
 
         ActionProposal legacy = approved.withPolicy(new PolicyDecision(true, true, List.of(), List.of(), List.of(), NOW, null), NOW);
         assertThat(v1.executionPreconditions(legacy)).singleElement().asString().contains("No policy verdict");
+
+        // KAN-438: a verdict without its recorded (I, S) cannot be re-derived by the validator.
+        ActionProposal noInput = approved.withPolicy(new PolicyDecision(true, true, List.of(), List.of(), List.of(), NOW, decided.authorization()), NOW);
+        assertThat(v1.executionPreconditions(noInput)).singleElement().asString().contains("No recorded (I, S)");
+    }
+
+    // ---- KAN-438: independent validator + timelock (paper §19, §20) ---------------------------
+
+    private static io.lifeengine.cryptobot.integration.validator.ValidatorClient.Identity validator(String hash, boolean enabled) {
+        return new io.lifeengine.cryptobot.integration.validator.ValidatorClient.Identity("vkey", "test-policy-v1", hash, true, enabled);
+    }
+
+    @Test
+    void executableOnlyWithAValidatorOnTheSamePolicy() {
+        Wallet w = Fixtures.wallet(SolanaCluster.DEVNET);
+        PolicyEngine engine = engine(defaults());
+        PolicyDecision decided = engine.evaluate(proposal(w, new BigDecimal("50"), true, true), w, fresh(), Optional.of(w.address()));
+        assertThat(decided.executable()).isTrue();
+        assertThat(decided.input()).isNotNull();
+        assertThat(decided.input().hash()).isEqualTo(decided.authorization().inputHash());
+
+        PolicyDecision none = engine.requireValidator(decided, Optional.empty());
+        assertThat(none.allowed()).isTrue();
+        assertThat(none.executable()).isFalse();
+        assertThat(none.executionViolations()).extracting(PolicyDecision.Violation::rule).containsExactly(PolicyEngine.RULE_VALIDATOR);
+
+        PolicyDecision other = engine.requireValidator(decided, Optional.of(validator("sha256:" + "0".repeat(64), true)));
+        assertThat(other.executable()).isFalse();
+        assertThat(other.executionViolations().get(0).message()).contains("Validator holds policy");
+
+        PolicyDecision stopped = engine.requireValidator(decided, Optional.of(validator(engine.rules().hash(), false)));
+        assertThat(stopped.executable()).isFalse();
+
+        PolicyDecision ok = engine.requireValidator(decided, Optional.of(validator(engine.rules().hash(), true)));
+        assertThat(ok.executable()).isTrue();
+        assertThat(ok.rulesApplied()).contains(PolicyEngine.RULE_VALIDATOR);
+        assertThat(ok.input()).isEqualTo(decided.input());
+    }
+
+    @Test
+    void timelockByTierAndExecutionWaitsForIt() {
+        Wallet w = Fixtures.wallet(SolanaCluster.DEVNET);
+        TimelockProperties locks = new TimelockProperties(Duration.ZERO, Duration.ofMinutes(30), Duration.ofMinutes(30));
+        PolicyEngine engine = new PolicyEngine(defaults(), authorization(), locks, Clock.fixed(NOW, ZoneOffset.UTC));
+        ActionProposal p = proposal(w, new BigDecimal("50"), true, true);
+        PolicyDecision decided = engine.evaluate(p, w, fresh(), Optional.of(w.address()));
+        // The $50-target plan on the SOL-heavy fixture is above the $100 autonomous tier: ESCALATE ⇒ 30 min.
+        assertThat(decided.authorization().decision()).isEqualTo(PolicyVerdict.Decision.ESCALATE);
+        assertThat(engine.executableAt(NOW, decided)).isEqualTo(NOW.plus(Duration.ofMinutes(30)));
+
+        ActionProposal approved = p.withPolicy(decided, NOW).withStatus(ProposalStatus.AWAITING_APPROVAL, NOW)
+                .withApproval(new ApprovalRecord(ApprovalRecord.Decision.APPROVED, "op", NOW, null, engine.executableAt(NOW, decided)), NOW)
+                .withStatus(ProposalStatus.APPROVED, NOW).withExpiresAt(NOW.plus(Duration.ofHours(2)), NOW);
+        assertThat(engine.executionPreconditions(approved)).singleElement().asString().contains("Timelock").contains("1800s remaining");
+
+        // 30 minutes later the same row executes.
+        PolicyEngine later = new PolicyEngine(defaults(), authorization(), locks, Clock.fixed(NOW.plus(Duration.ofMinutes(30)), ZoneOffset.UTC));
+        assertThat(later.executionPreconditions(approved)).isEmpty();
+
+        // An ALLOW-tier verdict has no lock.
+        PolicyVerdict allow = new PolicyVerdict(PolicyVerdict.Decision.ALLOW, PolicyVerdict.Escalation.NONE, PolicyVerdict.AutonomyTier.AUTONOMOUS,
+                List.of(), List.of(PolicyPredicate.values()), "test-policy-v1", engine.rules().hash(), decided.authorization().inputHash());
+        PolicyDecision small = new PolicyDecision(true, true, List.of(), List.of(), List.of(), NOW, allow, decided.input());
+        assertThat(engine.executableAt(NOW, small)).isEqualTo(NOW);
+
+        // A row approved before KAN-438 (no executableAt) derives its lock from the approval time.
+        ActionProposal legacy = approved.withApproval(new ApprovalRecord(ApprovalRecord.Decision.APPROVED, "op", NOW.minus(Duration.ofMinutes(10)), null), NOW);
+        assertThat(engine.executableAt(legacy)).isEqualTo(NOW.plus(Duration.ofMinutes(20)));
+        assertThat(engine.executionPreconditions(legacy)).singleElement().asString().contains("1200s remaining");
     }
 }

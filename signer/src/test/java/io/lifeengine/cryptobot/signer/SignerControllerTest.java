@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import io.lifeengine.cryptobot.signer.solana.LegacyTransaction;
 import io.lifeengine.cryptobot.signer.solana.SolanaKeypair;
 import io.lifeengine.cryptobot.signer.solana.SystemProgram;
+import java.time.Instant;
 import java.util.Arrays;
 import java.util.Base64;
 import java.util.List;
@@ -22,6 +23,7 @@ import org.springframework.test.web.reactive.server.WebTestClient;
 class SignerControllerTest {
 
     static final SolanaKeypair KEY = SolanaKeypair.generate();
+    static final SolanaKeypair VALIDATOR = SolanaKeypair.generate();
     static final String VAULT = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
     static final String BLOCKHASH = "So11111111111111111111111111111111111111112";
 
@@ -31,24 +33,31 @@ class SignerControllerTest {
         r.add("signer.token", () -> "test-token");
         r.add("signer.allowed-destinations", () -> VAULT);
         r.add("signer.max-lamports", () -> "1000000");
+        r.add("signer.validator-public-key", VALIDATOR::publicKeyBase58);
     }
 
     @Autowired private WebTestClient web;
+
+    static Map<String, Object> attestation(AttestationVerifier.Attestation a) {
+        return Map.of("payload", a.payload(), "signature", a.signature());
+    }
 
     @Test
     void identityRequiresTheToken() {
         web.get().uri("/api/signer/identity").exchange().expectStatus().isUnauthorized();
         web.get().uri("/api/signer/identity").header("X-Signer-Token", "wrong").exchange().expectStatus().isUnauthorized();
         web.get().uri("/api/signer/identity").header("X-Signer-Token", "test-token").exchange().expectStatus().isOk()
-                .expectBody().jsonPath("$.publicKey").isEqualTo(KEY.publicKeyBase58()).jsonPath("$.maxLamports").isEqualTo(1000000);
+                .expectBody().jsonPath("$.publicKey").isEqualTo(KEY.publicKeyBase58()).jsonPath("$.maxLamports").isEqualTo(1000000)
+                .jsonPath("$.attestationRequired").isEqualTo(true).jsonPath("$.validatorPublicKey").isEqualTo(VALIDATOR.publicKeyBase58());
     }
 
     @Test
-    void signsAndTheSignatureVerifiesAgainstTheKey() {
+    void signsWithAValidAttestationAndTheSignatureVerifiesAgainstTheKey() {
         String me = KEY.publicKeyBase58();
         LegacyTransaction tx = new LegacyTransaction(me, BLOCKHASH, List.of(SystemProgram.transfer(me, VAULT, 1234L)));
+        AttestationVerifier.Attestation att = Attestations.fresh(VALIDATOR, "p1", tx.serializeMessage(), Instant.now().getEpochSecond());
         byte[] body = web.post().uri("/api/signer/sign").header("X-Signer-Token", "test-token")
-                .bodyValue(Map.of("proposalId", "p1", "unsignedTransactionBase64", tx.unsignedBase64(), "expectedFeePayer", me))
+                .bodyValue(Map.of("proposalId", "p1", "unsignedTransactionBase64", tx.unsignedBase64(), "expectedFeePayer", me, "attestation", attestation(att)))
                 .exchange().expectStatus().isOk().expectBody().returnResult().getResponseBody();
         String json = new String(body);
         String signed = json.replaceAll(".*\"signedTransactionBase64\":\"([^\"]+)\".*", "$1");
@@ -57,16 +66,40 @@ class SignerControllerTest {
         assertThat(wire).hasSize(1 + 64 + message.length);
         assertThat(Arrays.copyOfRange(wire, 65, wire.length)).isEqualTo(message);
         assertThat(SolanaKeypair.verify(KEY.publicKeyBytes(), message, Arrays.copyOfRange(wire, 1, 65))).isTrue();
-        assertThat(json).contains("\"signer\":\"" + me + "\"");
+        assertThat(json).contains("\"signer\":\"" + me + "\"").contains("\"validator\":\"" + VALIDATOR.publicKeyBase58() + "\"");
         assertThat(json).doesNotContain(SigningPolicyTest.keyJson(KEY).substring(1, 20));
+    }
+
+    @Test
+    void withoutTheValidatorNothingIsSigned() {
+        String me = KEY.publicKeyBase58();
+        LegacyTransaction tx = new LegacyTransaction(me, BLOCKHASH, List.of(SystemProgram.transfer(me, VAULT, 1234L)));
+        // No attestation: the transaction is inside every byte-level limit and is still refused.
+        web.post().uri("/api/signer/sign").header("X-Signer-Token", "test-token")
+                .bodyValue(Map.of("proposalId", "p1", "unsignedTransactionBase64", tx.unsignedBase64(), "expectedFeePayer", me))
+                .exchange().expectStatus().isForbidden().expectBody().jsonPath("$.reason").isEqualTo("attestation_missing");
+        // An attestation for other bytes.
+        LegacyTransaction other = new LegacyTransaction(me, BLOCKHASH, List.of(SystemProgram.transfer(me, VAULT, 999L)));
+        AttestationVerifier.Attestation forOther = Attestations.fresh(VALIDATOR, "p1", other.serializeMessage(), Instant.now().getEpochSecond());
+        web.post().uri("/api/signer/sign").header("X-Signer-Token", "test-token")
+                .bodyValue(Map.of("proposalId", "p1", "unsignedTransactionBase64", tx.unsignedBase64(), "attestation", attestation(forOther)))
+                .exchange().expectStatus().isForbidden().expectBody().jsonPath("$.reason").isEqualTo("attestation_message_mismatch");
+        // A DENY from the validator, correctly signed, for these bytes.
+        String deny = Attestations.payload("p1", AttestationVerifier.sha256Hex(tx.serializeMessage()), "DENY", VALIDATOR.publicKeyBase58(),
+                Instant.now().getEpochSecond(), Instant.now().getEpochSecond() + 90);
+        web.post().uri("/api/signer/sign").header("X-Signer-Token", "test-token")
+                .bodyValue(Map.of("proposalId", "p1", "unsignedTransactionBase64", tx.unsignedBase64(), "attestation", attestation(Attestations.signed(VALIDATOR, deny))))
+                .exchange().expectStatus().isForbidden().expectBody().jsonPath("$.reason").isEqualTo("attestation_denied");
     }
 
     @Test
     void refusalsAre403WithAReason() {
         String me = KEY.publicKeyBase58();
         LegacyTransaction tx = new LegacyTransaction(me, BLOCKHASH, List.of(SystemProgram.transfer(me, VAULT, 5_000_000L)));
+        // The signer's own cap is checked before the attestation: over cap is refused even with one.
+        AttestationVerifier.Attestation att = Attestations.fresh(VALIDATOR, "p2", tx.serializeMessage(), Instant.now().getEpochSecond());
         web.post().uri("/api/signer/sign").header("X-Signer-Token", "test-token")
-                .bodyValue(Map.of("proposalId", "p2", "unsignedTransactionBase64", tx.unsignedBase64()))
+                .bodyValue(Map.of("proposalId", "p2", "unsignedTransactionBase64", tx.unsignedBase64(), "attestation", attestation(att)))
                 .exchange().expectStatus().isForbidden().expectBody().jsonPath("$.reason").isEqualTo("amount_over_cap");
         web.post().uri("/api/signer/sign")
                 .bodyValue(Map.of("proposalId", "p3", "unsignedTransactionBase64", tx.unsignedBase64()))

@@ -25,20 +25,24 @@ public class SignerController {
     private static final Logger log = LoggerFactory.getLogger(SignerController.class);
     public static final String TOKEN_HEADER = "X-Signer-Token";
 
-    public record SignRequest(String proposalId, String unsignedTransactionBase64, String expectedFeePayer) {}
+    /** {@code attestation} (KAN-438): the validator's signed payload; required unless {@code signer.require-attestation=false}. */
+    public record SignRequest(String proposalId, String unsignedTransactionBase64, String expectedFeePayer, AttestationVerifier.Attestation attestation) {}
 
-    public record SignResponse(String signedTransactionBase64, String signer, String txHash, String signature) {}
+    public record SignResponse(String signedTransactionBase64, String signer, String txHash, String signature, String validator, String verdictHash) {}
 
-    public record Identity(String publicKey, String cluster, long maxLamports, List<String> allowedDestinations, boolean enabled) {}
+    public record Identity(String publicKey, String cluster, long maxLamports, List<String> allowedDestinations, boolean enabled,
+            boolean attestationRequired, String validatorPublicKey) {}
 
     private final SignerProperties props;
     private final SignerKeyStore keys;
     private final SigningPolicy policy;
+    private final AttestationVerifier attestations;
 
-    public SignerController(SignerProperties props, SignerKeyStore keys, SigningPolicy policy) {
+    public SignerController(SignerProperties props, SignerKeyStore keys, SigningPolicy policy, AttestationVerifier attestations) {
         this.props = props;
         this.keys = keys;
         this.policy = policy;
+        this.attestations = attestations;
     }
 
     @GetMapping("/identity")
@@ -46,7 +50,8 @@ public class SignerController {
         if (!authorized(token)) {
             return Mono.just(ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of("reason", "bad_token")));
         }
-        return Mono.just(ResponseEntity.ok(new Identity(keys.publicKey(), props.cluster(), props.maxLamports(), props.allowedDestinations(), props.enabled())));
+        return Mono.just(ResponseEntity.ok(new Identity(keys.publicKey(), props.cluster(), props.maxLamports(), props.allowedDestinations(), props.enabled(),
+                props.requireAttestation(), props.validatorPublicKey())));
     }
 
     @PostMapping(path = "/sign", consumes = "application/json")
@@ -62,12 +67,24 @@ public class SignerController {
             log.warn("signer_refused proposalId={} reason={}", req.proposalId(), v.reason());
             return Mono.just(ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("reason", v.reason())));
         }
-        SignResponse signed = sign(v.decoded().message());
-        log.info("signer_signed proposalId={} lamports={} destination={} signature={}", req.proposalId(), v.lamports(), v.destination(), signed.signature());
+        byte[] message = v.decoded().message();
+        // Level 5 (paper §20): the bytes that passed our own limits must also have been attested by
+        // the independent validator — for this proposal, these exact bytes, and not as a DENY.
+        AttestationVerifier.Verdict a = attestations.verify(req.attestation(), req.proposalId(), message);
+        if (!a.ok()) {
+            log.warn("signer_refused proposalId={} reason={}", req.proposalId(), a.reason());
+            return Mono.just(ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("reason", a.reason())));
+        }
+        SignResponse signed = sign(message, a.validator(), a.verdictHash());
+        log.info("signer_signed proposalId={} lamports={} destination={} signature={} validator={} decision={} verdictHash={}",
+                req.proposalId(), v.lamports(), v.destination(), signed.signature(), a.validator(), a.decision(), a.verdictHash());
         return Mono.just(ResponseEntity.ok(signed));
     }
 
-    /** A receipt-batch anchor (KAN-394): the memo transaction must carry exactly {@code root} and {@code receiptCount}; devnet only. */
+    /**
+     * A receipt-batch anchor (KAN-394): the memo transaction must carry exactly {@code root} and {@code receiptCount}; devnet only.
+     * No validator attestation: there is no proposal behind it and the memo moves no funds (KAN-438 keeps the gate on {@code /sign}).
+     */
     public record AnchorSignRequest(String root, int receiptCount, String unsignedTransactionBase64, String expectedFeePayer) {}
 
     @PostMapping(path = "/sign-anchor", consumes = "application/json")
@@ -83,18 +100,19 @@ public class SignerController {
             log.warn("signer_anchor_refused root={} reason={}", req.root(), v.reason());
             return Mono.just(ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("reason", v.reason())));
         }
-        SignResponse signed = sign(v.decoded().message());
+        SignResponse signed = sign(v.decoded().message(), null, null);
         log.info("signer_anchor_signed root={} receipts={} signature={}", req.root(), req.receiptCount(), signed.signature());
         return Mono.just(ResponseEntity.ok(signed));
     }
 
-    private SignResponse sign(byte[] message) {
+    private SignResponse sign(byte[] message, String validator, String verdictHash) {
         byte[] signature = keys.sign(message);
         byte[] wire = new byte[1 + 64 + message.length];
         wire[0] = 1;
         System.arraycopy(signature, 0, wire, 1, 64);
         System.arraycopy(message, 0, wire, 65, message.length);
-        return new SignResponse(Base64.getEncoder().encodeToString(wire), keys.publicKey(), sha256Hex(message), Base58.encode(signature));
+        return new SignResponse(Base64.getEncoder().encodeToString(wire), keys.publicKey(), sha256Hex(message), Base58.encode(signature),
+                validator, verdictHash);
     }
 
     private boolean authorized(String presented) {

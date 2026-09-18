@@ -92,6 +92,7 @@ public class CryptobotMetrics {
     static final String INTELLIGENCE_RECEIPTS = "intelligence.receipts";
     static final String DETERMINISTIC_INFERENCE = "deterministic.inference";
     static final String DETERMINISTIC_MISMATCH = "deterministic.mismatch";
+    static final String VALIDATOR_ATTESTATIONS = "validator.attestations";
     static final String RECEIPT_ANCHORS = "receipt.anchors";
     static final String ANCHORED_RECEIPTS = "anchored.receipts";
     static final String ANCHOR_PENDING = "anchor.pending";
@@ -100,6 +101,8 @@ public class CryptobotMetrics {
     /** Stages of {@code ExecutionService.run}; the one reached when it failed is the label. */
     public enum FailureStage {
         PREFLIGHT,
+        /** The independent validator refused, disagreed or could not be reached (KAN-438). */
+        VALIDATE,
         SIGN,
         BROADCAST,
         ONCHAIN,
@@ -248,6 +251,13 @@ public class CryptobotMetrics {
         counter(DETERMINISTIC_MISMATCH).increment();
     }
 
+    // ---- KAN-438: independent validator (paper §20) --------------------------------------------
+
+    /** {@code result}: {@code issued} (attestation obtained) | {@code refused} (DENY, disagreement, unreachable). */
+    public void validatorAttestation(String result) {
+        counter(VALIDATOR_ATTESTATIONS, "result", low(result)).increment();
+    }
+
     // ---- KAN-394: anchoring on devnet ---------------------------------------------------------
 
     /** {@code submitted | finalized | failed | abandoned}: one per transition of a batch. */
@@ -296,6 +306,8 @@ public class CryptobotMetrics {
         counter(INTELLIGENCE_RECEIPTS, "result", "verified");
         counter(DETERMINISTIC_INFERENCE);
         counter(DETERMINISTIC_MISMATCH);
+        counter(VALIDATOR_ATTESTATIONS, "result", "issued");
+        counter(VALIDATOR_ATTESTATIONS, "result", "refused");
         // KAN-394: the anchoring batch, so "0 abandoned" is measured and the gauge exists before the first sweep.
         Gauge.builder(ANCHOR_PENDING, anchorPending, AtomicLong::doubleValue)
                 .description("Receipts without a finalized devnet anchor (KAN-394)").register(registry);
@@ -308,7 +320,7 @@ public class CryptobotMetrics {
         for (String r : new String[] {"awaiting_approval", "blocked_by_policy"}) {
             counter(TRADE_REQUESTED, "result", r, "asset", ASSET_NONE);
         }
-        for (String r : new String[] {"approved", "rejected", "expired"}) {
+        for (String r : new String[] {"approved", "rejected", "expired", "cancelled"}) {
             counter(APPROVALS, "result", r);
         }
         counter(TRADE_SUBMITTED, "asset", ASSET_NONE);

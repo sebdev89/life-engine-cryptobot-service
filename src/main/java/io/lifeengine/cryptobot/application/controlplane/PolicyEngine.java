@@ -9,8 +9,10 @@ import io.lifeengine.cryptobot.domain.policy.PolicyRules;
 import io.lifeengine.cryptobot.domain.policy.PolicyVerdict;
 import io.lifeengine.cryptobot.domain.strategy.RebalanceLeg;
 import io.lifeengine.cryptobot.domain.transactions.ActionProposal;
+import io.lifeengine.cryptobot.domain.transactions.ApprovalRecord;
 import io.lifeengine.cryptobot.domain.transactions.ProposalStatus;
 import io.lifeengine.cryptobot.domain.wallet.Wallet;
+import io.lifeengine.cryptobot.integration.validator.ValidatorClient;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.Clock;
@@ -38,8 +40,12 @@ import org.springframework.stereotype.Service;
  *       {@link #RULE_AUTHORIZATION}.
  * </ul>
  * Today every proposal still waits for the human, whatever the tier says: ALLOW and
- * REQUIRE_SECOND_AGENT are recorded, not acted on (no autonomous execution, no second validator
- * yet). The verdict is what the receipt will commit to.
+ * REQUIRE_SECOND_AGENT are recorded, not acted on (no autonomous execution). The verdict is what
+ * the receipt commits to and what the independent validator re-derives before signing (KAN-438).
+ *
+ * <p>KAN-438 adds two execution-time facts: the validator must be reachable and hold the same
+ * {@code H_R} ({@link #RULE_VALIDATOR}), and the approval's timelock must have elapsed
+ * ({@link #RULE_TIMELOCK}, paper §19).
  */
 @Service
 public class PolicyEngine {
@@ -56,6 +62,10 @@ public class PolicyEngine {
     public static final String RULE_SIGNER = "SIGNER_CONTROLS_WALLET";
     /** The deterministic verdict said DENY; the message lists the failed predicates. */
     public static final String RULE_AUTHORIZATION = "AUTHORIZATION";
+    /** KAN-438: the independent validator is reachable and pinned to the same {@code H_R}. */
+    public static final String RULE_VALIDATOR = "VALIDATOR_AVAILABLE";
+    /** KAN-438: the approval's timelock has elapsed. */
+    public static final String RULE_TIMELOCK = "TIMELOCK_ELAPSED";
 
     /**
      * What the caller resolved from the authoritative state for this wallet, at evaluation time.
@@ -76,23 +86,33 @@ public class PolicyEngine {
 
     private final PolicyProperties props;
     private final AuthorizationProperties authorization;
+    private final TimelockProperties timelock;
     private final PolicyRules rules;
     private final Clock clock;
 
     @org.springframework.beans.factory.annotation.Autowired
-    public PolicyEngine(PolicyProperties props, AuthorizationProperties authorization) {
-        this(props, authorization, Clock.systemUTC());
+    public PolicyEngine(PolicyProperties props, AuthorizationProperties authorization, TimelockProperties timelock) {
+        this(props, authorization, timelock, Clock.systemUTC());
     }
 
     PolicyEngine(PolicyProperties props, AuthorizationProperties authorization, Clock clock) {
+        this(props, authorization, new TimelockProperties(null, null, null), clock);
+    }
+
+    PolicyEngine(PolicyProperties props, AuthorizationProperties authorization, TimelockProperties timelock, Clock clock) {
         this.props = props;
         this.authorization = authorization;
+        this.timelock = timelock == null ? new TimelockProperties(null, null, null) : timelock;
         this.rules = authorization.rules(props); // throws ⇒ the service does not start without a valid policy
         this.clock = clock;
     }
 
     public PolicyProperties properties() {
         return props;
+    }
+
+    public TimelockProperties timelock() {
+        return timelock;
     }
 
     /** {@code R_v} in force in this process. */
@@ -146,7 +166,8 @@ public class PolicyEngine {
 
         // --- the deterministic verdict over (I, S, R_v) -------------------------------------
         applied.add(RULE_AUTHORIZATION);
-        PolicyVerdict verdict = DeterministicPolicyEngine.evaluate(rules, policyInput(proposal, wallet, state, now));
+        PolicyInput input = policyInput(proposal, wallet, state, now);
+        PolicyVerdict verdict = DeterministicPolicyEngine.evaluate(rules, input);
         if (verdict.denied()) {
             blocking.add(new PolicyDecision.Violation(RULE_AUTHORIZATION, "Policy " + rules.version() + " (" + rules.hash() + ") denied: "
                     + verdict.failedPredicates().stream().map(p -> p.name() + " [" + p.formula() + "]").toList()));
@@ -190,7 +211,43 @@ public class PolicyEngine {
             execution.add(new PolicyDecision.Violation(RULE_SIGNER, "The signer does not control this wallet (read-only wallet): paper trade only"));
         }
 
-        return new PolicyDecision(blocking.isEmpty(), blocking.isEmpty() && execution.isEmpty(), blocking, execution, applied, now, verdict);
+        return new PolicyDecision(blocking.isEmpty(), blocking.isEmpty() && execution.isEmpty(), blocking, execution, applied, now, verdict, input);
+    }
+
+    /**
+     * KAN-438 (paper §20): the proposal is executable only if an independent validator is up and
+     * holds exactly the policy this verdict was decided under. Evaluated at proposal time so the
+     * human sees "paper trade: validator unavailable" before approving, and again — for real — by
+     * the validator itself before anything is signed.
+     */
+    public PolicyDecision requireValidator(PolicyDecision decision, Optional<ValidatorClient.Identity> validator) {
+        if (validator.isEmpty()) {
+            return decision.withExecutionViolation(new PolicyDecision.Violation(RULE_VALIDATOR, "Independent validator unavailable or disabled"));
+        }
+        ValidatorClient.Identity v = validator.get();
+        if (!v.enabled()) {
+            return decision.withExecutionViolation(new PolicyDecision.Violation(RULE_VALIDATOR, "Independent validator is stopped (VALIDATOR_ENABLED=false)"));
+        }
+        String ours = decision.authorization() == null ? rules.hash() : decision.authorization().policyHash();
+        if (v.policyHash() == null || !v.policyHash().equals(ours)) {
+            return decision.withExecutionViolation(new PolicyDecision.Violation(RULE_VALIDATOR,
+                    "Validator holds policy " + v.policyHash() + " (" + v.policyVersion() + "); this verdict is under " + ours));
+        }
+        return decision.withRuleApplied(RULE_VALIDATOR);
+    }
+
+    /** Paper §19: when an approval given now becomes executable, by the tier of its verdict. */
+    public Instant executableAt(Instant approvedAt, PolicyDecision decision) {
+        return approvedAt.plus(timelock.forVerdict(decision == null ? null : decision.authorization()));
+    }
+
+    /** The end of the lock for a persisted approval; rows approved before KAN-438 get it derived from {@code at}. */
+    public Instant executableAt(ActionProposal proposal) {
+        ApprovalRecord a = proposal.approval();
+        if (a == null || a.at() == null) {
+            return null;
+        }
+        return a.executableAt() != null ? a.executableAt() : executableAt(a.at(), proposal.policy());
     }
 
     /**
@@ -270,9 +327,18 @@ public class PolicyEngine {
         } else if (!rules.hash().equals(verdict.policyHash())) {
             // Policy-binding invariant (paper §23): what was approved under R_v does not execute under R_w.
             problems.add("Policy changed since evaluation (" + verdict.policyHash() + " → " + rules.hash() + "): re-create the proposal");
+        } else if (proposal.policy().input() == null) {
+            problems.add("No recorded (I, S) on this proposal (evaluated before KAN-438): the validator cannot re-derive it; re-create it");
         }
-        if (proposal.approval() == null || proposal.approval().decision() != io.lifeengine.cryptobot.domain.transactions.ApprovalRecord.Decision.APPROVED) {
+        if (proposal.approval() == null || proposal.approval().decision() != ApprovalRecord.Decision.APPROVED) {
             problems.add("No approval record");
+        } else {
+            Instant executableAt = executableAt(proposal);
+            Instant now = clock.instant();
+            if (executableAt != null && now.isBefore(executableAt)) {
+                problems.add("Timelock: executable at " + executableAt + " (" + Duration.between(now, executableAt).toSeconds()
+                        + "s remaining); cancel it or wait");
+            }
         }
         if (proposal.expiresAt() != null && clock.instant().isAfter(proposal.expiresAt())) {
             problems.add("Proposal expired at " + proposal.expiresAt());

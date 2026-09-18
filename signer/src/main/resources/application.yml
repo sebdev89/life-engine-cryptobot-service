@@ -23,6 +23,12 @@ signer:
   allowed-destinations: ${SIGNER_ALLOWED_DESTINATIONS:}
   # Emergency stop for the signer itself.
   enabled: ${SIGNER_ENABLED:true}
+  # KAN-438 (paper §20, level 5): base58 public key of cryptobot-validator. A sign request must carry
+  # an attestation signed by it for this proposal and these exact bytes, not a DENY, not expired.
+  # Empty while require-attestation is true ⇒ every request is refused (fail-closed).
+  validator-public-key: ${SIGNER_VALIDATOR_PUBLIC_KEY:}
+  # false = pre-KAN-438 behaviour (token + byte-level limits only). Tests and empty demo wallets only.
+  require-attestation: ${SIGNER_REQUIRE_ATTESTATION:true}
 
 management:
   endpoints:

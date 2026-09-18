@@ -25,6 +25,7 @@ import io.lifeengine.cryptobot.domain.transactions.ProposalTransition;
 import io.lifeengine.cryptobot.domain.wallet.Wallet;
 import io.lifeengine.cryptobot.infrastructure.persistence.controlplane.ActionProposalRepository;
 import io.lifeengine.cryptobot.integration.signer.SignerClient;
+import io.lifeengine.cryptobot.integration.validator.ValidatorClient;
 import io.lifeengine.cryptobot.observability.CryptobotMetrics;
 import io.lifeengine.cryptobot.testsupport.InMemoryControlPlaneRepositories;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
@@ -53,6 +54,8 @@ final class ExecutionHarness {
     final SimulationService simulation = mock(SimulationService.class);
     final PolicyEngine policy = mock(PolicyEngine.class);
     final SignerClient signer = mock(SignerClient.class);
+    // KAN-438: the independent validator attests by default; tests that exercise refusals override it.
+    final ValidatorClient validator = mock(ValidatorClient.class);
     final SolanaRpcClient rpc = mock(SolanaRpcClient.class);
     final AuditService audit = new AuditService(InMemoryControlPlaneRepositories.audit());
     // KAN-391: a real receipt pipeline (ephemeral key, in-memory store) so EXECUTION receipts are asserted, not mocked.
@@ -93,8 +96,9 @@ final class ExecutionHarness {
         when(simulation.prepareTransfer(eq(wallet), anyLong())).thenReturn(Mono.just(tx));
         when(rpc.simulateTransaction(eq(SolanaCluster.DEVNET), anyString(), eq(false)))
                 .thenReturn(Mono.just(new SolanaRpcClient.SimulationResult(true, null, List.of(), 150L)));
+        when(validator.authorize(any(), any())).thenReturn(Mono.just(attestation()));
 
-        service = new ExecutionService(proposals, wallets, simulation, policy, signer, rpc, audit, metrics, executionReceipts);
+        service = new ExecutionService(proposals, wallets, simulation, policy, signer, validator, rpc, audit, metrics, executionReceipts);
     }
 
     /** The signer signs the real message with the wallet key; returns the transaction id (base58 of the signature). */
@@ -105,9 +109,16 @@ final class ExecutionHarness {
         wire[0] = 1;
         System.arraycopy(sig, 0, wire, 1, 64);
         System.arraycopy(message, 0, wire, 65, message.length);
-        when(signer.sign(eq(approved.id()), anyString(), eq(wallet.address())))
+        when(signer.sign(eq(approved.id()), anyString(), eq(wallet.address()), any()))
                 .thenReturn(Mono.just(new SignerClient.SignResponse(Base64.getEncoder().encodeToString(wire), keypair.publicKeyBase58(), null)));
         return io.lifeengine.cryptobot.adapters.solana.Base58.encode(sig);
+    }
+
+    /** What a happy validator answers: ESCALATE (human signature tier), an attestation for the message. */
+    static ValidatorClient.Response attestation() {
+        return new ValidatorClient.Response("ESCALATE", "REQUIRE_HUMAN_SIGNATURE", "HUMAN_SIGNATURE", List.of(), List.of(),
+                "cryptobot-policy-v1", "sha256:" + "a".repeat(64), "sha256:" + "b".repeat(64), "sha256:" + "c".repeat(64),
+                1_800_000_000L, 1_800_000_090L, new ValidatorClient.Attestation("{\"decision\":\"ESCALATE\"}", "sig", "validator-key"));
     }
 
     ActionProposal current() {

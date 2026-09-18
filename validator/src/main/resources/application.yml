@@ -1,0 +1,55 @@
+spring:
+  application:
+    name: cryptobot-validator
+  main:
+    web-application-type: reactive
+
+server:
+  port: ${VALIDATOR_PORT:8097}
+  error:
+    include-message: never
+    include-stacktrace: never
+
+validator:
+  # Shared service token cryptobot-service must present in X-Validator-Token. NOT a key.
+  token: ${VALIDATOR_TOKEN:}
+  # Ed25519 attestation key (solana-keygen layout, 64 bytes). Moves no funds: its only power is
+  # that cryptobot-signer pins its public key. Empty ⇒ ephemeral key, WARN at boot (dev only).
+  keypair-path: ${VALIDATOR_KEYPAIR_PATH:}
+  keypair-json: ${VALIDATOR_KEYPAIR_JSON:}
+  # How long an attestation is good for. Solana blockhashes live ~90 s: an attestation older than
+  # the bytes it covers is worthless anyway.
+  attestation-ttl: ${VALIDATOR_ATTESTATION_TTL:90s}
+  # Emergency stop for the validator itself: every verdict becomes DENY (VALIDATOR_DISABLED).
+  enabled: ${VALIDATOR_ENABLED:true}
+  # The validator's OWN copy of R_v (paper §11), in the integer units of the schema. It must hash to
+  # the same H_R as the service's cryptobot.policy.authorization (see the service README for how the
+  # USD values there become cents) — otherwise every validation is POLICY_HASH_MISMATCH ⇒ DENY.
+  # No value has a default: a missing limit is a policy that does not load, and the process does not start.
+  policy:
+    version: ${VALIDATOR_POLICY_VERSION:cryptobot-policy-v1}
+    allowed-assets: ${VALIDATOR_POLICY_ALLOWED_ASSETS:SOL,USDC,USDT}
+    enabled-strategies: ${VALIDATOR_POLICY_ENABLED_STRATEGIES:REBALANCE}
+    max-trade-value-cents: ${VALIDATOR_POLICY_MAX_TRADE_VALUE_CENTS:50000}
+    daily-limit-cents: ${VALIDATOR_POLICY_DAILY_LIMIT_CENTS:250000}
+    max-asset-exposure-bps: ${VALIDATOR_POLICY_MAX_ASSET_EXPOSURE_BPS:8000}
+    max-slippage-bps: ${VALIDATOR_POLICY_MAX_SLIPPAGE_BPS:100}
+    max-oracle-age-seconds: ${VALIDATOR_POLICY_MAX_ORACLE_AGE_SECONDS:900}
+    autonomous-up-to-cents: ${VALIDATOR_POLICY_AUTONOMOUS_UP_TO_CENTS:10000}
+    second-agent-up-to-cents: ${VALIDATOR_POLICY_SECOND_AGENT_UP_TO_CENTS:25000}
+    # H_R the operator approved. Empty ⇒ starts with a WARN that prints the hash to pin.
+    # Set ⇒ the process refuses to start if the policy above hashes to anything else.
+    expected-hash: ${VALIDATOR_POLICY_HASH:}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
+  endpoint:
+    health:
+      show-details: never
+
+logging:
+  level:
+    root: INFO

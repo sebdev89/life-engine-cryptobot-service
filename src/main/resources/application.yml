@@ -144,11 +144,29 @@ cryptobot:
       # A plan priced on an older snapshot is denied (ORACLE_FRESH): refresh the wallet first.
       max-oracle-age: ${CRYPTOBOT_POLICY_MAX_ORACLE_AGE:15m}
       enabled-strategies: REBALANCE
+    # KAN-438 — timelock (paper §19): the wait between approval and the first moment the proposal can
+    # be executed. A human can cancel (POST /proposals/{id}/cancel) while it runs. By tier of the
+    # verdict: ALLOW ⇒ `autonomous` (none by default), ESCALATE ⇒ `escalated` (30 min). The
+    # proposal's expiry is pushed to executable-at + execution-window at approval so the lock fits.
+    timelock:
+      autonomous: ${CRYPTOBOT_TIMELOCK_AUTONOMOUS:0s}
+      escalated: ${CRYPTOBOT_TIMELOCK_ESCALATED:30m}
+      execution-window: ${CRYPTOBOT_TIMELOCK_EXECUTION_WINDOW:30m}
   signer:
     enabled: ${CRYPTOBOT_SIGNER_ENABLED:false}
     base-url: ${CRYPTOBOT_SIGNER_BASE_URL:http://localhost:8096}
     # Shared service token (NOT a key). Must match SIGNER_TOKEN of cryptobot-signer.
     token: ${CRYPTOBOT_SIGNER_TOKEN:}
+    timeout: 8s
+  # KAN-438 — independent validator (paper §20, level 5). A separate process with its own copy of
+  # R_v pinned by hash; before signing, it re-derives the verdict over the recorded (I, S) and attests
+  # the exact transaction bytes. The signer refuses without that attestation. Disabled or unreachable
+  # ⇒ every proposal is a paper trade (VALIDATOR_AVAILABLE) and execution fails closed.
+  validator:
+    enabled: ${CRYPTOBOT_VALIDATOR_ENABLED:false}
+    base-url: ${CRYPTOBOT_VALIDATOR_BASE_URL:http://localhost:8097}
+    # Shared service token (NOT a key). Must match VALIDATOR_TOKEN of cryptobot-validator.
+    token: ${CRYPTOBOT_VALIDATOR_TOKEN:}
     timeout: 8s
   # ---- Reliable execution (KAN-403, Endgame §31) ----
   # Outbox: events are written in the same transaction as the proposal state; the publisher hands

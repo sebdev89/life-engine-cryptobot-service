@@ -1,0 +1,110 @@
+{
+  "schema_version": "1",
+  "note": "KAN-436 golden vectors. canonical_* strings were written by hand from the policy schema; every hash is sha256sum over the exact string (workspace scratch scripts/kan436-gen-vectors.sh), never the Java code under test. Do not edit v1: a change of canonicalization is schema_version 2 and a new file.",
+  "rules": {
+    "version": "paper-v1",
+    "allowed_assets": ["USDC", "SOL"],
+    "enabled_strategies": ["momentum-v3", "REBALANCE"],
+    "max_trade_value_cents": 5000000,
+    "daily_limit_cents": 10000000,
+    "max_asset_exposure_bps": 6000,
+    "max_slippage_bps": 50,
+    "max_oracle_age_seconds": 60,
+    "autonomous_up_to_cents": 100000,
+    "second_agent_up_to_cents": 1000000
+  },
+  "canonical_rules": "{\"allowed_assets\":[\"SOL\",\"USDC\"],\"autonomous_up_to_cents\":100000,\"daily_limit_cents\":10000000,\"enabled_strategies\":[\"REBALANCE\",\"momentum-v3\"],\"max_asset_exposure_bps\":6000,\"max_oracle_age_seconds\":60,\"max_slippage_bps\":50,\"max_trade_value_cents\":5000000,\"schema_version\":\"1\",\"second_agent_up_to_cents\":1000000,\"version\":\"paper-v1\"}",
+  "policy_hash": "sha256:fe53bb5bbb0cc8cdd852ceca76c0e40b44fd3b70a9bb08fdc30dd0cd77795547",
+  "vectors": [
+    {
+      "name": "paper §8: BUY SOL $20,000 → human signature",
+      "intent": {"agent_id":"crypto-agent-42","asset":"SOL","max_slippage_bps":30,"policy_version":"paper-v1","strategy_id":"momentum-v3","trade_value_cents":2000000,"valid_until_slot":421872200},
+      "state": {"agent_permitted":true,"asset_exposure_after_bps":4500,"current_slot":421872118,"daily_exposure_cents":500000,"nonce_unused":true,"oracle_age_seconds":12},
+      "canonical_input": "{\"intent\":{\"agent_id\":\"crypto-agent-42\",\"asset\":\"SOL\",\"max_slippage_bps\":30,\"policy_version\":\"paper-v1\",\"strategy_id\":\"momentum-v3\",\"trade_value_cents\":2000000,\"valid_until_slot\":421872200},\"schema_version\":\"1\",\"state\":{\"agent_permitted\":true,\"asset_exposure_after_bps\":4500,\"current_slot\":421872118,\"daily_exposure_cents\":500000,\"nonce_unused\":true,\"oracle_age_seconds\":12}}",
+      "input_hash": "sha256:3fad83d85ec8bc85489670a777188a931bb280fcce5da6e9878b365f93c37a51",
+      "expected": {"decision": "ESCALATE", "escalation": "REQUIRE_HUMAN_SIGNATURE", "tier": "HUMAN_SIGNATURE", "failed_predicates": []},
+      "canonical_verdict": "{\"decision\":\"ESCALATE\",\"escalation\":\"REQUIRE_HUMAN_SIGNATURE\",\"evaluated_predicates\":[\"POLICY_BOUND\",\"ASSET_ALLOWED\",\"TRADE_WITHIN_MAX\",\"DAILY_LIMIT\",\"ASSET_CONCENTRATION\",\"SLIPPAGE_WITHIN_MAX\",\"ORACLE_FRESH\",\"AGENT_PERMITTED\",\"STRATEGY_ENABLED\",\"NONCE_UNUSED\",\"NOT_EXPIRED\"],\"failed_predicates\":[],\"input_hash\":\"sha256:3fad83d85ec8bc85489670a777188a931bb280fcce5da6e9878b365f93c37a51\",\"policy_hash\":\"sha256:fe53bb5bbb0cc8cdd852ceca76c0e40b44fd3b70a9bb08fdc30dd0cd77795547\",\"policy_version\":\"paper-v1\",\"schema_version\":\"1\",\"tier\":\"HUMAN_SIGNATURE\"}",
+      "verdict_hash": "sha256:e71850ee348bc5420215a9f7b721abed6c5f711e8418384191ec10211682d07b"
+    },
+    {
+      "name": "$800 → autonomous ALLOW",
+      "intent": {"agent_id":"crypto-agent-42","asset":"SOL","max_slippage_bps":30,"policy_version":"paper-v1","strategy_id":"momentum-v3","trade_value_cents":80000,"valid_until_slot":421872200},
+      "state": {"agent_permitted":true,"asset_exposure_after_bps":4500,"current_slot":421872118,"daily_exposure_cents":500000,"nonce_unused":true,"oracle_age_seconds":12},
+      "canonical_input": "{\"intent\":{\"agent_id\":\"crypto-agent-42\",\"asset\":\"SOL\",\"max_slippage_bps\":30,\"policy_version\":\"paper-v1\",\"strategy_id\":\"momentum-v3\",\"trade_value_cents\":80000,\"valid_until_slot\":421872200},\"schema_version\":\"1\",\"state\":{\"agent_permitted\":true,\"asset_exposure_after_bps\":4500,\"current_slot\":421872118,\"daily_exposure_cents\":500000,\"nonce_unused\":true,\"oracle_age_seconds\":12}}",
+      "input_hash": "sha256:364311a04bdce0ecea14e156b58f206b54f72148c66db5672775fed913dcd205",
+      "expected": {"decision": "ALLOW", "escalation": "NONE", "tier": "AUTONOMOUS", "failed_predicates": []},
+      "canonical_verdict": "{\"decision\":\"ALLOW\",\"escalation\":\"NONE\",\"evaluated_predicates\":[\"POLICY_BOUND\",\"ASSET_ALLOWED\",\"TRADE_WITHIN_MAX\",\"DAILY_LIMIT\",\"ASSET_CONCENTRATION\",\"SLIPPAGE_WITHIN_MAX\",\"ORACLE_FRESH\",\"AGENT_PERMITTED\",\"STRATEGY_ENABLED\",\"NONCE_UNUSED\",\"NOT_EXPIRED\"],\"failed_predicates\":[],\"input_hash\":\"sha256:364311a04bdce0ecea14e156b58f206b54f72148c66db5672775fed913dcd205\",\"policy_hash\":\"sha256:fe53bb5bbb0cc8cdd852ceca76c0e40b44fd3b70a9bb08fdc30dd0cd77795547\",\"policy_version\":\"paper-v1\",\"schema_version\":\"1\",\"tier\":\"AUTONOMOUS\"}",
+      "verdict_hash": "sha256:f8d048f157a34e949ea060844ed394ac6f242fdee86516cd4893e3dff76eeaa5"
+    },
+    {
+      "name": "$5,000 → second agent",
+      "intent": {"agent_id":"crypto-agent-42","asset":"USDC","max_slippage_bps":50,"policy_version":"paper-v1","strategy_id":"REBALANCE","trade_value_cents":500000,"valid_until_slot":421872200},
+      "state": {"agent_permitted":true,"asset_exposure_after_bps":4500,"current_slot":421872118,"daily_exposure_cents":500000,"nonce_unused":true,"oracle_age_seconds":12},
+      "canonical_input": "{\"intent\":{\"agent_id\":\"crypto-agent-42\",\"asset\":\"USDC\",\"max_slippage_bps\":50,\"policy_version\":\"paper-v1\",\"strategy_id\":\"REBALANCE\",\"trade_value_cents\":500000,\"valid_until_slot\":421872200},\"schema_version\":\"1\",\"state\":{\"agent_permitted\":true,\"asset_exposure_after_bps\":4500,\"current_slot\":421872118,\"daily_exposure_cents\":500000,\"nonce_unused\":true,\"oracle_age_seconds\":12}}",
+      "input_hash": "sha256:c89ab449fee96f3ac7506a29eacd27e0976ad39b55d8cec0a1521777d7934e76",
+      "expected": {"decision": "ESCALATE", "escalation": "REQUIRE_SECOND_AGENT", "tier": "SECOND_AGENT", "failed_predicates": []},
+      "canonical_verdict": "{\"decision\":\"ESCALATE\",\"escalation\":\"REQUIRE_SECOND_AGENT\",\"evaluated_predicates\":[\"POLICY_BOUND\",\"ASSET_ALLOWED\",\"TRADE_WITHIN_MAX\",\"DAILY_LIMIT\",\"ASSET_CONCENTRATION\",\"SLIPPAGE_WITHIN_MAX\",\"ORACLE_FRESH\",\"AGENT_PERMITTED\",\"STRATEGY_ENABLED\",\"NONCE_UNUSED\",\"NOT_EXPIRED\"],\"failed_predicates\":[],\"input_hash\":\"sha256:c89ab449fee96f3ac7506a29eacd27e0976ad39b55d8cec0a1521777d7934e76\",\"policy_hash\":\"sha256:fe53bb5bbb0cc8cdd852ceca76c0e40b44fd3b70a9bb08fdc30dd0cd77795547\",\"policy_version\":\"paper-v1\",\"schema_version\":\"1\",\"tier\":\"SECOND_AGENT\"}",
+      "verdict_hash": "sha256:5e9f411cf9d341b95979451f57939c27742c86c754fa6dd62244a63af031e795"
+    },
+    {
+      "name": "$60,000 → over the hard limit, DENY",
+      "intent": {"agent_id":"crypto-agent-42","asset":"SOL","max_slippage_bps":30,"policy_version":"paper-v1","strategy_id":"momentum-v3","trade_value_cents":6000000,"valid_until_slot":421872200},
+      "state": {"agent_permitted":true,"asset_exposure_after_bps":4500,"current_slot":421872118,"daily_exposure_cents":500000,"nonce_unused":true,"oracle_age_seconds":12},
+      "canonical_input": "{\"intent\":{\"agent_id\":\"crypto-agent-42\",\"asset\":\"SOL\",\"max_slippage_bps\":30,\"policy_version\":\"paper-v1\",\"strategy_id\":\"momentum-v3\",\"trade_value_cents\":6000000,\"valid_until_slot\":421872200},\"schema_version\":\"1\",\"state\":{\"agent_permitted\":true,\"asset_exposure_after_bps\":4500,\"current_slot\":421872118,\"daily_exposure_cents\":500000,\"nonce_unused\":true,\"oracle_age_seconds\":12}}",
+      "input_hash": "sha256:08cf97097c0e0b2cc284ea528ba6089cae39f7f14e95f58e502822fff9c6e1ae",
+      "expected": {"decision": "DENY", "escalation": "NONE", "tier": "OVER_LIMIT", "failed_predicates": ["TRADE_WITHIN_MAX"]},
+      "canonical_verdict": "{\"decision\":\"DENY\",\"escalation\":\"NONE\",\"evaluated_predicates\":[\"POLICY_BOUND\",\"ASSET_ALLOWED\",\"TRADE_WITHIN_MAX\",\"DAILY_LIMIT\",\"ASSET_CONCENTRATION\",\"SLIPPAGE_WITHIN_MAX\",\"ORACLE_FRESH\",\"AGENT_PERMITTED\",\"STRATEGY_ENABLED\",\"NONCE_UNUSED\",\"NOT_EXPIRED\"],\"failed_predicates\":[\"TRADE_WITHIN_MAX\"],\"input_hash\":\"sha256:08cf97097c0e0b2cc284ea528ba6089cae39f7f14e95f58e502822fff9c6e1ae\",\"policy_hash\":\"sha256:fe53bb5bbb0cc8cdd852ceca76c0e40b44fd3b70a9bb08fdc30dd0cd77795547\",\"policy_version\":\"paper-v1\",\"schema_version\":\"1\",\"tier\":\"OVER_LIMIT\"}",
+      "verdict_hash": "sha256:4bea6d4ec64603628b3efaa1951f74277f7779552b951039453f315ad8f99a59"
+    },
+    {
+      "name": "stale oracle + expired slot → DENY with both",
+      "intent": {"agent_id":"crypto-agent-42","asset":"SOL","max_slippage_bps":30,"policy_version":"paper-v1","strategy_id":"momentum-v3","trade_value_cents":2000000,"valid_until_slot":421872200},
+      "state": {"agent_permitted":true,"asset_exposure_after_bps":4500,"current_slot":421872201,"daily_exposure_cents":500000,"nonce_unused":true,"oracle_age_seconds":61},
+      "canonical_input": "{\"intent\":{\"agent_id\":\"crypto-agent-42\",\"asset\":\"SOL\",\"max_slippage_bps\":30,\"policy_version\":\"paper-v1\",\"strategy_id\":\"momentum-v3\",\"trade_value_cents\":2000000,\"valid_until_slot\":421872200},\"schema_version\":\"1\",\"state\":{\"agent_permitted\":true,\"asset_exposure_after_bps\":4500,\"current_slot\":421872201,\"daily_exposure_cents\":500000,\"nonce_unused\":true,\"oracle_age_seconds\":61}}",
+      "input_hash": "sha256:4b26be3ba2e2cc08551761e492da9128687617030f45b5c1e3d256220aec24bd",
+      "expected": {"decision": "DENY", "escalation": "NONE", "tier": "HUMAN_SIGNATURE", "failed_predicates": ["ORACLE_FRESH","NOT_EXPIRED"]},
+      "canonical_verdict": "{\"decision\":\"DENY\",\"escalation\":\"NONE\",\"evaluated_predicates\":[\"POLICY_BOUND\",\"ASSET_ALLOWED\",\"TRADE_WITHIN_MAX\",\"DAILY_LIMIT\",\"ASSET_CONCENTRATION\",\"SLIPPAGE_WITHIN_MAX\",\"ORACLE_FRESH\",\"AGENT_PERMITTED\",\"STRATEGY_ENABLED\",\"NONCE_UNUSED\",\"NOT_EXPIRED\"],\"failed_predicates\":[\"ORACLE_FRESH\",\"NOT_EXPIRED\"],\"input_hash\":\"sha256:4b26be3ba2e2cc08551761e492da9128687617030f45b5c1e3d256220aec24bd\",\"policy_hash\":\"sha256:fe53bb5bbb0cc8cdd852ceca76c0e40b44fd3b70a9bb08fdc30dd0cd77795547\",\"policy_version\":\"paper-v1\",\"schema_version\":\"1\",\"tier\":\"HUMAN_SIGNATURE\"}",
+      "verdict_hash": "sha256:d953d2f2ade53e6d5946013c587c16be692271ad3b3828f4ee8940686b1ff2b5"
+    },
+    {
+      "name": "unknown state → every state predicate fails (Unknown ⇒ Deny)",
+      "intent": {"agent_id":"crypto-agent-42","asset":"SOL","max_slippage_bps":30,"policy_version":"paper-v1","strategy_id":"momentum-v3","trade_value_cents":2000000,"valid_until_slot":421872200},
+      "state": {},
+      "canonical_input": "{\"intent\":{\"agent_id\":\"crypto-agent-42\",\"asset\":\"SOL\",\"max_slippage_bps\":30,\"policy_version\":\"paper-v1\",\"strategy_id\":\"momentum-v3\",\"trade_value_cents\":2000000,\"valid_until_slot\":421872200},\"schema_version\":\"1\",\"state\":{}}",
+      "input_hash": "sha256:4f21fdf83eb95ccb0de835b30ead77ce92f2a9b7757072cf4b5579f3fb13ad98",
+      "expected": {"decision": "DENY", "escalation": "NONE", "tier": "HUMAN_SIGNATURE", "failed_predicates": ["DAILY_LIMIT","ASSET_CONCENTRATION","ORACLE_FRESH","AGENT_PERMITTED","NONCE_UNUSED","NOT_EXPIRED"]},
+      "canonical_verdict": "{\"decision\":\"DENY\",\"escalation\":\"NONE\",\"evaluated_predicates\":[\"POLICY_BOUND\",\"ASSET_ALLOWED\",\"TRADE_WITHIN_MAX\",\"DAILY_LIMIT\",\"ASSET_CONCENTRATION\",\"SLIPPAGE_WITHIN_MAX\",\"ORACLE_FRESH\",\"AGENT_PERMITTED\",\"STRATEGY_ENABLED\",\"NONCE_UNUSED\",\"NOT_EXPIRED\"],\"failed_predicates\":[\"DAILY_LIMIT\",\"ASSET_CONCENTRATION\",\"ORACLE_FRESH\",\"AGENT_PERMITTED\",\"NONCE_UNUSED\",\"NOT_EXPIRED\"],\"input_hash\":\"sha256:4f21fdf83eb95ccb0de835b30ead77ce92f2a9b7757072cf4b5579f3fb13ad98\",\"policy_hash\":\"sha256:fe53bb5bbb0cc8cdd852ceca76c0e40b44fd3b70a9bb08fdc30dd0cd77795547\",\"policy_version\":\"paper-v1\",\"schema_version\":\"1\",\"tier\":\"HUMAN_SIGNATURE\"}",
+      "verdict_hash": "sha256:4b157916768033f33607953e408fa1c19c7d1d8f64891fc92106b013309419dc"
+    },
+    {
+      "name": "wrong policy version, asset and strategy → DENY with the three",
+      "intent": {"agent_id":"crypto-agent-42","asset":"DOGE","max_slippage_bps":30,"policy_version":"paper-v0","strategy_id":"yolo","trade_value_cents":80000,"valid_until_slot":421872200},
+      "state": {"agent_permitted":true,"asset_exposure_after_bps":4500,"current_slot":421872118,"daily_exposure_cents":500000,"nonce_unused":true,"oracle_age_seconds":12},
+      "canonical_input": "{\"intent\":{\"agent_id\":\"crypto-agent-42\",\"asset\":\"DOGE\",\"max_slippage_bps\":30,\"policy_version\":\"paper-v0\",\"strategy_id\":\"yolo\",\"trade_value_cents\":80000,\"valid_until_slot\":421872200},\"schema_version\":\"1\",\"state\":{\"agent_permitted\":true,\"asset_exposure_after_bps\":4500,\"current_slot\":421872118,\"daily_exposure_cents\":500000,\"nonce_unused\":true,\"oracle_age_seconds\":12}}",
+      "input_hash": "sha256:ff1a842c414013118a6e5ae7af1dea830a55a7063e7797a71c5e4521c6d5474c",
+      "expected": {"decision": "DENY", "escalation": "NONE", "tier": "AUTONOMOUS", "failed_predicates": ["POLICY_BOUND","ASSET_ALLOWED","STRATEGY_ENABLED"]},
+      "canonical_verdict": "{\"decision\":\"DENY\",\"escalation\":\"NONE\",\"evaluated_predicates\":[\"POLICY_BOUND\",\"ASSET_ALLOWED\",\"TRADE_WITHIN_MAX\",\"DAILY_LIMIT\",\"ASSET_CONCENTRATION\",\"SLIPPAGE_WITHIN_MAX\",\"ORACLE_FRESH\",\"AGENT_PERMITTED\",\"STRATEGY_ENABLED\",\"NONCE_UNUSED\",\"NOT_EXPIRED\"],\"failed_predicates\":[\"POLICY_BOUND\",\"ASSET_ALLOWED\",\"STRATEGY_ENABLED\"],\"input_hash\":\"sha256:ff1a842c414013118a6e5ae7af1dea830a55a7063e7797a71c5e4521c6d5474c\",\"policy_hash\":\"sha256:fe53bb5bbb0cc8cdd852ceca76c0e40b44fd3b70a9bb08fdc30dd0cd77795547\",\"policy_version\":\"paper-v1\",\"schema_version\":\"1\",\"tier\":\"AUTONOMOUS\"}",
+      "verdict_hash": "sha256:936dc2a8a742777feea1218aa37e7de1006ba7da2b55d96f97436a5d01f80878"
+    },
+    {
+      "name": "boundaries: slot == valid_until and oracle == max hold; slippage +1, exposure +1 and daily sum > limit fail",
+      "intent": {"agent_id":"crypto-agent-42","asset":"SOL","max_slippage_bps":51,"policy_version":"paper-v1","strategy_id":"momentum-v3","trade_value_cents":1000000,"valid_until_slot":421872200},
+      "state": {"agent_permitted":true,"asset_exposure_after_bps":6001,"current_slot":421872200,"daily_exposure_cents":9000001,"nonce_unused":true,"oracle_age_seconds":60},
+      "canonical_input": "{\"intent\":{\"agent_id\":\"crypto-agent-42\",\"asset\":\"SOL\",\"max_slippage_bps\":51,\"policy_version\":\"paper-v1\",\"strategy_id\":\"momentum-v3\",\"trade_value_cents\":1000000,\"valid_until_slot\":421872200},\"schema_version\":\"1\",\"state\":{\"agent_permitted\":true,\"asset_exposure_after_bps\":6001,\"current_slot\":421872200,\"daily_exposure_cents\":9000001,\"nonce_unused\":true,\"oracle_age_seconds\":60}}",
+      "input_hash": "sha256:7c73c13f521510551dbc27d8afc4e25b875de7e49cf7b996af297b097f1c81b1",
+      "expected": {"decision": "DENY", "escalation": "NONE", "tier": "SECOND_AGENT", "failed_predicates": ["DAILY_LIMIT","ASSET_CONCENTRATION","SLIPPAGE_WITHIN_MAX"]},
+      "canonical_verdict": "{\"decision\":\"DENY\",\"escalation\":\"NONE\",\"evaluated_predicates\":[\"POLICY_BOUND\",\"ASSET_ALLOWED\",\"TRADE_WITHIN_MAX\",\"DAILY_LIMIT\",\"ASSET_CONCENTRATION\",\"SLIPPAGE_WITHIN_MAX\",\"ORACLE_FRESH\",\"AGENT_PERMITTED\",\"STRATEGY_ENABLED\",\"NONCE_UNUSED\",\"NOT_EXPIRED\"],\"failed_predicates\":[\"DAILY_LIMIT\",\"ASSET_CONCENTRATION\",\"SLIPPAGE_WITHIN_MAX\"],\"input_hash\":\"sha256:7c73c13f521510551dbc27d8afc4e25b875de7e49cf7b996af297b097f1c81b1\",\"policy_hash\":\"sha256:fe53bb5bbb0cc8cdd852ceca76c0e40b44fd3b70a9bb08fdc30dd0cd77795547\",\"policy_version\":\"paper-v1\",\"schema_version\":\"1\",\"tier\":\"SECOND_AGENT\"}",
+      "verdict_hash": "sha256:a0aca84712e61f06821ab752cbe1007a1a01b46d330e4b9436ed1b0e4d28e204"
+    },
+    {
+      "name": "trade value beyond 2^53-1 → unknown: absent from the canonical input, DENY",
+      "intent": {"agent_id":"crypto-agent-42","asset":"SOL","max_slippage_bps":30,"policy_version":"paper-v1","strategy_id":"momentum-v3","trade_value_cents":9007199254740992,"valid_until_slot":421872200},
+      "state": {"agent_permitted":true,"asset_exposure_after_bps":4500,"current_slot":421872118,"daily_exposure_cents":500000,"nonce_unused":true,"oracle_age_seconds":12},
+      "canonical_input": "{\"intent\":{\"agent_id\":\"crypto-agent-42\",\"asset\":\"SOL\",\"max_slippage_bps\":30,\"policy_version\":\"paper-v1\",\"strategy_id\":\"momentum-v3\",\"valid_until_slot\":421872200},\"schema_version\":\"1\",\"state\":{\"agent_permitted\":true,\"asset_exposure_after_bps\":4500,\"current_slot\":421872118,\"daily_exposure_cents\":500000,\"nonce_unused\":true,\"oracle_age_seconds\":12}}",
+      "input_hash": "sha256:95bdc3685d97ce61c1498146fed6909c3ccd0cf13107ae678c3d148b2b8bf80a",
+      "expected": {"decision": "DENY", "escalation": "NONE", "tier": "OVER_LIMIT", "failed_predicates": ["TRADE_WITHIN_MAX","DAILY_LIMIT"]},
+      "canonical_verdict": "{\"decision\":\"DENY\",\"escalation\":\"NONE\",\"evaluated_predicates\":[\"POLICY_BOUND\",\"ASSET_ALLOWED\",\"TRADE_WITHIN_MAX\",\"DAILY_LIMIT\",\"ASSET_CONCENTRATION\",\"SLIPPAGE_WITHIN_MAX\",\"ORACLE_FRESH\",\"AGENT_PERMITTED\",\"STRATEGY_ENABLED\",\"NONCE_UNUSED\",\"NOT_EXPIRED\"],\"failed_predicates\":[\"TRADE_WITHIN_MAX\",\"DAILY_LIMIT\"],\"input_hash\":\"sha256:95bdc3685d97ce61c1498146fed6909c3ccd0cf13107ae678c3d148b2b8bf80a\",\"policy_hash\":\"sha256:fe53bb5bbb0cc8cdd852ceca76c0e40b44fd3b70a9bb08fdc30dd0cd77795547\",\"policy_version\":\"paper-v1\",\"schema_version\":\"1\",\"tier\":\"OVER_LIMIT\"}",
+      "verdict_hash": "sha256:4d2de8eff9fe42a0a322c63746bf37b7f47b484f5ab337a260252acedb2bc64b"
+    }
+  ]
+}

@@ -13,6 +13,7 @@ import io.lifeengine.cryptobot.domain.transactions.ProposalStatus;
 import io.lifeengine.cryptobot.domain.transactions.ProposalTransition;
 import io.lifeengine.cryptobot.domain.wallet.Wallet;
 import io.lifeengine.cryptobot.integration.signer.SignerClient;
+import io.lifeengine.cryptobot.integration.validator.ValidatorClient;
 import io.lifeengine.cryptobot.observability.CryptobotMetrics;
 import java.time.Clock;
 import java.time.Duration;
@@ -29,9 +30,11 @@ import reactor.core.publisher.Mono;
 import reactor.util.retry.Retry;
 
 /**
- * The only path to the chain. Requires an APPROVED proposal, re-checks policy, rebuilds the
- * transaction on a fresh blockhash, re-simulates, asks the isolated signer, verifies the
- * signature against the wallet's public key, broadcasts, and waits for confirmation.
+ * The only path to the chain. Requires an APPROVED proposal whose timelock has elapsed, re-checks
+ * policy, rebuilds the transaction on a fresh blockhash, re-simulates, has the <em>independent
+ * validator</em> re-derive the verdict and attest these exact bytes (KAN-438, paper §20), asks
+ * the isolated signer — which refuses without that attestation —, verifies the signature against
+ * the wallet's public key, broadcasts, and waits for confirmation.
  *
  * <h2>Reliability (KAN-403)</h2>
  *
@@ -54,6 +57,8 @@ public class ExecutionService {
 
     private static final Logger log = LoggerFactory.getLogger(ExecutionService.class);
     public static final String EV_STARTED = "EXECUTION_STARTED";
+    /** KAN-438: the independent validator re-derived the verdict and attested the bytes. */
+    public static final String EV_VALIDATED = "EXECUTION_VALIDATED";
     public static final String EV_SIGNED = "EXECUTION_SIGNED";
     public static final String EV_SUBMITTED = "EXECUTION_SUBMITTED";
     public static final String EV_BROADCAST_UNCERTAIN = "EXECUTION_BROADCAST_UNCERTAIN";
@@ -67,6 +72,7 @@ public class ExecutionService {
     private final SimulationService simulation;
     private final PolicyEngine policy;
     private final SignerClient signer;
+    private final ValidatorClient validator;
     private final SolanaRpcClient rpc;
     private final AuditService audit;
     private final CryptobotMetrics metrics;
@@ -74,12 +80,14 @@ public class ExecutionService {
     private final Clock clock;
 
     public ExecutionService(ProposalService proposals, WalletService wallets, SimulationService simulation, PolicyEngine policy,
-            SignerClient signer, SolanaRpcClient rpc, AuditService audit, CryptobotMetrics metrics, ExecutionReceipts executionReceipts) {
+            SignerClient signer, ValidatorClient validator, SolanaRpcClient rpc, AuditService audit, CryptobotMetrics metrics,
+            ExecutionReceipts executionReceipts) {
         this.proposals = proposals;
         this.wallets = wallets;
         this.simulation = simulation;
         this.policy = policy;
         this.signer = signer;
+        this.validator = validator;
         this.rpc = rpc;
         this.audit = audit;
         this.metrics = metrics;
@@ -138,7 +146,9 @@ public class ExecutionService {
                         .flatMap(fresh -> operationId.equals(fresh.operationId()) ? suppressDuplicate(fresh, actor) : Mono.error(stale)));
     }
 
-    private record Signed(PreparedTransaction tx, String signedBase64, String signer, String signature) {}
+    private record Signed(PreparedTransaction tx, String signedBase64, String signer, String signature, ValidatorClient.Response attestation) {}
+
+    private record Attested(PreparedTransaction tx, ValidatorClient.Response attestation) {}
 
     private record Step(ActionProposal proposal, Signed signed) {}
 
@@ -154,11 +164,23 @@ public class ExecutionService {
                 .flatMap(tx -> rpc.simulateTransaction(wallet.cluster(), tx.unsignedTransactionBase64(), false)
                         .flatMap(sim -> sim.ok() ? Mono.just(tx)
                                 : Mono.error(new ControlPlaneExceptions.Conflict("Pre-flight simulation failed: " + sim.error()))))
-                // 3. Sign in the isolated signer, then verify the signature ourselves.
-                .doOnNext(tx -> stage.set(CryptobotMetrics.FailureStage.SIGN))
-                .flatMap(tx -> signer.sign(executing.id(), tx.unsignedTransactionBase64(), wallet.address())
-                        .map(resp -> verifySigned(tx, resp, wallet)))
-                // 4. Persist the signature BEFORE broadcasting: from here on a crash is reconcilable.
+                // 3. Independent validation (KAN-438, paper §20): a separate process re-derives the verdict
+                //    over the recorded (I, S) under its own pinned H_R and attests THESE bytes. Disagreement,
+                //    DENY, or no answer ⇒ nothing is signed.
+                .doOnNext(tx -> stage.set(CryptobotMetrics.FailureStage.VALIDATE))
+                .flatMap(tx -> validator.authorize(executing, tx)
+                        .doOnNext(att -> {
+                            metrics.validatorAttestation("issued");
+                            log.info("execution_validated proposalId={} validator={} decision={} verdictHash={} expiresAt={}",
+                                    executing.id(), att.attestation().validator(), att.decision(), att.verdictHash(), att.expires());
+                        })
+                        .doOnError(ValidatorClient.ValidatorRefused.class, ex -> metrics.validatorAttestation("refused"))
+                        .map(att -> new Attested(tx, att)))
+                // 4. Sign in the isolated signer (which checks the attestation itself), then verify the signature ourselves.
+                .doOnNext(a -> stage.set(CryptobotMetrics.FailureStage.SIGN))
+                .flatMap(a -> signer.sign(executing.id(), a.tx().unsignedTransactionBase64(), wallet.address(), a.attestation().attestation())
+                        .map(resp -> verifySigned(a.tx(), resp, wallet, a.attestation())))
+                // 5. Persist the signature BEFORE broadcasting: from here on a crash is reconcilable.
                 .flatMap(signed -> persistSigned(executing, signed, wallet, actor).map(s -> new Step(s, signed)))
                 // Anything up to here failed before the chain could have seen the transaction: safe to FAILED.
                 .onErrorResume(ex -> fail(executing, actor, ex, stage.get(), asset).map(p -> new Step(p, null)))
@@ -166,7 +188,7 @@ public class ExecutionService {
     }
 
     /** Defence in depth: the signer's output must be the same message we sent, signed by the wallet key. */
-    private static Signed verifySigned(PreparedTransaction tx, SignerClient.SignResponse resp, Wallet wallet) {
+    private static Signed verifySigned(PreparedTransaction tx, SignerClient.SignResponse resp, Wallet wallet, ValidatorClient.Response attestation) {
         byte[] wire = Base64.getDecoder().decode(resp.signedTransactionBase64());
         byte[] message = Base64.getDecoder().decode(tx.messageBase64());
         // 1 signature: compact-u16 (1 byte) + 64 bytes, then the message.
@@ -182,17 +204,22 @@ public class ExecutionService {
             throw new ControlPlaneExceptions.Conflict("Signature does not verify against the wallet public key");
         }
         // The transaction id IS the first signature: known before anyone broadcasts it.
-        return new Signed(tx, resp.signedTransactionBase64(), resp.signer(), Base58.encode(signature));
+        return new Signed(tx, resp.signedTransactionBase64(), resp.signer(), Base58.encode(signature), attestation);
     }
 
     private Mono<ActionProposal> persistSigned(ActionProposal executing, Signed signed, Wallet wallet, String actor) {
         Instant now = clock.instant();
         ExecutionRecord rec = new ExecutionRecord(ExecutionRecord.SIGNED, signed.signature(), wallet.cluster().explorerTxUrl(signed.signature()),
                 signed.signer(), null, null, null, null, signed.tx().recentBlockhash(), signed.tx().lastValidBlockHeight(), 0, null);
+        ValidatorClient.Response att = signed.attestation();
         return proposals.commit(ProposalTransition.from(executing, executing.withExecution(rec, now))
-                .audit(audit.event(executing.ownerUserId(), executing.walletId(), executing.id(), EV_SIGNED, actor,
+                .audit(audit.event(executing.ownerUserId(), executing.walletId(), executing.id(), EV_VALIDATED, actor,
+                                ProposalService.payload("validator", att.attestation().validator(), "decision", att.decision(), "escalation", att.escalation(),
+                                        "policyHash", att.policyHash(), "verdictHash", att.verdictHash(), "inputHash", att.inputHash(),
+                                        "attestationExpiresAt", att.expires(), "attestationSignature", att.attestation().signature())),
+                        audit.event(executing.ownerUserId(), executing.walletId(), executing.id(), EV_SIGNED, actor,
                         ProposalService.payload("signature", signed.signature(), "signer", signed.signer(), "blockhash", signed.tx().recentBlockhash(),
-                                "lastValidBlockHeight", signed.tx().lastValidBlockHeight()))));
+                                "lastValidBlockHeight", signed.tx().lastValidBlockHeight(), "validator", att.attestation().validator()))));
     }
 
     private Mono<ActionProposal> broadcast(ActionProposal signedP, Signed signed, Wallet wallet, String actor, String asset) {

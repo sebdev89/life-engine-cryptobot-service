@@ -87,6 +87,16 @@ public class ProposalsController {
     }
 
     /**
+     * KAN-438 (paper §19): during the timelock that starts at approval a human may cancel. Only
+     * APPROVED proposals; anything in flight or terminal is a 409.
+     */
+    @PostMapping(path = "/{proposalId}/cancel")
+    public Mono<ActionProposal> cancel(@PathVariable UUID proposalId, @RequestBody(required = false) ControlPlaneDtos.DecisionRequest body, @AuthenticationPrincipal CryptobotPrincipal principal) {
+        CryptobotPrincipal p = Principals.require(principal);
+        return proposals.cancel(p.userId(), proposalId, Principals.actor(p), body == null ? null : body.note());
+    }
+
+    /**
      * Second, explicit click. Only APPROVED + executable + devnet. Everything else is a 409 with the
      * reason. Idempotent on {@code Idempotency-Key} (or body {@code operationId}): the same key
      * never produces a second transaction; a different key while in flight is a 409 (KAN-403).

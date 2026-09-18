@@ -9,8 +9,9 @@ target/
 # OS
 .DS_Store
 
-# signer module build output
+# signer / validator module build output
 signer/target/
+validator/target/
 
 # hackathon compose secrets
 .env.hackathon

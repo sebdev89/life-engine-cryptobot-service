@@ -16,6 +16,7 @@ import io.lifeengine.cryptobot.domain.transactions.ProposalTransition;
 import io.lifeengine.cryptobot.domain.wallet.Wallet;
 import io.lifeengine.cryptobot.infrastructure.persistence.controlplane.ActionProposalRepository;
 import io.lifeengine.cryptobot.integration.signer.SignerClient;
+import io.lifeengine.cryptobot.integration.validator.ValidatorClient;
 import io.lifeengine.cryptobot.observability.CryptobotMetrics;
 import java.math.BigDecimal;
 import java.time.Clock;
@@ -50,6 +51,8 @@ public class ProposalService {
     public static final String EV_APPROVED = "APPROVED";
     public static final String EV_REJECTED = "REJECTED";
     public static final String EV_EXPIRED = "EXPIRED";
+    /** KAN-438 (paper §19): a human cancelled an APPROVED proposal inside its timelock. */
+    public static final String EV_CANCELLED = "CANCELLED";
     static final String SERVICE_ACTOR = "cryptobot-service";
 
     private final ActionProposalRepository proposals;
@@ -59,12 +62,14 @@ public class ProposalService {
     private final SimulationService simulation;
     private final PolicyEngine policy;
     private final SignerClient signer;
+    private final ValidatorClient validator;
     private final AuditService audit;
     private final CryptobotMetrics metrics;
     private final ReceiptService receipts;
     private final Receipts receiptOf;
     private final Clock clock;
 
+    @org.springframework.beans.factory.annotation.Autowired
     public ProposalService(
             ActionProposalRepository proposals,
             PortfolioService portfolio,
@@ -73,10 +78,28 @@ public class ProposalService {
             SimulationService simulation,
             PolicyEngine policy,
             SignerClient signer,
+            ValidatorClient validator,
             AuditService audit,
             CryptobotMetrics metrics,
             ReceiptService receipts,
             Receipts receiptOf) {
+        this(proposals, portfolio, planner, riskEngine, simulation, policy, signer, validator, audit, metrics, receipts, receiptOf, Clock.systemUTC());
+    }
+
+    ProposalService(
+            ActionProposalRepository proposals,
+            PortfolioService portfolio,
+            RebalancePlanner planner,
+            RiskEngine riskEngine,
+            SimulationService simulation,
+            PolicyEngine policy,
+            SignerClient signer,
+            ValidatorClient validator,
+            AuditService audit,
+            CryptobotMetrics metrics,
+            ReceiptService receipts,
+            Receipts receiptOf,
+            Clock clock) {
         this.proposals = proposals;
         this.portfolio = portfolio;
         this.planner = planner;
@@ -84,11 +107,12 @@ public class ProposalService {
         this.simulation = simulation;
         this.policy = policy;
         this.signer = signer;
+        this.validator = validator;
         this.audit = audit;
         this.metrics = metrics;
         this.receipts = receipts;
         this.receiptOf = receiptOf;
-        this.clock = Clock.systemUTC();
+        this.clock = clock;
     }
 
     /**
@@ -165,8 +189,10 @@ public class ProposalService {
                             .reduce(BigDecimal.ZERO, BigDecimal::add);
                     return new PolicyEngine.WalletState(last, last24h, pricesAsOf);
                 });
-        return Mono.zip(state, signer.identity()).flatMap(t -> {
-            PolicyDecision decision = policy.evaluate(p, wallet, t.getT1(), t.getT2().map(SignerClient.Identity::publicKey));
+        return Mono.zip(state, signer.identity(), validator.identity()).flatMap(t -> {
+            // KAN-438: the independent validator must be up and on the same H_R, or this is a paper trade.
+            PolicyDecision decision = policy.requireValidator(
+                    policy.evaluate(p, wallet, t.getT1(), t.getT2().map(SignerClient.Identity::publicKey)), t.getT3());
             PolicyVerdict verdict = decision.authorization();
             ProposalStatus next = decision.allowed() ? ProposalStatus.AWAITING_APPROVAL : ProposalStatus.BLOCKED_BY_POLICY;
             ActionProposal updated = p.withPolicy(decision, now).withStatus(next, now);
@@ -214,15 +240,44 @@ public class ProposalService {
             Instant now = clock.instant();
             boolean approved = decision == ApprovalRecord.Decision.APPROVED;
             ProposalStatus next = approved ? ProposalStatus.APPROVED : ProposalStatus.REJECTED;
-            ActionProposal updated = p.withApproval(new ApprovalRecord(decision, actor, now, blankToNull(note)), now).withStatus(next, now);
+            // KAN-438 (paper §19): the timelock starts now; the window is pushed so the lock can be honoured.
+            Instant executableAt = approved ? policy.executableAt(now, p.policy()) : null;
+            ActionProposal updated = p.withApproval(new ApprovalRecord(decision, actor, now, blankToNull(note), executableAt), now).withStatus(next, now);
+            if (approved) {
+                Instant windowEnd = executableAt.plus(policy.timelock().executionWindow());
+                if (updated.expiresAt() == null || updated.expiresAt().isBefore(windowEnd)) {
+                    updated = updated.withExpiresAt(windowEnd, now);
+                }
+            }
             // Funnel step 2: the human decided.
             metrics.approval(next.name());
             boolean executable = updated.policy() != null && updated.policy().executable();
             return proposals.commit(ProposalTransition.from(p, updated)
                     .audit(audit.event(p.ownerUserId(), p.walletId(), p.id(), approved ? EV_APPROVED : EV_REJECTED, actor,
-                            payload("note", note, "executable", executable)))
+                            payload("note", note, "executable", executable, "executableAt", executableAt, "expiresAt", updated.expiresAt())))
                     .publish(tradeEvent(updated, approved ? TradeEvents.APPROVED : TradeEvents.REJECTED, now,
-                            payload("by", actor, "note", note, "executable", executable))));
+                            payload("by", actor, "note", note, "executable", executable, "executableAt", executableAt))));
+        });
+    }
+
+    /**
+     * KAN-438 (paper §19): during the timelock a human may cancel. Only an APPROVED proposal that
+     * has not started executing; the approval record is kept (who approved is part of the trace)
+     * and the row goes to REJECTED with a {@code CANCELLED} audit event and outbox fact.
+     */
+    public Mono<ActionProposal> cancel(UUID ownerUserId, UUID proposalId, String actor, String note) {
+        return require(ownerUserId, proposalId).flatMap(p -> {
+            if (p.status() != ProposalStatus.APPROVED) {
+                return Mono.error(new ControlPlaneExceptions.Conflict("Proposal is " + p.status() + "; only APPROVED proposals (inside their timelock) can be cancelled"));
+            }
+            Instant now = clock.instant();
+            Instant executableAt = policy.executableAt(p);
+            ActionProposal updated = p.withStatus(ProposalStatus.REJECTED, now);
+            metrics.approval("cancelled");
+            return proposals.commit(ProposalTransition.from(p, updated)
+                    .audit(audit.event(p.ownerUserId(), p.walletId(), p.id(), EV_CANCELLED, actor,
+                            payload("note", note, "executableAt", executableAt, "insideTimelock", executableAt != null && now.isBefore(executableAt))))
+                    .publish(tradeEvent(updated, TradeEvents.CANCELLED, now, payload("by", actor, "note", note, "executableAt", executableAt))));
         });
     }
 

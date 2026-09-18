@@ -83,6 +83,14 @@ public record ActionProposal(
                 runtimeRunId, snapshotId, expiresAt, createdAt, now, operationId, version);
     }
 
+    /** KAN-438: the timelock may end after the original TTL; the window is pushed so the lock can be honoured. */
+    public ActionProposal withExpiresAt(Instant expires, Instant now) {
+        return new ActionProposal(
+                id, walletId, ownerUserId, walletAddress, cluster, status, kind, title, reasoningSummary, requestedBy,
+                intent, plan, riskBefore, riskAfter, policy, simulation, transaction, approval, execution,
+                runtimeRunId, snapshotId, expires, createdAt, now, operationId, version);
+    }
+
     public ActionProposal withOperation(UUID operation, Instant now) {
         return new ActionProposal(
                 id, walletId, ownerUserId, walletAddress, cluster, status, kind, title, reasoningSummary, requestedBy,

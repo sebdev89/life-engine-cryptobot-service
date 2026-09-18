@@ -17,7 +17,7 @@ class SigningPolicyTest {
     static final SolanaKeypair KEY = SolanaKeypair.generate();
 
     static SignerProperties props(long cap, List<String> allowed, boolean enabled) {
-        return new SignerProperties("", keyJson(KEY), "t", "devnet", cap, allowed, enabled);
+        return new SignerProperties("", keyJson(KEY), "t", "devnet", cap, allowed, enabled, "", false);
     }
 
     static String keyJson(SolanaKeypair kp) {
@@ -103,7 +103,7 @@ class SigningPolicyTest {
     }
 
     static SignerProperties propsOn(String cluster) {
-        return new SignerProperties("", keyJson(KEY), "t", cluster, 1_000_000L, List.of(VAULT), true);
+        return new SignerProperties("", keyJson(KEY), "t", cluster, 1_000_000L, List.of(VAULT), true, "", false);
     }
 
     @Test
