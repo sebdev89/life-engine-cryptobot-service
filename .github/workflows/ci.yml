@@ -105,6 +105,13 @@ jobs:
   docker-publish:
     name: docker build + push
     runs-on: [self-hosted, le-ci]
+    # KAN-488: config de Docker aislada por job. Los runners de la VM le-ci comparten el
+    # ~/.docker/config.json del usuario del runner, y el post-step de docker/login-action
+    # hace `docker logout` global: si el job de otro repo termina primero, el push de este
+    # falla con `denied: permission_denied: read_package`. Con DOCKER_CONFIG en runner.temp
+    # cada job tiene su propio config.json; login, buildx y logout lo leen del env.
+    env:
+      DOCKER_CONFIG: ${{ runner.temp }}/.docker
     needs: build-and-test
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     permissions:
