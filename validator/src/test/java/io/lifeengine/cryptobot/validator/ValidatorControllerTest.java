@@ -51,7 +51,8 @@ class ValidatorControllerTest {
                 "policyHash", POLICY_HASH,
                 "messageHash", "b".repeat(64),
                 "intent", ValidationServiceTest.intent(),
-                "state", ValidationServiceTest.state());
+                "state", ValidationServiceTest.state(),
+                "cluster", "devnet");
         ValidationService.Response r = web.post().uri("/api/validator/validate").header("X-Validator-Token", "test-token")
                 .bodyValue(body).exchange().expectStatus().isOk()
                 .expectBody(ValidationService.Response.class).returnResult().getResponseBody();
@@ -62,6 +63,8 @@ class ValidatorControllerTest {
         assertThat(SolanaKeypair.verify(KEY.publicKeyBytes(), r.attestation().payload().getBytes(StandardCharsets.UTF_8),
                 Base58.decode(r.attestation().signature()))).isTrue();
         assertThat(r.attestation().payload()).contains("\"message_hash\":\"" + "b".repeat(64) + "\"");
+        // KAN-493: the cluster the bytes are for is part of what the validator signs.
+        assertThat(r.attestation().payload()).contains("\"cluster\":\"devnet\"");
     }
 
     @Test
@@ -72,9 +75,16 @@ class ValidatorControllerTest {
         web.post().uri("/api/validator/validate").header("X-Validator-Token", "test-token")
                 .bodyValue(Map.of("proposalId", "p", "policyHash", POLICY_HASH))
                 .exchange().expectStatus().isBadRequest().expectBody().jsonPath("$.reason").isEqualTo("missing_or_invalid_message_hash");
+        // KAN-493: a request that does not say which cluster the bytes are for cannot be attested.
+        web.post().uri("/api/validator/validate").header("X-Validator-Token", "test-token")
+                .bodyValue(Map.of("proposalId", "p", "policyHash", POLICY_HASH, "messageHash", "b".repeat(64), "intent", Map.of(), "state", Map.of()))
+                .exchange().expectStatus().isBadRequest().expectBody().jsonPath("$.reason").isEqualTo("missing_or_invalid_cluster");
+        web.post().uri("/api/validator/validate").header("X-Validator-Token", "test-token")
+                .bodyValue(Map.of("proposalId", "p", "policyHash", POLICY_HASH, "messageHash", "b".repeat(64), "intent", Map.of(), "state", Map.of(), "cluster", "testnet"))
+                .exchange().expectStatus().isBadRequest().expectBody().jsonPath("$.reason").isEqualTo("missing_or_invalid_cluster");
         // Empty facts: every predicate unknown ⇒ DENY, and the attestation says so.
         web.post().uri("/api/validator/validate").header("X-Validator-Token", "test-token")
-                .bodyValue(Map.of("proposalId", "p", "policyHash", POLICY_HASH, "messageHash", "c".repeat(64), "intent", Map.of(), "state", Map.of()))
+                .bodyValue(Map.of("proposalId", "p", "policyHash", POLICY_HASH, "messageHash", "c".repeat(64), "intent", Map.of(), "state", Map.of(), "cluster", "devnet"))
                 .exchange().expectStatus().isOk().expectBody()
                 .jsonPath("$.decision").isEqualTo("DENY")
                 .jsonPath("$.failedPredicates").isEqualTo(List.of("POLICY_BOUND", "ASSET_ALLOWED", "TRADE_WITHIN_MAX", "DAILY_LIMIT", "ASSET_CONCENTRATION",
