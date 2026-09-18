@@ -190,6 +190,20 @@ cryptobot:
     signing-key: ${CRYPTOBOT_RECEIPT_SIGNING_KEY:}
     salt-secret: ${CRYPTOBOT_RECEIPT_SALT_SECRET:}
     price-table-version: ${CRYPTOBOT_RECEIPT_PRICE_TABLE:none}
+  # ---- Anchoring on Solana devnet (KAN-394, Endgame §11) ----
+  # One SPL Memo transaction per batch: `ir/1 root=<sha256> n=<count> ts=<…>`, signed by the isolated
+  # signer (which re-derives the memo from the bytes and only signs it on devnet). Receipts carry the
+  # anchor + Merkle proof only once the transaction is FINALIZED; a dropped/reorged one is re-sent
+  # for the same root (idempotent). `cluster` accepts only devnet — anything else refuses to start.
+  # The job is off by default (needs the signer); POST /api/cryptobot/anchors (RUNTIME_ADMIN) runs a sweep.
+  anchor:
+    enabled: ${CRYPTOBOT_ANCHOR_ENABLED:false}
+    cluster: devnet
+    interval: ${CRYPTOBOT_ANCHOR_INTERVAL:60s}
+    batch-size: ${CRYPTOBOT_ANCHOR_BATCH_SIZE:256}
+    max-attempts: ${CRYPTOBOT_ANCHOR_MAX_ATTEMPTS:5}
+    finality-wait: ${CRYPTOBOT_ANCHOR_FINALITY_WAIT:60s}
+    poll-interval: 2s
 
 lifeengine:
   # Deployment environment for build identity (/actuator/info) and metric common tags. From APP_ENV —

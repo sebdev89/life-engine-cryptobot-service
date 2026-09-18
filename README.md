@@ -27,6 +27,7 @@ wallet → portfolio → risk detection → AI analysis → rebalance proposal
 | Audit | Append-only `audit_event` per transition: created, simulated, policy evaluated, awaiting approval, approved/rejected, started, signed, submitted, executed/failed, reconciled. | `AuditService` |
 | On-chain authority (KAN-437, paper level 4) | `programs/intent-authority`: a Solana program (devnet target) that refuses an execution unless the **agent signed** and its policy PDA is registered and not revoked (I1), the claimed `H_R` equals the one **committed on-chain** (I4), the current slot is within `valid_until_slot` (I2), and neither the receipt PDA of `H_I` nor the nonce PDA of `(agent, nonce)` exists (I3) — then leaves a receipt account atomically. Java client (PDAs, instructions, account decoders) byte-exact with the program via shared SDK vectors. Not yet wired into `ExecutionService`, not yet deployed (needs the Solana CLI: human step). | `programs/intent-authority` · `adapters/solana/authority` |
 | Decision Receipts (KAN-391, Endgame §6-7) | Every step above leaves a **signed, content-addressed receipt**: `WALLET_SNAPSHOT` → `RISK_DECISION` (L1) · `HUMAN_IDEA` → `MARKET_ANALYSIS` (L0: prompt commitment, model, run id, tokens) → `STRATEGY` (L1) → `RISK_DECISION` (validates) · `SIMULATION` → `EXECUTION`. The id is `SHA-256("life-engine.cryptobot.receipt" ‖ 0x00 ‖ JCS(body))`; the body names its parents, so a cycle cannot be built; Ed25519 by the service key over a domain-tagged hash; `verify` recomputes all of it. Prompts, answers and keys never enter a receipt. | `application/receipt` · `domain/receipt` · `api/controlplane/ReceiptsController` |
+| Anchored on devnet (KAN-394, Endgame §11) | Receipts are batched into a **Merkle root** (sorted leaves, domain-separated nodes) and the root goes to Solana devnet in one **SPL Memo** transaction `ir/1 root=<sha256> n=<count> ts=<…>`, signed by the same isolated signer (which re-derives the memo from the bytes and signs it **only on devnet**). A receipt carries `anchor{chain,tx,slot,root,proof}` only once the memo is **finalized** — never at *confirmed*; a dropped or reorged transaction is re-sent for the same root (idempotent), and after `max-attempts` the batch is abandoned and its receipts re-batched. `verify` folds the proof back to the root; `POST /anchors/{root}/verify` recomputes the root from the batch and reads the memo back from the chain. | `application/receipt/AnchorService` · `domain/receipt/MerkleTree` · `api/controlplane/AnchorsController` |
 | Reliable execution (KAN-403) | `operationId` idempotency key bound **before** signing; optimistic version + status guard on every write; signature persisted **before** broadcast; `EXECUTING`/`SUBMITTED` rows reconciled against `getSignatureStatuses` at startup and every 30 s — never re-sent; transactional outbox (`trade.*` events) with `SKIP LOCKED` worker, backoff and dead-letter queue. | `ExecutionService` · `ReconciliationService` · `OutboxPublisher` |
 
 Legacy (pre-hackathon, still available, not part of the demo): Binance-public watchlist / price
@@ -89,6 +90,7 @@ All endpoints take `Authorization: Bearer <Life Engine JWT>`. Everything is scop
 | `POST /api/cryptobot/proposals/{id}/execute` (header `Idempotency-Key: <uuid>` or body `{operationId}`) | devnet execution. Same key ⇒ same result, never a second transaction; different key while `EXECUTING`/`SUBMITTED` ⇒ 409 (KAN-403) |
 | `GET /api/cryptobot/proposals/{id}` · `/audit` · `/events` | proposal with its trail · durable `trade.*` events (outbox, with delivery state) and dead letters |
 | `GET /api/cryptobot/receipts/{hash}` · `POST …/verify` · `GET /api/cryptobot/proposals/{id}/receipts` · `GET /api/cryptobot/wallets/{id}/receipts` · `GET /api/cryptobot/receipts/signing-key` | a receipt with its edges · recompute hash + body + signature + parents · the receipts of a proposal (oldest first) / a wallet (newest first) · the public key and the three formulas to verify offline (KAN-391) |
+| `POST /api/cryptobot/anchors[?wait=true]` (admin) · `GET /api/cryptobot/anchors` · `GET …/anchors/{root}` · `POST …/anchors/{root}/verify` | settle in-flight batches, retry failed ones, open one for the receipts waiting (`wait` polls for finality) · recent batches with their explorer link · one batch with the caller's own receipts in it · recompute root + fold every proof + parse the memo + read the transaction back from devnet (KAN-394). `POST …/receipts/{hash}/verify` now also returns `anchor{anchored,status,tx,slot,root,proof,proofValid,explorerUrl}` |
 | `GET /api/cryptobot/quotes/{asset}?ars=<monto>&network=<red>` · `?side=SELL&amount=<unidades>` | ARS quotes across Argentine exchanges, ranked "recibís X" (KAN-355) |
 
 ### ARS quotes across exchanges (KAN-355)
@@ -274,11 +276,26 @@ Golden vectors (`src/test/resources/receipt/vectors-v1.json`) were produced outs
 signatures and salted commitments (NFC and NFD forms of the same question commit equal). v1 is
 frozen; a change of canonicalization is `ir/2` and a new file.
 
+### Anchoring on Solana devnet (KAN-394, Endgame §11)
+
+A signed receipt proves *Life Engine said so*; the anchor proves *when*, to anyone who does not
+trust this database. No program of our own (that is phase 2): one SPL Memo per batch.
+
+| | |
+|---|---|
+| tree | `MerkleTree`: leaves = the batch's receipt hashes, de-duplicated and **sorted** (the root is a function of the set, so anyone can recompute it from the members with no stored order); `leaf = SHA-256(0x00 ‖ hash)`, `node = SHA-256(0x01 ‖ left ‖ right)`, odd node promoted. Proof = siblings leaf-up, `L:sha256:…` / `R:sha256:…`. Vectors from python `hashlib`: `src/test/resources/receipt/merkle-vectors-v1.json`. |
+| memo | `ir/1 root=<sha256:…> n=<count> ts=<ISO-8601 Z>` — a root, a count, a time. Nothing else ever goes on-chain. |
+| signer | `POST /api/signer/sign-anchor {root, receiptCount, unsignedTransactionBase64, expectedFeePayer}`: the signer decodes the bytes, requires exactly one Memo instruction with **no accounts** whose text is exactly the memo for that root and count, and refuses on any cluster but devnet (`anchor_cluster_not_devnet`). The transfer policy is untouched: a memo on `/sign` is still `program_not_allowed`. |
+| states | `PENDING → SUBMITTED → FINALIZED` (receipts stamped here) · `SUBMITTED → FAILED` on an on-chain error or when never seen past `lastValidBlockHeight` · `FAILED → SUBMITTED` again for the **same root and memo** (idempotent re-anchor) · `ABANDONED` after `max-attempts` (its receipts go to a new batch; the same set reopens the same root). The SUBMITTED row, with the transaction id, is written **before** `sendTransaction`. |
+| tables | `receipt_anchor` (root PK, status, memo, tx, slot, blockhash, attempts…) and `receipt_anchor_member` (root, receipt_hash, proof JSONB), migration `V8` (`V7` is KAN-392's). The anchor columns of `intelligence_receipt` are the only thing the anchoring path ever writes on a receipt. |
+| job | off by default (`cryptobot.anchor.enabled`, needs the signer); `POST /api/cryptobot/anchors` (`RUNTIME_ADMIN`) runs the same sweep on demand, `?wait=true` polls for finality up to `finality-wait`. `cryptobot.anchor.cluster` accepts only `devnet`: anything else refuses to start. |
+| meters | `receipt_anchors_total{result=submitted\|finalized\|failed\|abandoned}`, `anchored_receipts_total`, `anchor_pending` (gauge: receipts without a finalized anchor), `anchor_finality_latency_seconds`. |
+
 ## Tests
 
 ```bash
-./mvnw test                     # 347 tests: adapters (recorded responses), engines, state machine, HTTP flow with fake RPC + Runtime, ARS quotes (fixtures, no network), idempotency + crash/reconciliation + outbox (KAN-403), intent schema + canonicalization vectors (KAN-435), deterministic policy: decision table + golden vectors + 2-implementation agreement (KAN-436), adversarial benchmark 10 000 intents + invariants I1–I7 + chaos (KAN-440), PDA derivation + program client vs SDK vectors (KAN-437), receipt vectors + DAG invariants + verify + the 7-kind DAG over the HTTP flow (KAN-391)
-./mvnw -f signer/pom.xml test   # 10 tests: signing policy (every refusal reason), token, signature verification
+./mvnw test                     # 364 tests: adapters (recorded responses), engines, state machine, HTTP flow with fake RPC + Runtime, ARS quotes (fixtures, no network), idempotency + crash/reconciliation + outbox (KAN-403), intent schema + canonicalization vectors (KAN-435), deterministic policy: decision table + golden vectors + 2-implementation agreement (KAN-436), adversarial benchmark 10 000 intents + invariants I1–I7 + chaos (KAN-440), PDA derivation + program client vs SDK vectors (KAN-437), receipt vectors + DAG invariants + verify + the 7-kind DAG over the HTTP flow (KAN-391), Merkle vectors + memo format + anchoring batch (submit / finalized / re-anchor / abandon / verify) + the anchor flow over HTTP with a signing fake (KAN-394)
+./mvnw -f signer/pom.xml test   # 13 tests: signing policy (every refusal reason, transfer and anchor memo), token, signature verification
 (cd programs/intent-authority && cargo test)   # 29 tests: on-chain rules, bank simulator, shared vectors (KAN-437)
 cd ../cryptobot-ui && npx ng test
 ```
@@ -304,4 +321,6 @@ Full list with defaults in `src/main/resources/application.yml` under `cryptobot
 `cryptobot.marketdata`, `cryptobot.quotes`, `cryptobot.risk`, `cryptobot.policy`,
 `cryptobot.signer`, `cryptobot.advisor`, `cryptobot.reliability` (outbox publisher and
 reconciliation job: intervals, batch sizes, `max-attempts`, `grace`), `cryptobot.receipts`
-(`key-id`, `signing-key`, `salt-secret` — see `.env.template`). Nothing secret has a default.
+(`key-id`, `signing-key`, `salt-secret` — see `.env.template`), `cryptobot.anchor` (`enabled`,
+`cluster` = devnet only, `interval`, `batch-size`, `max-attempts`, `finality-wait`). Nothing
+secret has a default.

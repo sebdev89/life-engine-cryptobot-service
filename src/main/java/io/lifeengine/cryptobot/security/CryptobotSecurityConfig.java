@@ -18,6 +18,8 @@ import reactor.core.publisher.Mono;
 public class CryptobotSecurityConfig {
 
     public static final String AUTHORITY_MARKET_REVIEW = "RUNTIME_OPERATOR";
+    /** Opening and submitting an anchoring batch on devnet (KAN-394) is an admin/cron action, not an operator's. */
+    public static final String AUTHORITY_ANCHOR_ADMIN = "RUNTIME_ADMIN";
 
     @Bean
     SecurityWebFilterChain cryptobotSecurityWebFilterChain(
@@ -64,6 +66,8 @@ public class CryptobotSecurityConfig {
                                         .hasAuthority(AUTHORITY_MARKET_REVIEW)
                                         .pathMatchers(HttpMethod.GET, "/api/cryptobot/market-reviews/**")
                                         .hasAuthority(AUTHORITY_MARKET_REVIEW)
+                                        .pathMatchers(HttpMethod.POST, "/api/cryptobot/anchors")
+                                        .hasAuthority(AUTHORITY_ANCHOR_ADMIN)
                                         .pathMatchers("/api/cryptobot/**")
                                         .hasAuthority(AUTHORITY_MARKET_REVIEW)
                                         .anyExchange()

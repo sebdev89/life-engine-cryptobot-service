@@ -86,4 +86,29 @@ public class SignerClient {
                 .onErrorMap(WebClientResponseException.class, ex -> new SignerRefused("HTTP " + ex.getStatusCode().value() + " " + ex.getResponseBodyAsString()))
                 .onErrorMap(ex -> !(ex instanceof SignerRefused), ex -> new SignerRefused(ex.getMessage()));
     }
+
+    /**
+     * A receipt-batch memo transaction (KAN-394). The signer re-derives the memo from the bytes and
+     * refuses unless it is exactly {@code ir/1 root=<root> n=<receiptCount> …} on devnet.
+     */
+    public Mono<SignResponse> signAnchor(String root, int receiptCount, String unsignedTransactionBase64, String expectedFeePayer) {
+        if (!props.enabled()) {
+            return Mono.error(new SignerRefused("signer disabled"));
+        }
+        return webClient
+                .post()
+                .uri("/api/signer/sign-anchor")
+                .header(TOKEN_HEADER, props.token())
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(Map.of(
+                        "root", root,
+                        "receiptCount", receiptCount,
+                        "unsignedTransactionBase64", unsignedTransactionBase64,
+                        "expectedFeePayer", expectedFeePayer))
+                .retrieve()
+                .bodyToMono(SignResponse.class)
+                .timeout(props.timeout())
+                .onErrorMap(WebClientResponseException.class, ex -> new SignerRefused("HTTP " + ex.getStatusCode().value() + " " + ex.getResponseBodyAsString()))
+                .onErrorMap(ex -> !(ex instanceof SignerRefused), ex -> new SignerRefused(ex.getMessage()));
+    }
 }
