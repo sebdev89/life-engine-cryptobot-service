@@ -17,7 +17,7 @@ class SigningPolicyTest {
     static final SolanaKeypair KEY = SolanaKeypair.generate();
 
     static SignerProperties props(long cap, List<String> allowed, boolean enabled) {
-        return new SignerProperties("", keyJson(KEY), "t", "devnet", cap, allowed, enabled, "", false);
+        return new SignerProperties("", keyJson(KEY), "t", "devnet", cap, allowed, enabled, "", false, false);
     }
 
     static String keyJson(SolanaKeypair kp) {
@@ -40,7 +40,7 @@ class SigningPolicyTest {
 
     @Test
     void signsAnAllowlistedTransferUnderTheCap() {
-        SigningPolicy.Verdict v = policy(props(1_000_000L, List.of(VAULT), true)).evaluate(transfer(KEY.publicKeyBase58(), VAULT, 500_000L), KEY.publicKeyBase58());
+        SigningPolicy.Verdict v = policy(props(1_000_000L, List.of(VAULT), true)).evaluate(transfer(KEY.publicKeyBase58(), VAULT, 500_000L), KEY.publicKeyBase58(), "devnet");
         assertThat(v.allowed()).isTrue();
         assertThat(v.lamports()).isEqualTo(500_000L);
         assertThat(v.destination()).isEqualTo(VAULT);
@@ -48,27 +48,27 @@ class SigningPolicyTest {
 
     @Test
     void refusesOverCap() {
-        SigningPolicy.Verdict v = policy(props(1_000_000L, List.of(VAULT), true)).evaluate(transfer(KEY.publicKeyBase58(), VAULT, 1_000_001L), null);
+        SigningPolicy.Verdict v = policy(props(1_000_000L, List.of(VAULT), true)).evaluate(transfer(KEY.publicKeyBase58(), VAULT, 1_000_001L), null, "devnet");
         assertThat(v.allowed()).isFalse();
         assertThat(v.reason()).isEqualTo("amount_over_cap");
     }
 
     @Test
     void refusesUnknownDestinationAndEmptyAllowlist() {
-        assertThat(policy(props(1_000_000L, List.of(VAULT), true)).evaluate(transfer(KEY.publicKeyBase58(), OTHER, 1L), null).reason()).isEqualTo("destination_not_allowed");
-        assertThat(policy(props(1_000_000L, List.of(), true)).evaluate(transfer(KEY.publicKeyBase58(), VAULT, 1L), null).reason()).isEqualTo("destination_not_allowed");
+        assertThat(policy(props(1_000_000L, List.of(VAULT), true)).evaluate(transfer(KEY.publicKeyBase58(), OTHER, 1L), null, "devnet").reason()).isEqualTo("destination_not_allowed");
+        assertThat(policy(props(1_000_000L, List.of(), true)).evaluate(transfer(KEY.publicKeyBase58(), VAULT, 1L), null, "devnet").reason()).isEqualTo("destination_not_allowed");
     }
 
     @Test
     void refusesWhenFeePayerIsNotOurKey() {
         SolanaKeypair someoneElse = SolanaKeypair.generate();
-        SigningPolicy.Verdict v = policy(props(1_000_000L, List.of(VAULT), true)).evaluate(transfer(someoneElse.publicKeyBase58(), VAULT, 1L), null);
+        SigningPolicy.Verdict v = policy(props(1_000_000L, List.of(VAULT), true)).evaluate(transfer(someoneElse.publicKeyBase58(), VAULT, 1L), null, "devnet");
         assertThat(v.reason()).isEqualTo("fee_payer_mismatch");
     }
 
     @Test
     void refusesWhenCallerExpectsADifferentFeePayer() {
-        SigningPolicy.Verdict v = policy(props(1_000_000L, List.of(VAULT), true)).evaluate(transfer(KEY.publicKeyBase58(), VAULT, 1L), OTHER);
+        SigningPolicy.Verdict v = policy(props(1_000_000L, List.of(VAULT), true)).evaluate(transfer(KEY.publicKeyBase58(), VAULT, 1L), OTHER, "devnet");
         assertThat(v.reason()).isEqualTo("expected_fee_payer_mismatch");
     }
 
@@ -78,15 +78,15 @@ class SigningPolicyTest {
         LegacyTransaction.Instruction memo = new LegacyTransaction.Instruction(
                 "MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr", List.of(new LegacyTransaction.AccountMeta(me, true, false)), "hi".getBytes());
         String memoTx = new LegacyTransaction(me, BLOCKHASH, List.of(memo)).unsignedBase64();
-        assertThat(policy(props(1_000_000L, List.of(VAULT), true)).evaluate(memoTx, null).reason()).isEqualTo("program_not_allowed");
+        assertThat(policy(props(1_000_000L, List.of(VAULT), true)).evaluate(memoTx, null, "devnet").reason()).isEqualTo("program_not_allowed");
         String two = new LegacyTransaction(me, BLOCKHASH, List.of(SystemProgram.transfer(me, VAULT, 1L), SystemProgram.transfer(me, VAULT, 1L))).unsignedBase64();
-        assertThat(policy(props(1_000_000L, List.of(VAULT), true)).evaluate(two, null).reason()).isEqualTo("instruction_count");
+        assertThat(policy(props(1_000_000L, List.of(VAULT), true)).evaluate(two, null, "devnet").reason()).isEqualTo("instruction_count");
     }
 
     @Test
     void refusesGarbageAndDisabled() {
-        assertThat(policy(props(1_000_000L, List.of(VAULT), true)).evaluate("bm90IGEgdHg=", null).reason()).startsWith("undecodable_transaction");
-        assertThat(policy(props(1_000_000L, List.of(VAULT), false)).evaluate(transfer(KEY.publicKeyBase58(), VAULT, 1L), null).reason()).isEqualTo("signer_disabled");
+        assertThat(policy(props(1_000_000L, List.of(VAULT), true)).evaluate("bm90IGEgdHg=", null, "devnet").reason()).startsWith("undecodable_transaction");
+        assertThat(policy(props(1_000_000L, List.of(VAULT), false)).evaluate(transfer(KEY.publicKeyBase58(), VAULT, 1L), null, "devnet").reason()).isEqualTo("signer_disabled");
     }
 
     // ---- KAN-394: the anchor memo, the only non-transfer this signer signs ----------------------
@@ -103,7 +103,7 @@ class SigningPolicyTest {
     }
 
     static SignerProperties propsOn(String cluster) {
-        return new SignerProperties("", keyJson(KEY), "t", cluster, 1_000_000L, List.of(VAULT), true, "", false);
+        return new SignerProperties("", keyJson(KEY), "t", cluster, 1_000_000L, List.of(VAULT), true, "", false, false);
     }
 
     @Test
@@ -135,6 +135,39 @@ class SigningPolicyTest {
         assertThat(policy(propsOn("devnet")).evaluateAnchor(memoTx(me, MEMO), OTHER, ROOT, 3).reason()).isEqualTo("expected_fee_payer_mismatch");
         assertThat(policy(props(1L, List.of(VAULT), false)).evaluateAnchor(memoTx(me, MEMO), me, ROOT, 3).reason()).isEqualTo("signer_disabled");
         // The transfer policy is untouched by the memo path: a memo is still refused on /sign.
-        assertThat(policy(propsOn("devnet")).evaluate(memoTx(me, MEMO), me).reason()).isEqualTo("program_not_allowed");
+        assertThat(policy(propsOn("devnet")).evaluate(memoTx(me, MEMO), me, "devnet").reason()).isEqualTo("program_not_allowed");
+    }
+
+    // ---- KAN-493: mainnet is fail-closed at the signer ---------------------------------------
+
+    static SignerProperties propsOn(String cluster, boolean allowMainnet) {
+        return new SignerProperties("", keyJson(KEY), "t", cluster, 1_000_000L, List.of(VAULT), true, "", false, allowMainnet);
+    }
+
+    @Test
+    void mainnetIsRefusedUnlessTheSignerHasItsOwnExplicitFlag() {
+        String me = KEY.publicKeyBase58();
+        String tx = transfer(me, VAULT, 1L);
+        // Inside every byte-level limit; the cluster alone refuses it.
+        assertThat(policy(propsOn("devnet", false)).evaluate(tx, me, "mainnet-beta").reason()).isEqualTo("mainnet_disabled");
+        assertThat(policy(propsOn("devnet", false)).evaluate(tx, me, "mainnet").reason()).isEqualTo("mainnet_disabled");
+        assertThat(policy(propsOn("devnet", false)).evaluate(tx, me, "MAINNET-BETA").reason()).isEqualTo("mainnet_disabled");
+        // Even a signer configured for mainnet refuses without the flag.
+        assertThat(policy(propsOn("mainnet-beta", false)).evaluate(tx, me, "mainnet-beta").reason()).isEqualTo("mainnet_disabled");
+        // The flag alone is not enough either: the signer must also be configured for that cluster.
+        assertThat(policy(propsOn("devnet", true)).evaluate(tx, me, "mainnet-beta").reason()).isEqualTo("cluster_mismatch");
+        // Flag + cluster: allowed (the attestation check still follows in the controller).
+        assertThat(policy(propsOn("mainnet-beta", true)).evaluate(tx, me, "mainnet-beta").allowed()).isTrue();
+    }
+
+    @Test
+    void aRequestThatDoesNotSayItsClusterIsRefused() {
+        String me = KEY.publicKeyBase58();
+        String tx = transfer(me, VAULT, 1L);
+        assertThat(policy(propsOn("devnet", false)).evaluate(tx, me, null).reason()).isEqualTo("cluster_missing");
+        assertThat(policy(propsOn("devnet", false)).evaluate(tx, me, " ").reason()).isEqualTo("cluster_missing");
+        assertThat(policy(propsOn("devnet", false)).evaluate(tx, me, "testnet").reason()).isEqualTo("cluster_unknown");
+        assertThat(policy(propsOn("mainnet-beta", true)).evaluate(tx, me, "devnet").reason()).isEqualTo("cluster_mismatch");
+        assertThat(policy(propsOn("devnet", false)).evaluate(tx, me, "devnet").allowed()).isTrue();
     }
 }
