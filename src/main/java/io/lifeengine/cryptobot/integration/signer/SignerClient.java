@@ -1,6 +1,7 @@
 package io.lifeengine.cryptobot.integration.signer;
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import io.lifeengine.cryptobot.integration.validator.ValidatorClient;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -27,7 +28,14 @@ public class SignerClient {
     public record Identity(String publicKey, String cluster, long maxLamports, List<String> allowedDestinations) {}
 
     @JsonIgnoreProperties(ignoreUnknown = true)
-    public record SignResponse(String signedTransactionBase64, String signer, String txHash) {}
+    public record SignResponse(String signedTransactionBase64, String signer, String txHash, String validator, String verdictHash) {
+        @com.fasterxml.jackson.annotation.JsonCreator
+        public SignResponse {}
+
+        public SignResponse(String signedTransactionBase64, String signer, String txHash) {
+            this(signedTransactionBase64, signer, txHash, null, null);
+        }
+    }
 
     public static class SignerRefused extends RuntimeException {
         public SignerRefused(String reason) {
@@ -67,9 +75,16 @@ public class SignerClient {
                         });
     }
 
-    public Mono<SignResponse> sign(UUID proposalId, String unsignedTransactionBase64, String expectedFeePayer) {
+    /**
+     * @param attestation the independent validator's attestation for these exact bytes (KAN-438).
+     *     The signer refuses without it; this client never sends a request without one.
+     */
+    public Mono<SignResponse> sign(UUID proposalId, String unsignedTransactionBase64, String expectedFeePayer, ValidatorClient.Attestation attestation) {
         if (!props.enabled()) {
             return Mono.error(new SignerRefused("signer disabled"));
+        }
+        if (attestation == null || attestation.payload() == null || attestation.signature() == null) {
+            return Mono.error(new SignerRefused("no validator attestation to present"));
         }
         return webClient
                 .post()
@@ -79,7 +94,8 @@ public class SignerClient {
                 .bodyValue(Map.of(
                         "proposalId", proposalId.toString(),
                         "unsignedTransactionBase64", unsignedTransactionBase64,
-                        "expectedFeePayer", expectedFeePayer))
+                        "expectedFeePayer", expectedFeePayer,
+                        "attestation", Map.of("payload", attestation.payload(), "signature", attestation.signature())))
                 .retrieve()
                 .bodyToMono(SignResponse.class)
                 .timeout(props.timeout())

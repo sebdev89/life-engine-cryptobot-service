@@ -44,6 +44,9 @@ jobs:
       - name: Run signer tests (isolated module, own pom)
         run: ./mvnw -B -ntp -f signer/pom.xml test
 
+      - name: Run validator tests (KAN-438 — isolated module, own pom)
+        run: ./mvnw -B -ntp -f validator/pom.xml test
+
       - name: Upload Surefire reports (on failure)
         if: failure()
         uses: actions/upload-artifact@v4

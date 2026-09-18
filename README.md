@@ -1,13 +1,14 @@
 # CryptoBot — AI control plane for Solana wallets
 
 > Colosseum · Crypto World's Fair 2026 · Solana track.
-> **The agent proposes. You approve. An isolated signer executes — on devnet, under policy, with a
-> full audit trail.** Built on Life Engine (Auth · Runtime · observability); this repo holds only
+> **The agent proposes. You approve. An independent validator re-checks, a limited signer executes —
+> on devnet, under policy, after a timelock, with a full audit trail.** Built on Life Engine (Auth · Runtime · observability); this repo holds only
 > the crypto domain.
 
 ```
 wallet → portfolio → risk detection → AI analysis → rebalance proposal
-      → economic + on-chain simulation → policy → human approval → devnet execution → audit trail
+      → economic + on-chain simulation → policy → human approval → timelock
+      → independent validator → limited signer → devnet execution → audit trail
 ```
 
 ## What it does today
@@ -23,7 +24,9 @@ wallet → portfolio → risk detection → AI analysis → rebalance proposal
 | Policy | Kill switch · asset allowlist · max USD · max % of portfolio · cooldown · devnet only · lamport cap · vault configured · simulation passed · signer controls the wallet. Each rule is named in the audit trail. | `PolicyEngine` |
 | Deterministic authorization (KAN-436) | Versioned policy `R_v` (integers only, `H_R = SHA-256` of its canonical JSON) evaluated as a pure function over `(I, S)`: 11 predicates (`Valid(I) = ∧ Pᵢ`, unknown ⇒ deny) then a tier by trade value → **ALLOW / ESCALATE(second agent \| human signature) / DENY**. The verdict, `H_R`, the input hash and the verdict hash travel with the proposal and the `POLICY_EVALUATED` audit event; execution refuses a proposal decided under another `H_R`. | `domain/policy/DeterministicPolicyEngine` |
 | Approve | Explicit human decision, recorded with who/when/note. `execute` before `APPROVED` is a 409. | `ProposalService` |
-| Execute (devnet) | Second explicit click. Re-simulates on a fresh blockhash, asks the **isolated signer** (separate process, own secret) to sign, verifies the signature against the wallet key, broadcasts, confirms, links the explorer. | `ExecutionService` · `signer/` |
+| Timelock (KAN-438, paper §19) | Approval starts a lock by tier of the verdict: ALLOW ⇒ none, ESCALATE ⇒ 30 min (`cryptobot.policy.timelock`). `execute` inside it is a 409 with the seconds remaining; `POST /proposals/{id}/cancel` withdraws it (`CANCELLED` audit event, `trade.cancelled`). The TTL is pushed so the lock fits. | `ProposalService` · `PolicyEngine` |
+| Independent validation (KAN-438, paper §20, level 5) | Before signing, `validator/` — a **separate process** with its **own copy of `R_v` pinned by hash** (`VALIDATOR_POLICY_HASH`; a mismatch refuses to start) — re-derives the verdict over the recorded `(I, S)` with its **own implementation** of the table and returns an Ed25519 **attestation** bound to the proposal, the exact transaction bytes (`message_hash`), `H_R`, the input hash and the verdict hash, valid 90 s. DENY, disagreement, another policy hash, unreachable ⇒ `FAILED` at stage `validate`, nothing signed. At proposal time the validator must be up and on the same `H_R` or the proposal is a paper trade (`VALIDATOR_AVAILABLE`). | `ValidatorClient` · `validator/` |
+| Execute (devnet) | Second explicit click. Re-simulates on a fresh blockhash, obtains the attestation, asks the **limited signer** (separate process, own secret, byte-level caps) to sign — the signer refuses without an attestation from the pinned validator key for **these** bytes —, verifies the signature against the wallet key, broadcasts, confirms, links the explorer. | `ExecutionService` · `signer/` |
 | Audit | Append-only `audit_event` per transition: created, simulated, policy evaluated, awaiting approval, approved/rejected, started, signed, submitted, executed/failed, reconciled. | `AuditService` |
 | On-chain authority (KAN-437, paper level 4) | `programs/intent-authority`: a Solana program (devnet target) that refuses an execution unless the **agent signed** and its policy PDA is registered and not revoked (I1), the claimed `H_R` equals the one **committed on-chain** (I4), the current slot is within `valid_until_slot` (I2), and neither the receipt PDA of `H_I` nor the nonce PDA of `(agent, nonce)` exists (I3) — then leaves a receipt account atomically. Java client (PDAs, instructions, account decoders) byte-exact with the program via shared SDK vectors. Not yet wired into `ExecutionService`, not yet deployed (needs the Solana CLI: human step). | `programs/intent-authority` · `adapters/solana/authority` |
 | Decision Receipts (KAN-391, Endgame §6-7) | Every step above leaves a **signed, content-addressed receipt**: `WALLET_SNAPSHOT` → `RISK_DECISION` (L1) · `HUMAN_IDEA` → `MARKET_ANALYSIS` (L0: prompt commitment, model, run id, tokens) → `STRATEGY` (L1) → `RISK_DECISION` (validates) · `SIMULATION` → `EXECUTION`. The id is `SHA-256("life-engine.cryptobot.receipt" ‖ 0x00 ‖ JCS(body))`; the body names its parents, so a cycle cannot be built; Ed25519 by the service key over a domain-tagged hash; `verify` recomputes all of it. Prompts, answers and keys never enter a receipt. | `application/receipt` · `domain/receipt` · `api/controlplane/ReceiptsController` |
@@ -40,31 +43,40 @@ before a human sees it, the human decision is a persisted record, and the only c
 sign is a separate process that refuses anything but an allow-listed transfer under a cap. The LLM
 cannot skip a rule because it never touches the pipeline after "suggest".
 
-## Run it locally (3 processes + Life Engine dev stack)
+## Run it locally (4 processes + Life Engine dev stack)
 
 Prerequisites: Java 21, Maven, Node 24, Postgres `:5433` (`life_engine_cryptobot`), Life Engine
 Auth `:8081` and Runtime `:8090` running (`scripts/dev-up.sh` in the workspace), Ollama with the
 Runtime's `chat` role model.
 
 ```bash
-# 1. signer — the only process with a key (generate one: see signer/README.md)
+# 1. validator — a process that is not the agent (KAN-438). Its policy must hash to the service's
+#    H_R (the log prints it at boot; pin it with VALIDATOR_POLICY_HASH). Its attestation key moves
+#    no funds: generate one like the wallet key (see validator/README.md) and give the signer its pubkey.
+export VALIDATOR_KEYPAIR_PATH=~/.cryptobot-demo/validator.json VALIDATOR_TOKEN=<validator token>
+export VALIDATOR_POLICY_HASH=<sha256:… printed by the service and the validator>
+mvn -f validator/pom.xml spring-boot:run                                # :8097
+
+# 2. signer — the only process with a wallet key (generate one: see signer/README.md)
 export SIGNER_KEYPAIR_PATH=~/.cryptobot-demo/demo-wallet.json SIGNER_TOKEN=<service token>
 export SIGNER_ALLOWED_DESTINATIONS=<rebalance vault pubkey>
+export SIGNER_VALIDATOR_PUBLIC_KEY=<validator pubkey>                   # without it nothing is ever signed
 mvn -f signer/pom.xml spring-boot:run                                   # :8096
 
-# 2. service — JWT_SECRET (≥32 bytes) or AUTH_JWKS_URI is REQUIRED: since KAN-350 no profile
+# 3. service — JWT_SECRET (≥32 bytes) or AUTH_JWKS_URI is REQUIRED: since KAN-350 no profile
 #    ships a default secret; without either, the service refuses to start.
 export JWT_SECRET=<same as auth/runtime> AUTH_JWKS_URI=http://127.0.0.1:8081/.well-known/jwks.json
 export CRYPTOBOT_REBALANCE_VAULT=<rebalance vault pubkey>
 export CRYPTOBOT_SIGNER_ENABLED=true CRYPTOBOT_SIGNER_TOKEN=<service token>
+export CRYPTOBOT_VALIDATOR_ENABLED=true CRYPTOBOT_VALIDATOR_TOKEN=<validator token>
 export CRYPTOBOT_ADVISOR_LOCALE=es
 ./mvnw spring-boot:run                                                  # :8091
 
-# 3. UI
+# 4. UI
 cd ../cryptobot-ui && npm ci && npx ng serve --port 4204               # http://localhost:4204
 ```
 
-Or, with Docker (service + signer + UI; Auth/Runtime stay on the host):
+Or, with Docker (validator + signer + service + UI; Auth/Runtime stay on the host):
 
 ```bash
 cp .env.hackathon.example .env.hackathon   # fill the secrets/addresses
@@ -135,8 +147,17 @@ Manual validation against the oracle (dev only, needs network): `scripts/validat
 - The LLM receives computed facts and returns suggestions. Amounts, simulation, policy and
   execution are deterministic code. A pasted private key in a question is rejected before any
   network call (`SECRET_IN_QUESTION`).
-- Two independent emergency stops: `CRYPTOBOT_EXECUTION_ENABLED=false` (service) and
-  `SIGNER_ENABLED=false` (signer).
+- Three independent emergency stops: `CRYPTOBOT_EXECUTION_ENABLED=false` (service),
+  `VALIDATOR_ENABLED=false` (validator: every verdict becomes DENY) and `SIGNER_ENABLED=false`
+  (signer). Any one of them alone is enough.
+- Privilege separation (KAN-438, paper §20 / §21): the agent process never holds the wallet key
+  and cannot make the signer use it on its own — the signer needs an attestation from the
+  validator, whose key moves no funds and which holds its own hash-pinned copy of the policy. A
+  compromised service can propose, lie about the facts it recorded, and ask; it cannot sign, it
+  cannot change the policy the validator checks against, and it cannot reuse an attestation for
+  other bytes or after 90 s. What the validator does **not** verify yet: that the recorded facts
+  are true (post-MVP: it reads state from the chain itself) and that the human approval happened
+  (post-MVP: the human signs the intent hash). Multisig / HSM are post-MVP too.
 - Execution is devnet-only by configuration (`cryptobot.policy.execution-cluster`), not by
   convention; mainnet wallets are read-only paper trades.
 - Authorization is a versioned, hashed policy evaluated by a pure function (KAN-436): unknown
@@ -223,6 +244,37 @@ tokens) parsed as one document, and a leading/trailing control character (`"pape
 was trimmed away instead of refused. Meters for the funnel: `policy_verdicts_total{decision,
 escalation}` and `policy_predicate_failed_total{predicate}`.
 
+### Independent authority (KAN-438, paper §17 / §19 / §20 / §21 / level 5)
+
+```
+AI process (cryptobot-service)     Independent Validator (validator/)      Limited Signer (signer/)
+  records (I, S), H_R, verdict  →   own R_v pinned by VALIDATOR_POLICY_HASH   own wallet key, byte-level caps
+  builds the unsigned tx            own table re-derives the verdict          requires attestation by the
+  asks for an attestation           binds it to sha256(message) + 90 s TTL   pinned validator key, for these
+  asks the signer WITH it       →   signs with a key that moves nothing   →   bytes, not DENY, not expired
+```
+
+- **Fail-closed (§17)**, on every side: a fact the service could not resolve is `null` and fails
+  its predicate; the validator denies on `POLICY_HASH_MISMATCH`, `VERDICT_DISAGREEMENT` or
+  `VALIDATOR_DISABLED`; a validator that cannot load its policy or whose policy does not hash to
+  the pin **does not start**; a signer without a pinned validator key signs nothing; the service
+  fails the execution at stage `validate` (metric `trade.failed{stage=validate}`,
+  `validator.attestations{result=refused}`) before the signer is asked.
+- **Timelock (§19)**: `cryptobot.policy.timelock.escalated` (30 min) for ESCALATE verdicts,
+  `autonomous` (0) for ALLOW; `executableAt` is persisted in the approval record and re-checked at
+  execution; `POST /proposals/{id}/cancel` while it runs.
+- **Independence (§20)**: `validator/` shares no jar with the service (copy-not-reuse, like the
+  signer) and decides with `IndependentPolicyTable`, a second implementation of the §8 table that
+  must reproduce the same golden vectors (`policy/vectors-v1.json`) hash for hash. The service
+  compares the validator's `H_R` and verdict hash with what it recorded and refuses on any
+  difference — two independent readings of the schema must agree before a byte is signed.
+- **Keys (§21)**: the wallet key never leaves the signer; the validator's key is a capability to
+  attest, not to spend; both are pinned by public key, both live at a read-only mount, neither is
+  in a log. The attestation carries `proposal_id`, `message_hash`, `policy_hash`, `input_hash`,
+  `verdict_hash`, `decision`, `validator`, `issued_at`, `expires_at` (canonical JSON, Ed25519).
+- Audit: `EXECUTION_VALIDATED` (validator, decision, hashes, expiry, signature) precedes
+  `EXECUTION_SIGNED`; the signer logs `validator` and `verdictHash` on every signature.
+
 ### On-chain authority (KAN-437, paper §10–12 / §27 / level 4)
 
 Everything above is verified by the service. `programs/intent-authority/` moves four of those
@@ -277,8 +329,9 @@ frozen; a change of canonicalization is `ir/2` and a new file.
 ## Tests
 
 ```bash
-./mvnw test                     # 347 tests: adapters (recorded responses), engines, state machine, HTTP flow with fake RPC + Runtime, ARS quotes (fixtures, no network), idempotency + crash/reconciliation + outbox (KAN-403), intent schema + canonicalization vectors (KAN-435), deterministic policy: decision table + golden vectors + 2-implementation agreement (KAN-436), adversarial benchmark 10 000 intents + invariants I1–I7 + chaos (KAN-440), PDA derivation + program client vs SDK vectors (KAN-437), receipt vectors + DAG invariants + verify + the 7-kind DAG over the HTTP flow (KAN-391)
-./mvnw -f signer/pom.xml test   # 10 tests: signing policy (every refusal reason), token, signature verification
+./mvnw test                     # 361 tests: independent validator client + fail-closed execution + timelock/cancel + default-policy parity (KAN-438), adapters (recorded responses), engines, state machine, HTTP flow with fake RPC + Runtime, ARS quotes (fixtures, no network), idempotency + crash/reconciliation + outbox (KAN-403), intent schema + canonicalization vectors (KAN-435), deterministic policy: decision table + golden vectors + 2-implementation agreement (KAN-436), adversarial benchmark 10 000 intents + invariants I1–I7 + chaos (KAN-440), PDA derivation + program client vs SDK vectors (KAN-437), receipt vectors + DAG invariants + verify + the 7-kind DAG over the HTTP flow (KAN-391)
+./mvnw -f signer/pom.xml test   # 18 tests: signing policy (every refusal reason), token, signature verification, attestation gate (KAN-438)
+./mvnw -f validator/pom.xml test  # 25 tests: independent table vs golden vectors, agreement/disagreement/hash pin, attestation, HTTP (KAN-438)
 (cd programs/intent-authority && cargo test)   # 29 tests: on-chain rules, bank simulator, shared vectors (KAN-437)
 cd ../cryptobot-ui && npx ng test
 ```
@@ -302,6 +355,6 @@ README and the Docker files. The exact list lives in the vault:
 
 Full list with defaults in `src/main/resources/application.yml` under `cryptobot.solana`,
 `cryptobot.marketdata`, `cryptobot.quotes`, `cryptobot.risk`, `cryptobot.policy`,
-`cryptobot.signer`, `cryptobot.advisor`, `cryptobot.reliability` (outbox publisher and
+`cryptobot.policy.timelock`, `cryptobot.signer`, `cryptobot.validator`, `cryptobot.advisor`, `cryptobot.reliability` (outbox publisher and
 reconciliation job: intervals, batch sizes, `max-attempts`, `grace`), `cryptobot.receipts`
 (`key-id`, `signing-key`, `salt-secret` — see `.env.template`). Nothing secret has a default.

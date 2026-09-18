@@ -1,6 +1,7 @@
 package io.lifeengine.cryptobot.application.controlplane;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.when;
@@ -74,7 +75,7 @@ class ExecutionServiceMetricsTest {
     @Test
     @DisplayName("signer refuses: failed{stage=sign}")
     void failedAtSign() {
-        when(h.signer.sign(eq(h.approved.id()), anyString(), eq(h.wallet.address())))
+        when(h.signer.sign(eq(h.approved.id()), anyString(), eq(h.wallet.address()), any()))
                 .thenReturn(Mono.error(new SignerClient.SignerRefused("destination not allowed")));
 
         h.service.execute(h.wallet.ownerUserId(), h.approved.id(), "op").block();

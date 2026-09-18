@@ -92,7 +92,7 @@ class ExecutionServiceReliabilityTest {
         assertThat(done.execution().signature()).isEqualTo(sig);
         assertThat(done.execution().recentBlockhash()).isEqualTo("blockhash");
         assertThat(done.execution().lastValidBlockHeight()).isEqualTo(1000L);
-        assertThat(h.auditTypes()).containsExactly(ExecutionService.EV_STARTED, ExecutionService.EV_SIGNED, ExecutionService.EV_SUBMITTED, ExecutionService.EV_EXECUTED);
+        assertThat(h.auditTypes()).containsExactly(ExecutionService.EV_STARTED, ExecutionService.EV_VALIDATED, ExecutionService.EV_SIGNED, ExecutionService.EV_SUBMITTED, ExecutionService.EV_EXECUTED);
         assertThat(h.outboxTypes()).containsExactly(TradeEvents.SUBMITTED, TradeEvents.CONFIRMED);
     }
 
@@ -166,7 +166,7 @@ class ExecutionServiceReliabilityTest {
         assertThat(p.status()).isEqualTo(ProposalStatus.EXECUTING);
         assertThat(p.execution().status()).isEqualTo(ExecutionRecord.SIGNED);
         assertThat(p.execution().signature()).isEqualTo(sig);
-        assertThat(h.auditTypes()).containsExactly(ExecutionService.EV_STARTED, ExecutionService.EV_SIGNED, ExecutionService.EV_BROADCAST_UNCERTAIN);
+        assertThat(h.auditTypes()).containsExactly(ExecutionService.EV_STARTED, ExecutionService.EV_VALIDATED, ExecutionService.EV_SIGNED, ExecutionService.EV_BROADCAST_UNCERTAIN);
         assertThat(h.registry.find("trade.failed").tag("asset", "SOL").counter()).isNull();
 
         // Later the chain says it did land: reconciliation corrects EXECUTING → EXECUTED.

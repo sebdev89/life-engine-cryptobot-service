@@ -87,10 +87,13 @@ public class CryptobotMetrics {
     static final String INTELLIGENCE_RECEIPTS = "intelligence.receipts";
     static final String DETERMINISTIC_INFERENCE = "deterministic.inference";
     static final String DETERMINISTIC_MISMATCH = "deterministic.mismatch";
+    static final String VALIDATOR_ATTESTATIONS = "validator.attestations";
 
     /** Stages of {@code ExecutionService.run}; the one reached when it failed is the label. */
     public enum FailureStage {
         PREFLIGHT,
+        /** The independent validator refused, disagreed or could not be reached (KAN-438). */
+        VALIDATE,
         SIGN,
         BROADCAST,
         ONCHAIN,
@@ -238,6 +241,13 @@ public class CryptobotMetrics {
         counter(DETERMINISTIC_MISMATCH).increment();
     }
 
+    // ---- KAN-438: independent validator (paper §20) --------------------------------------------
+
+    /** {@code result}: {@code issued} (attestation obtained) | {@code refused} (DENY, disagreement, unreachable). */
+    public void validatorAttestation(String result) {
+        counter(VALIDATOR_ATTESTATIONS, "result", low(result)).increment();
+    }
+
     // ---- plumbing -----------------------------------------------------------------------------
 
     /**
@@ -259,12 +269,14 @@ public class CryptobotMetrics {
         counter(INTELLIGENCE_RECEIPTS, "result", "verified");
         counter(DETERMINISTIC_INFERENCE);
         counter(DETERMINISTIC_MISMATCH);
+        counter(VALIDATOR_ATTESTATIONS, "result", "issued");
+        counter(VALIDATOR_ATTESTATIONS, "result", "refused");
         // The funnel and its failure modes also start at 0 for the asset-less series, so the ratio
         // panels divide by something and the "dónde se cae" panel lists every stage.
         for (String r : new String[] {"awaiting_approval", "blocked_by_policy"}) {
             counter(TRADE_REQUESTED, "result", r, "asset", ASSET_NONE);
         }
-        for (String r : new String[] {"approved", "rejected", "expired"}) {
+        for (String r : new String[] {"approved", "rejected", "expired", "cancelled"}) {
             counter(APPROVALS, "result", r);
         }
         counter(TRADE_SUBMITTED, "asset", ASSET_NONE);
