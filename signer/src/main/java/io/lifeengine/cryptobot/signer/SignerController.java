@@ -75,16 +75,44 @@ public class SignerController {
             log.warn("signer_refused proposalId={} reason={}", req.proposalId(), a.reason());
             return Mono.just(ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("reason", a.reason())));
         }
+        SignResponse signed = sign(message, a.validator(), a.verdictHash());
+        log.info("signer_signed proposalId={} lamports={} destination={} signature={} validator={} decision={} verdictHash={}",
+                req.proposalId(), v.lamports(), v.destination(), signed.signature(), a.validator(), a.decision(), a.verdictHash());
+        return Mono.just(ResponseEntity.ok(signed));
+    }
+
+    /**
+     * A receipt-batch anchor (KAN-394): the memo transaction must carry exactly {@code root} and {@code receiptCount}; devnet only.
+     * No validator attestation: there is no proposal behind it and the memo moves no funds (KAN-438 keeps the gate on {@code /sign}).
+     */
+    public record AnchorSignRequest(String root, int receiptCount, String unsignedTransactionBase64, String expectedFeePayer) {}
+
+    @PostMapping(path = "/sign-anchor", consumes = "application/json")
+    public Mono<ResponseEntity<?>> signAnchor(@RequestHeader(value = TOKEN_HEADER, required = false) String token, @RequestBody AnchorSignRequest req) {
+        if (!authorized(token)) {
+            return Mono.just(ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of("reason", "bad_token")));
+        }
+        if (req == null || req.unsignedTransactionBase64() == null || req.unsignedTransactionBase64().isBlank()) {
+            return Mono.just(ResponseEntity.badRequest().body(Map.of("reason", "missing_transaction")));
+        }
+        SigningPolicy.Verdict v = policy.evaluateAnchor(req.unsignedTransactionBase64(), req.expectedFeePayer(), req.root(), req.receiptCount());
+        if (!v.allowed()) {
+            log.warn("signer_anchor_refused root={} reason={}", req.root(), v.reason());
+            return Mono.just(ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("reason", v.reason())));
+        }
+        SignResponse signed = sign(v.decoded().message(), null, null);
+        log.info("signer_anchor_signed root={} receipts={} signature={}", req.root(), req.receiptCount(), signed.signature());
+        return Mono.just(ResponseEntity.ok(signed));
+    }
+
+    private SignResponse sign(byte[] message, String validator, String verdictHash) {
         byte[] signature = keys.sign(message);
         byte[] wire = new byte[1 + 64 + message.length];
         wire[0] = 1;
         System.arraycopy(signature, 0, wire, 1, 64);
         System.arraycopy(message, 0, wire, 65, message.length);
-        String sigBase58 = Base58.encode(signature);
-        log.info("signer_signed proposalId={} lamports={} destination={} signature={} validator={} decision={} verdictHash={}",
-                req.proposalId(), v.lamports(), v.destination(), sigBase58, a.validator(), a.decision(), a.verdictHash());
-        return Mono.just(ResponseEntity.ok(new SignResponse(Base64.getEncoder().encodeToString(wire), keys.publicKey(), sha256Hex(message), sigBase58,
-                a.validator(), a.verdictHash())));
+        return new SignResponse(Base64.getEncoder().encodeToString(wire), keys.publicKey(), sha256Hex(message), Base58.encode(signature),
+                validator, verdictHash);
     }
 
     private boolean authorized(String presented) {

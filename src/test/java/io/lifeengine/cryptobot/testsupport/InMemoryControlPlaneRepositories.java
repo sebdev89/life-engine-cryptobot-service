@@ -67,6 +67,7 @@ public final class InMemoryControlPlaneRepositories {
         EDGES.clear();
         ARTIFACTS.clear();
         INFERENCES.clear();
+        InMemoryAnchorRepository.reset();
     }
 
     /** Receipts of one proposal, oldest first — the pipeline as the DAG API would return it. */

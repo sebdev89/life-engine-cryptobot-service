@@ -101,6 +101,53 @@ class SolanaRpcClientTest {
                 .verifyComplete();
     }
 
+    @Test
+    void getTransactionReadsSlotErrAndMemosFromParsedInstructionsOrLogs() {
+        // KAN-394: the anchor's memo read back at `finalized`. jsonParsed shape first…
+        server.enqueue(json("{\"jsonrpc\":\"2.0\",\"result\":{\"slot\":4242,\"blockTime\":1789700000,\"meta\":{\"err\":null,\"logMessages\":[]},"
+                + "\"transaction\":{\"message\":{\"instructions\":[{\"program\":\"spl-memo\",\"programId\":\"MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr\",\"parsed\":\"ir/1 root=sha256:aa n=1 ts=x\"}]}}},\"id\":1}"));
+        StepVerifier.create(client.getTransaction(SolanaCluster.DEVNET, "sig"))
+                .assertNext(tx -> {
+                    assertThat(tx.slot()).isEqualTo(4242L);
+                    assertThat(tx.failed()).isFalse();
+                    assertThat(tx.blockTime()).isNotNull();
+                    assertThat(tx.memos()).containsExactly("ir/1 root=sha256:aa n=1 ts=x");
+                })
+                .verifyComplete();
+        // …then the program's log line as a fallback, with an on-chain error.
+        server.enqueue(json("{\"jsonrpc\":\"2.0\",\"result\":{\"slot\":7,\"meta\":{\"err\":{\"InstructionError\":[0,\"Custom\"]},\"logMessages\":[\"Program MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr invoke [1]\",\"Program log: Memo (len 5): \\\"hello\\\"\"]},"
+                + "\"transaction\":{\"message\":{\"instructions\":[{\"programId\":\"MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr\",\"data\":\"Cn8eVZg\"}]}}},\"id\":2}"));
+        StepVerifier.create(client.getTransaction(SolanaCluster.DEVNET, "sig"))
+                .assertNext(tx -> {
+                    assertThat(tx.failed()).isTrue();
+                    assertThat(tx.error()).contains("InstructionError");
+                    assertThat(tx.memos()).containsExactly("hello");
+                })
+                .verifyComplete();
+        // Not finalized (or unknown): null result ⇒ empty, not an error.
+        server.enqueue(json("{\"jsonrpc\":\"2.0\",\"result\":null,\"id\":3}"));
+        StepVerifier.create(client.getTransaction(SolanaCluster.DEVNET, "sig")).verifyComplete();
+    }
+
+    @Test
+    void getSignatureStatusCarriesTheSlot() {
+        server.enqueue(json("{\"jsonrpc\":\"2.0\",\"result\":{\"context\":{\"slot\":9},\"value\":[{\"slot\":4242,\"confirmations\":null,\"err\":null,\"confirmationStatus\":\"finalized\"}]},\"id\":1}"));
+        StepVerifier.create(client.getSignatureStatus(SolanaCluster.DEVNET, "sig"))
+                .assertNext(s -> {
+                    assertThat(s.confirmationStatus()).isEqualTo("finalized");
+                    assertThat(s.slot()).isEqualTo(4242L);
+                    assertThat(s.failed()).isFalse();
+                })
+                .verifyComplete();
+        server.enqueue(json("{\"jsonrpc\":\"2.0\",\"result\":{\"context\":{\"slot\":9},\"value\":[null]},\"id\":2}"));
+        StepVerifier.create(client.getSignatureStatus(SolanaCluster.DEVNET, "sig"))
+                .assertNext(s -> {
+                    assertThat(s.confirmationStatus()).isNull();
+                    assertThat(s.slot()).isNull();
+                })
+                .verifyComplete();
+    }
+
     private static MockResponse json(String body) {
         return new MockResponse().setHeader("Content-Type", "application/json").setBody(body);
     }

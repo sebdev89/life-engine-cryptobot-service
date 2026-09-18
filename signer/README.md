@@ -26,12 +26,20 @@ export SIGNER_VALIDATOR_PUBLIC_KEY=<base58 pubkey of the validator's attestation
 mvn -f signer/pom.xml spring-boot:run                            # :8096
 ```
 
-`GET /api/signer/identity` · `POST /api/signer/sign` — both require `X-Signer-Token`. The sign
-body is `{proposalId, unsignedTransactionBase64, expectedFeePayer, attestation: {payload, signature}}`.
-`SIGNER_ENABLED=false` is the emergency stop on this side; `CRYPTOBOT_EXECUTION_ENABLED=false`
-is the one on the service side; `VALIDATOR_ENABLED=false` the one on the validator's. Any one
-alone is enough. `SIGNER_REQUIRE_ATTESTATION=false` restores the pre-KAN-438 behaviour and is
-for tests and empty demo wallets only — it is logged as a WARN at boot.
+`GET /api/signer/identity` · `POST /api/signer/sign` · `POST /api/signer/sign-anchor` — all require
+`X-Signer-Token`. The sign body is `{proposalId, unsignedTransactionBase64, expectedFeePayer,
+attestation: {payload, signature}}`. `SIGNER_ENABLED=false` is the emergency stop on this side;
+`CRYPTOBOT_EXECUTION_ENABLED=false` is the one on the service side; `VALIDATOR_ENABLED=false` the
+one on the validator's. Any one alone is enough. `SIGNER_REQUIRE_ATTESTATION=false` restores the
+pre-KAN-438 behaviour and is for tests and empty demo wallets only — it is logged as a WARN at boot.
+
+`sign-anchor` (KAN-394) is the only non-transfer this signer signs: a transaction whose single
+instruction is an SPL Memo with **no accounts** and whose text is exactly
+`ir/1 root=<sha256> n=<count> ts=<…>` for the `root`/`receiptCount` the caller claims — the
+signer re-derives it from the bytes, never from the request. Refused on any cluster but devnet
+(`anchor_cluster_not_devnet`). The memo moves nothing; the fee payer is the signer key. It does
+not carry a validator attestation: there is no proposal behind it and no funds move — the
+memo's own byte-level check is the gate.
 
 The Solana wire classes under `signer/solana` are a copy of the service's
 `adapters/solana` (copy-not-reuse, so the signer does not depend on the service jar).

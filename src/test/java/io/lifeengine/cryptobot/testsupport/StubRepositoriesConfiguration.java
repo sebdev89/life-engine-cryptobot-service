@@ -108,4 +108,9 @@ public class StubRepositoriesConfiguration {
     io.lifeengine.cryptobot.infrastructure.persistence.controlplane.ReceiptRepository receiptRepository() {
         return InMemoryControlPlaneRepositories.receipts();
     }
+
+    @Bean
+    io.lifeengine.cryptobot.infrastructure.persistence.controlplane.AnchorRepository anchorRepository() {
+        return new InMemoryAnchorRepository();
+    }
 }

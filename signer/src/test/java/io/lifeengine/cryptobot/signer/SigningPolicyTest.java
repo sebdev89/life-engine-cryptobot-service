@@ -88,4 +88,53 @@ class SigningPolicyTest {
         assertThat(policy(props(1_000_000L, List.of(VAULT), true)).evaluate("bm90IGEgdHg=", null).reason()).startsWith("undecodable_transaction");
         assertThat(policy(props(1_000_000L, List.of(VAULT), false)).evaluate(transfer(KEY.publicKeyBase58(), VAULT, 1L), null).reason()).isEqualTo("signer_disabled");
     }
+
+    // ---- KAN-394: the anchor memo, the only non-transfer this signer signs ----------------------
+
+    static final String ROOT = "sha256:" + "ab".repeat(32);
+    static final String MEMO = "ir/1 root=" + ROOT + " n=3 ts=2026-09-18T03:00:00Z";
+
+    static LegacyTransaction.Instruction memo(String text, List<LegacyTransaction.AccountMeta> accounts) {
+        return new LegacyTransaction.Instruction(SigningPolicy.MEMO_PROGRAM_ID, accounts, text.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+    }
+
+    static String memoTx(String feePayer, String text) {
+        return new LegacyTransaction(feePayer, BLOCKHASH, List.of(memo(text, List.of()))).unsignedBase64();
+    }
+
+    static SignerProperties propsOn(String cluster) {
+        return new SignerProperties("", keyJson(KEY), "t", cluster, 1_000_000L, List.of(VAULT), true, "", false);
+    }
+
+    @Test
+    void signsExactlyTheAnchorMemoItWasAskedForOnDevnet() {
+        SigningPolicy.Verdict v = policy(propsOn("devnet")).evaluateAnchor(memoTx(KEY.publicKeyBase58(), MEMO), KEY.publicKeyBase58(), ROOT, 3);
+        assertThat(v.allowed()).isTrue();
+        assertThat(v.lamports()).isZero();
+        assertThat(v.destination()).isNull();
+        // Upper-case root from the caller is normalised; the memo itself must be lower-case.
+        assertThat(policy(propsOn("devnet")).evaluateAnchor(memoTx(KEY.publicKeyBase58(), MEMO), null, ROOT.toUpperCase(), 3).allowed()).isTrue();
+    }
+
+    @Test
+    void refusesAnchorsOffDevnetOrWithAnotherRootCountFormatAccountsOrProgram() {
+        String me = KEY.publicKeyBase58();
+        assertThat(policy(propsOn("mainnet-beta")).evaluateAnchor(memoTx(me, MEMO), me, ROOT, 3).reason()).isEqualTo("anchor_cluster_not_devnet");
+        assertThat(policy(propsOn("devnet")).evaluateAnchor(memoTx(me, MEMO), me, "sha256:" + "cd".repeat(32), 3).reason()).isEqualTo("memo_mismatch");
+        assertThat(policy(propsOn("devnet")).evaluateAnchor(memoTx(me, MEMO), me, ROOT, 4).reason()).isEqualTo("memo_mismatch");
+        assertThat(policy(propsOn("devnet")).evaluateAnchor(memoTx(me, "hello " + MEMO), me, ROOT, 3).reason()).isEqualTo("memo_format");
+        assertThat(policy(propsOn("devnet")).evaluateAnchor(memoTx(me, MEMO + " and more"), me, ROOT, 3).reason()).isEqualTo("memo_format");
+        String withAccounts = new LegacyTransaction(me, BLOCKHASH, List.of(memo(MEMO, List.of(new LegacyTransaction.AccountMeta(me, true, false))))).unsignedBase64();
+        assertThat(policy(propsOn("devnet")).evaluateAnchor(withAccounts, me, ROOT, 3).reason()).isEqualTo("memo_accounts_not_allowed");
+        String transfer = transfer(me, VAULT, 1L);
+        assertThat(policy(propsOn("devnet")).evaluateAnchor(transfer, me, ROOT, 3).reason()).isEqualTo("program_not_allowed");
+        String two = new LegacyTransaction(me, BLOCKHASH, List.of(memo(MEMO, List.of()), SystemProgram.transfer(me, VAULT, 1L))).unsignedBase64();
+        assertThat(policy(propsOn("devnet")).evaluateAnchor(two, me, ROOT, 3).reason()).isEqualTo("instruction_count");
+        SolanaKeypair someoneElse = SolanaKeypair.generate();
+        assertThat(policy(propsOn("devnet")).evaluateAnchor(memoTx(someoneElse.publicKeyBase58(), MEMO), null, ROOT, 3).reason()).isEqualTo("fee_payer_mismatch");
+        assertThat(policy(propsOn("devnet")).evaluateAnchor(memoTx(me, MEMO), OTHER, ROOT, 3).reason()).isEqualTo("expected_fee_payer_mismatch");
+        assertThat(policy(props(1L, List.of(VAULT), false)).evaluateAnchor(memoTx(me, MEMO), me, ROOT, 3).reason()).isEqualTo("signer_disabled");
+        // The transfer policy is untouched by the memo path: a memo is still refused on /sign.
+        assertThat(policy(propsOn("devnet")).evaluate(memoTx(me, MEMO), me).reason()).isEqualTo("program_not_allowed");
+    }
 }

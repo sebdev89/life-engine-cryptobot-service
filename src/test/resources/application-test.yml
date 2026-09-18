@@ -81,6 +81,14 @@ cryptobot:
     workflow-id: crypto.portfolio-advisor.v1
     timeout: 5s
     poll-interval: 100ms
+  # KAN-394: no background loop; the flow test calls POST /anchors with a fake signer + fake RPC.
+  anchor:
+    enabled: false
+    cluster: devnet
+    batch-size: 64
+    max-attempts: 3
+    finality-wait: 2s
+    poll-interval: 100ms
 lifeengine:
   security:
     jwt:

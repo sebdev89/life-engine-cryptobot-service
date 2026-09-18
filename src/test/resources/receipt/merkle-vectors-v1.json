@@ -1,0 +1,114 @@
+{
+  "schema": "merkle/1",
+  "leaf": "SHA-256(0x00 || bytes32(receiptHash))",
+  "node": "SHA-256(0x01 || left || right)",
+  "oddNode": "promoted unchanged",
+  "leafOrder": "lexicographic, de-duplicated",
+  "proofStep": "L:<sibling> => node(sibling, current) ; R:<sibling> => node(current, sibling)",
+  "generatedBy": "python3 hashlib, outside the Java code (KAN-394)",
+  "vectors": [
+    {
+      "name": "1 receipts",
+      "receipts": [
+        "sha256:30ab370db81698801eb4995d2874eff61a5269415e5cb947244c47d7a68b1ded"
+      ],
+      "leaves": [
+        "sha256:30ab370db81698801eb4995d2874eff61a5269415e5cb947244c47d7a68b1ded"
+      ],
+      "root": "sha256:188198472bdefc4a65e3a6e1d3cec8958be541ec21730a0778d8527268ca4505",
+      "proofs": {
+        "sha256:30ab370db81698801eb4995d2874eff61a5269415e5cb947244c47d7a68b1ded": []
+      }
+    },
+    {
+      "name": "2 receipts",
+      "receipts": [
+        "sha256:84bd54afc340a270b32fbdf723e39ba22d14f2a8112c2e1c46576bc87771f853",
+        "sha256:2c4c8b03eb8cfaa3c2aac9ae2ad77110dc0b3d4545b9171946cf60882ad31372"
+      ],
+      "leaves": [
+        "sha256:2c4c8b03eb8cfaa3c2aac9ae2ad77110dc0b3d4545b9171946cf60882ad31372",
+        "sha256:84bd54afc340a270b32fbdf723e39ba22d14f2a8112c2e1c46576bc87771f853"
+      ],
+      "root": "sha256:0d00250b5bff1ca9b54df12019c6fbc9994d8b5b22ee8714e91714a9d8a1ce76",
+      "proofs": {
+        "sha256:2c4c8b03eb8cfaa3c2aac9ae2ad77110dc0b3d4545b9171946cf60882ad31372": [
+          "R:sha256:fe878020676d801beb58e6f1d5db1f3b0ea7ab2523fb0ca0a9f07db2148012bb"
+        ],
+        "sha256:84bd54afc340a270b32fbdf723e39ba22d14f2a8112c2e1c46576bc87771f853": [
+          "L:sha256:d0dfcae63cc071649b9d259a433f69bfdc0955b242527087289450994834b384"
+        ]
+      }
+    },
+    {
+      "name": "3 receipts",
+      "receipts": [
+        "sha256:3c584f6fa75c46947a8dba50fbea3ca3a347e182d987304d2809953a00931fc4",
+        "sha256:6336e418737e5f5cc70f0fd482954ad75bf8bed8a0b9d7686ab9360028dec170",
+        "sha256:d36a2a8538800a465b9dfe684228f28fe97a0d9d7846b41971fe9077740c5b95"
+      ],
+      "leaves": [
+        "sha256:3c584f6fa75c46947a8dba50fbea3ca3a347e182d987304d2809953a00931fc4",
+        "sha256:6336e418737e5f5cc70f0fd482954ad75bf8bed8a0b9d7686ab9360028dec170",
+        "sha256:d36a2a8538800a465b9dfe684228f28fe97a0d9d7846b41971fe9077740c5b95"
+      ],
+      "root": "sha256:3437b5ae6c7ea0cc27b2ce4de56ac5cacae1bb62b0bd6533201ac16f239f5991",
+      "proofs": {
+        "sha256:3c584f6fa75c46947a8dba50fbea3ca3a347e182d987304d2809953a00931fc4": [
+          "R:sha256:c501fd448b7eb36fd7509e9b722c837aab69c9c64e30b342d8b19471926054f0",
+          "R:sha256:d1307163e45d9d86a2e185d3044143a9e1b4961aa6ec6324903b925dbe9bf674"
+        ],
+        "sha256:6336e418737e5f5cc70f0fd482954ad75bf8bed8a0b9d7686ab9360028dec170": [
+          "L:sha256:5a7f0096485aff178a722290d4048befad4dbd05c33937fc80699b563016c9b2",
+          "R:sha256:d1307163e45d9d86a2e185d3044143a9e1b4961aa6ec6324903b925dbe9bf674"
+        ],
+        "sha256:d36a2a8538800a465b9dfe684228f28fe97a0d9d7846b41971fe9077740c5b95": [
+          "L:sha256:0e815227ed87ecb4fb38c1266f2118c92a8dcfb647cdf619b7bc06e060e054d1"
+        ]
+      }
+    },
+    {
+      "name": "5 receipts",
+      "receipts": [
+        "sha256:2bc38bc9f926fcb059db24905469e824e4e4929d3cb7f3058753bb8d39b7b9b5",
+        "sha256:4c8f62c3bcca21c69fb9e52ea27e5c29ae23a553ce509c1640dfcad2d1db50f0",
+        "sha256:8f75832607a2c3a2bcbe1b8e778d164d2f2945dd2d0ac5eb3ab80403dac2a68b",
+        "sha256:07f9228e8fc216b4a3fe5d7026de7b9854d5ec79ea61b8665598f6f05e53f7b7",
+        "sha256:04b0ffe591a89675a46a46acea0259088bb40c9d74fe61f6f707fb99d6398ae6"
+      ],
+      "leaves": [
+        "sha256:04b0ffe591a89675a46a46acea0259088bb40c9d74fe61f6f707fb99d6398ae6",
+        "sha256:07f9228e8fc216b4a3fe5d7026de7b9854d5ec79ea61b8665598f6f05e53f7b7",
+        "sha256:2bc38bc9f926fcb059db24905469e824e4e4929d3cb7f3058753bb8d39b7b9b5",
+        "sha256:4c8f62c3bcca21c69fb9e52ea27e5c29ae23a553ce509c1640dfcad2d1db50f0",
+        "sha256:8f75832607a2c3a2bcbe1b8e778d164d2f2945dd2d0ac5eb3ab80403dac2a68b"
+      ],
+      "root": "sha256:ed1f0d1b624cf992648cf3ead94f8c61074bbc9c266f782f6e1f4614bd8b35f3",
+      "proofs": {
+        "sha256:04b0ffe591a89675a46a46acea0259088bb40c9d74fe61f6f707fb99d6398ae6": [
+          "R:sha256:c6836bd2c0af2b4f1dc1b9cbf383afc4d799f39c9b56071dccf182320170e963",
+          "R:sha256:8f77115e47e72e8c0e81beaba88a2b4a0bdfd36d2e1780e57ecb1711b297e6bd",
+          "R:sha256:b74f7e9f15aa8e558e6301bb483feae5fe2a508e1a9dc34add8da6e54ba03cba"
+        ],
+        "sha256:07f9228e8fc216b4a3fe5d7026de7b9854d5ec79ea61b8665598f6f05e53f7b7": [
+          "L:sha256:02f42c55a6489fa632b7db39f403ac864a04648eef6febe96a583d920ed9b8c5",
+          "R:sha256:8f77115e47e72e8c0e81beaba88a2b4a0bdfd36d2e1780e57ecb1711b297e6bd",
+          "R:sha256:b74f7e9f15aa8e558e6301bb483feae5fe2a508e1a9dc34add8da6e54ba03cba"
+        ],
+        "sha256:2bc38bc9f926fcb059db24905469e824e4e4929d3cb7f3058753bb8d39b7b9b5": [
+          "R:sha256:71a8a269390dbe39c3229611d79d34283bb6bd7bae0c7536d16d7efd967572bd",
+          "L:sha256:57a073cd391ca9890aebe8f52089d94478d64ada398b456e7d9cdc501d175b99",
+          "R:sha256:b74f7e9f15aa8e558e6301bb483feae5fe2a508e1a9dc34add8da6e54ba03cba"
+        ],
+        "sha256:4c8f62c3bcca21c69fb9e52ea27e5c29ae23a553ce509c1640dfcad2d1db50f0": [
+          "L:sha256:9fc79b32dc6a85f46e2dd10f774de77deb8fb9a1a30223b8fc2e8a16b15e6e50",
+          "L:sha256:57a073cd391ca9890aebe8f52089d94478d64ada398b456e7d9cdc501d175b99",
+          "R:sha256:b74f7e9f15aa8e558e6301bb483feae5fe2a508e1a9dc34add8da6e54ba03cba"
+        ],
+        "sha256:8f75832607a2c3a2bcbe1b8e778d164d2f2945dd2d0ac5eb3ab80403dac2a68b": [
+          "L:sha256:5b66614736f9866d19b3311d14268c25fd46794c9a4e1648be5ed689d995458b"
+        ]
+      }
+    }
+  ]
+}

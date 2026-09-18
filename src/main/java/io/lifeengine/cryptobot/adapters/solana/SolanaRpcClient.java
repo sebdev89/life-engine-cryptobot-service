@@ -71,7 +71,22 @@ public class SolanaRpcClient {
         }
     }
 
-    public record SignatureStatus(String signature, String confirmationStatus, boolean failed, String error) {}
+    /** {@code slot} is the slot the transaction was processed in, when the node reports one (KAN-394). */
+    public record SignatureStatus(String signature, String confirmationStatus, boolean failed, String error, Long slot) {
+        public SignatureStatus(String signature, String confirmationStatus, boolean failed, String error) {
+            this(signature, confirmationStatus, failed, error, null);
+        }
+    }
+
+    /**
+     * A finalized transaction as {@code getTransaction} returns it: where it landed, whether it
+     * failed, and the SPL Memo texts it carried (KAN-394 reads the anchor's root back from here).
+     */
+    public record TransactionInfo(String signature, long slot, Instant blockTime, boolean failed, String error, List<String> memos) {
+        public TransactionInfo {
+            memos = memos == null ? List.of() : List.copyOf(memos);
+        }
+    }
 
     // ---- reads --------------------------------------------------------------------------------
 
@@ -195,11 +210,53 @@ public class SolanaRpcClient {
                             }
                             JsonNode err = status.path("err");
                             boolean failed = !(err.isNull() || err.isMissingNode());
+                            JsonNode slot = status.path("slot");
                             return new SignatureStatus(
                                     signature,
                                     status.path("confirmationStatus").asText(null),
                                     failed,
-                                    failed ? err.toString() : null);
+                                    failed ? err.toString() : null,
+                                    slot.isNumber() ? slot.asLong() : null);
+                        });
+    }
+
+    private static final java.util.regex.Pattern MEMO_LOG = java.util.regex.Pattern.compile("^Program log: Memo \\(len \\d+\\): \"(.*)\"$");
+
+    /**
+     * The transaction at {@code finalized} commitment, or empty when the node has no finalized
+     * transaction with that signature (still confirming, dropped, or never seen). Memo texts come
+     * from the {@code jsonParsed} instructions ({@code program == "spl-memo"}), with the program's
+     * log line as a fallback for nodes that do not parse memos.
+     */
+    public Mono<TransactionInfo> getTransaction(SolanaCluster cluster, String signature) {
+        Map<String, Object> config = new LinkedHashMap<>();
+        config.put("encoding", "jsonParsed");
+        config.put("commitment", "finalized");
+        config.put("maxSupportedTransactionVersion", 0);
+        return call(cluster, "getTransaction", List.of(signature, config))
+                .filter(result -> !result.isNull() && !result.isMissingNode())
+                .map(
+                        result -> {
+                            JsonNode meta = result.path("meta");
+                            JsonNode err = meta.path("err");
+                            boolean failed = !(err.isNull() || err.isMissingNode());
+                            List<String> memos = new ArrayList<>();
+                            for (JsonNode ix : result.path("transaction").path("message").path("instructions")) {
+                                if ("spl-memo".equals(ix.path("program").asText(null)) && ix.path("parsed").isTextual()) {
+                                    memos.add(ix.path("parsed").asText());
+                                }
+                            }
+                            if (memos.isEmpty()) {
+                                for (JsonNode line : meta.path("logMessages")) {
+                                    java.util.regex.Matcher m = MEMO_LOG.matcher(line.asText(""));
+                                    if (m.matches()) {
+                                        memos.add(m.group(1).replace("\\\"", "\""));
+                                    }
+                                }
+                            }
+                            JsonNode bt = result.path("blockTime");
+                            return new TransactionInfo(signature, result.path("slot").asLong(),
+                                    bt.isNumber() ? Instant.ofEpochSecond(bt.asLong()) : null, failed, failed ? err.toString() : null, memos);
                         });
     }
 
