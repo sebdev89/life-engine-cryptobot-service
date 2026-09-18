@@ -17,3 +17,6 @@ signer/target/
 
 # local env (copy from .env.template); never versioned
 .env.local
+
+# Solana program build output (programs/intent-authority, KAN-437)
+programs/*/target/
