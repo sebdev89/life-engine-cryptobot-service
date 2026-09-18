@@ -1,6 +1,7 @@
 package io.lifeengine.cryptobot.integration.signer;
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import io.lifeengine.cryptobot.adapters.solana.SolanaCluster;
 import io.lifeengine.cryptobot.integration.validator.ValidatorClient;
 import java.util.List;
 import java.util.Map;
@@ -76,12 +77,19 @@ public class SignerClient {
     }
 
     /**
+     * @param cluster the cluster the transaction is for (KAN-493). It travels with the request and
+     *     the signer compares it with the {@code cluster} the validator attested; mainnet is refused
+     *     there unless the signer has its own explicit {@code SIGNER_ALLOW_MAINNET=true}.
      * @param attestation the independent validator's attestation for these exact bytes (KAN-438).
      *     The signer refuses without it; this client never sends a request without one.
      */
-    public Mono<SignResponse> sign(UUID proposalId, String unsignedTransactionBase64, String expectedFeePayer, ValidatorClient.Attestation attestation) {
+    public Mono<SignResponse> sign(UUID proposalId, String unsignedTransactionBase64, String expectedFeePayer, SolanaCluster cluster,
+            ValidatorClient.Attestation attestation) {
         if (!props.enabled()) {
             return Mono.error(new SignerRefused("signer disabled"));
+        }
+        if (cluster == null) {
+            return Mono.error(new SignerRefused("no cluster to present"));
         }
         if (attestation == null || attestation.payload() == null || attestation.signature() == null) {
             return Mono.error(new SignerRefused("no validator attestation to present"));
@@ -95,6 +103,7 @@ public class SignerClient {
                         "proposalId", proposalId.toString(),
                         "unsignedTransactionBase64", unsignedTransactionBase64,
                         "expectedFeePayer", expectedFeePayer,
+                        "cluster", cluster.id(),
                         "attestation", Map.of("payload", attestation.payload(), "signature", attestation.signature())))
                 .retrieve()
                 .bodyToMono(SignResponse.class)

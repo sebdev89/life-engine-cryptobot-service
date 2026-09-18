@@ -121,12 +121,18 @@ public class ValidatorClient {
         if (tx == null || tx.messageBase64() == null || tx.messageBase64().isBlank()) {
             return Mono.error(new ValidatorRefused("no transaction message to attest"));
         }
+        if (tx.cluster() == null || tx.cluster().isBlank()) {
+            return Mono.error(new ValidatorRefused("no cluster on the prepared transaction to attest"));
+        }
         String messageHash = sha256Hex(Base64.getDecoder().decode(tx.messageBase64()));
+        String cluster = tx.cluster().trim().toLowerCase(java.util.Locale.ROOT);
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("proposalId", proposal.id().toString());
         body.put("policyHash", verdict.policyHash());
         body.put("expectedVerdictHash", verdict.hash());
         body.put("messageHash", messageHash);
+        // KAN-493: the attestation is bound to the cluster the bytes are for; the signer checks it.
+        body.put("cluster", cluster);
         Map<String, Object> facts = input.canonicalMap();
         body.put("intent", facts.get("intent"));
         body.put("state", facts.get("state"));
@@ -141,10 +147,10 @@ public class ValidatorClient {
                 .timeout(props.timeout())
                 .onErrorMap(WebClientResponseException.class, ex -> new ValidatorRefused("HTTP " + ex.getStatusCode().value() + " " + ex.getResponseBodyAsString()))
                 .onErrorMap(ex -> !(ex instanceof ValidatorRefused), ex -> new ValidatorRefused(ex.getMessage()))
-                .flatMap(r -> check(r, verdict, messageHash));
+                .flatMap(r -> check(r, verdict, messageHash, cluster));
     }
 
-    private static Mono<Response> check(Response r, PolicyVerdict recorded, String messageHash) {
+    private static Mono<Response> check(Response r, PolicyVerdict recorded, String messageHash, String cluster) {
         if (r == null || r.attestation() == null || r.attestation().payload() == null || r.attestation().signature() == null) {
             return Mono.error(new ValidatorRefused("no attestation in the response"));
         }
@@ -159,6 +165,9 @@ public class ValidatorClient {
         }
         if (!r.attestation().payload().contains("\"message_hash\":\"" + messageHash + "\"")) {
             return Mono.error(new ValidatorRefused("attestation is not for these transaction bytes"));
+        }
+        if (!r.attestation().payload().contains("\"cluster\":\"" + cluster + "\"")) {
+            return Mono.error(new ValidatorRefused("attestation is not for cluster " + cluster));
         }
         return Mono.just(r);
     }

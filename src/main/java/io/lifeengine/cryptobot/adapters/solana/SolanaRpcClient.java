@@ -39,15 +39,22 @@ public class SolanaRpcClient {
     private final SolanaRpcProperties properties;
     private final ObjectMapper objectMapper;
     private final CryptobotMetrics metrics;
+    private final ExecutionProperties execution;
     private final AtomicLong requestIds = new AtomicLong(1);
 
-    /** Test-friendly: no metrics exported. */
+    /** Test-friendly: no metrics exported, mainnet fail-closed. */
     public SolanaRpcClient(WebClient.Builder builder, SolanaRpcProperties properties, ObjectMapper objectMapper) {
-        this(builder, properties, objectMapper, CryptobotMetrics.noop());
+        this(builder, properties, objectMapper, ExecutionProperties.failClosed());
+    }
+
+    /** Test-friendly: no metrics exported. */
+    public SolanaRpcClient(WebClient.Builder builder, SolanaRpcProperties properties, ObjectMapper objectMapper, ExecutionProperties execution) {
+        this(builder, properties, objectMapper, CryptobotMetrics.noop(), execution);
     }
 
     @Autowired
-    public SolanaRpcClient(WebClient.Builder builder, SolanaRpcProperties properties, ObjectMapper objectMapper, CryptobotMetrics metrics) {
+    public SolanaRpcClient(WebClient.Builder builder, SolanaRpcProperties properties, ObjectMapper objectMapper, CryptobotMetrics metrics,
+            ExecutionProperties execution) {
         // A busy mainnet wallet returns hundreds of token accounts in jsonParsed form — well over
         // WebClient's 256 KiB default. 16 MiB keeps the reader honest without being unbounded.
         this.webClient = builder
@@ -56,6 +63,7 @@ public class SolanaRpcClient {
         this.properties = properties;
         this.objectMapper = objectMapper;
         this.metrics = metrics;
+        this.execution = execution == null ? ExecutionProperties.failClosed() : execution;
     }
 
     public record TokenAccountBalance(
@@ -193,9 +201,19 @@ public class SolanaRpcClient {
                         });
     }
 
-    // ---- writes (devnet only, enforced by PolicyEngine upstream) ------------------------------
+    // ---- writes ---------------------------------------------------------------------------------
 
+    /**
+     * Broadcast. The cluster travels with the transaction: a mainnet transaction is refused here,
+     * before any RPC call, unless {@code cryptobot.execution.allow-mainnet=true} (KAN-493). This is
+     * the last of the three guards and does not trust that the PolicyEngine or the
+     * ExecutionService already said no.
+     */
     public Mono<String> sendTransaction(SolanaCluster cluster, String signedTransactionBase64) {
+        if (!execution.permits(cluster)) {
+            log.warn("solana_mainnet_disabled method=sendTransaction cluster={}", cluster.id());
+            return Mono.error(new MainnetDisabledException("sendTransaction", cluster));
+        }
         Map<String, Object> config = Map.of("encoding", "base64", "skipPreflight", false, "preflightCommitment", "confirmed");
         return call(cluster, "sendTransaction", List.of(signedTransactionBase64, config)).map(JsonNode::asText);
     }

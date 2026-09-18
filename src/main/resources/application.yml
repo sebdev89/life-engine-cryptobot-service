@@ -115,6 +115,12 @@ cryptobot:
     min-stable-pct: ${CRYPTOBOT_RISK_MIN_STABLE:10}
     dust-usd: 1
     sharp-move-pct: 5
+  # KAN-493 — mainnet is fail-closed. false (default) ⇒ a mainnet wallet or proposal is refused at
+  # ExecutionService.execute (409 MAINNET_DISABLED) and at SolanaRpcClient.sendTransaction, before
+  # anything is signed or sent; the signer has its own SIGNER_ALLOW_MAINNET. Do not flip this without
+  # the readiness gate (CB-13). policy.execution-cluster below stays devnet regardless (belt and braces).
+  execution:
+    allow-mainnet: ${CRYPTOBOT_ALLOW_MAINNET:false}
   policy:
     # Emergency stop. false ⇒ nothing is ever signed or broadcast; proposals still work as paper trades.
     execution-enabled: ${CRYPTOBOT_EXECUTION_ENABLED:true}

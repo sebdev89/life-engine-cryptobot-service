@@ -42,7 +42,7 @@ class ExecutionServiceValidatorTest {
 
         assertThat(done.status()).isEqualTo(ProposalStatus.EXECUTED);
         ArgumentCaptor<ValidatorClient.Attestation> att = ArgumentCaptor.forClass(ValidatorClient.Attestation.class);
-        verify(h.signer).sign(eq(h.approved.id()), anyString(), eq(h.wallet.address()), att.capture());
+        verify(h.signer).sign(eq(h.approved.id()), anyString(), eq(h.wallet.address()), eq(SolanaCluster.DEVNET), att.capture());
         assertThat(att.getValue().signature()).isEqualTo("sig");
         assertThat(att.getValue().validator()).isEqualTo("validator-key");
         List<String> audit = h.auditTypes();
@@ -62,7 +62,7 @@ class ExecutionServiceValidatorTest {
 
         assertThat(done.status()).isEqualTo(ProposalStatus.FAILED);
         assertThat(done.execution().error()).contains("Validator refused").contains("disagreement");
-        verify(h.signer, never()).sign(any(), anyString(), anyString(), any());
+        verify(h.signer, never()).sign(any(), anyString(), anyString(), any(), any());
         verify(h.rpc, never()).sendTransaction(any(), anyString());
         assertThat(h.count("trade.failed", "stage", "validate", "asset", "SOL")).isEqualTo(1);
         assertThat(h.count("validator.attestations", "result", "refused")).isEqualTo(1);
@@ -77,14 +77,14 @@ class ExecutionServiceValidatorTest {
         ActionProposal done = h.service.execute(h.wallet.ownerUserId(), h.approved.id(), "op").block();
 
         assertThat(done.status()).isEqualTo(ProposalStatus.FAILED);
-        verify(h.signer, never()).sign(any(), anyString(), anyString(), any());
+        verify(h.signer, never()).sign(any(), anyString(), anyString(), any(), any());
         assertThat(h.count("trade.failed", "stage", "validate", "asset", "SOL")).isEqualTo(1);
     }
 
     @Test
     @DisplayName("signer refuses the attestation (e.g. attestation_message_mismatch): FAILED at stage=sign")
     void signerRefusingTheAttestationIsASignFailure() {
-        when(h.signer.sign(eq(h.approved.id()), anyString(), eq(h.wallet.address()), any()))
+        when(h.signer.sign(eq(h.approved.id()), anyString(), eq(h.wallet.address()), eq(SolanaCluster.DEVNET), any()))
                 .thenReturn(Mono.error(new SignerClient.SignerRefused("HTTP 403 {\"reason\":\"attestation_message_mismatch\"}")));
 
         ActionProposal done = h.service.execute(h.wallet.ownerUserId(), h.approved.id(), "op").block();

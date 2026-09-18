@@ -2,6 +2,7 @@ package io.lifeengine.cryptobot.api.controlplane;
 
 import io.lifeengine.cryptobot.application.controlplane.ControlPlaneExceptions;
 import io.lifeengine.cryptobot.domain.RuntimeUnreachableException;
+import io.lifeengine.cryptobot.adapters.solana.MainnetDisabledException;
 import io.lifeengine.cryptobot.adapters.solana.SolanaRpcException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -29,6 +30,13 @@ public class ControlPlaneExceptionHandler {
     @ExceptionHandler(ControlPlaneExceptions.Conflict.class)
     public ResponseEntity<ControlPlaneDtos.ApiError> conflict(ControlPlaneExceptions.Conflict ex) {
         return ResponseEntity.status(HttpStatus.CONFLICT).body(new ControlPlaneDtos.ApiError("CONFLICT", ex.getMessage()));
+    }
+
+    /** KAN-493: mainnet is fail-closed; nothing was signed, sent or persisted. */
+    @ExceptionHandler(MainnetDisabledException.class)
+    public ResponseEntity<ControlPlaneDtos.ApiError> mainnetDisabled(MainnetDisabledException ex) {
+        log.warn("control_plane_mainnet_disabled cluster={} error={}", ex.cluster().id(), ex.getMessage());
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(new ControlPlaneDtos.ApiError(ex.code(), ex.getMessage()));
     }
 
     @ExceptionHandler(ControlPlaneExceptions.PolicyBlocked.class)

@@ -75,7 +75,7 @@ class ExecutionServiceMetricsTest {
     @Test
     @DisplayName("signer refuses: failed{stage=sign}")
     void failedAtSign() {
-        when(h.signer.sign(eq(h.approved.id()), anyString(), eq(h.wallet.address()), any()))
+        when(h.signer.sign(eq(h.approved.id()), anyString(), eq(h.wallet.address()), eq(SolanaCluster.DEVNET), any()))
                 .thenReturn(Mono.error(new SignerClient.SignerRefused("destination not allowed")));
 
         h.service.execute(h.wallet.ownerUserId(), h.approved.id(), "op").block();
