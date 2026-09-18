@@ -181,6 +181,15 @@ cryptobot:
     timeout: ${CRYPTOBOT_ADVISOR_TIMEOUT:90s}
     poll-interval: 1500ms
     locale: ${CRYPTOBOT_ADVISOR_LOCALE:en}
+  # ---- Decision Receipts (KAN-391, Endgame §6-7) ----
+  # signing-key: 64-byte Ed25519 secret (seed ‖ public key, the solana-keygen layout) in base64 or hex.
+  # A secret: from secrets/, never a default here. Empty ⇒ ephemeral key at startup (dev only, WARN in the log).
+  # salt-secret: the secret the per-tenant prompt-commitment salts derive from. Same rules.
+  receipts:
+    key-id: ${CRYPTOBOT_RECEIPT_KEY_ID:}
+    signing-key: ${CRYPTOBOT_RECEIPT_SIGNING_KEY:}
+    salt-secret: ${CRYPTOBOT_RECEIPT_SALT_SECRET:}
+    price-table-version: ${CRYPTOBOT_RECEIPT_PRICE_TABLE:none}
 
 lifeengine:
   # Deployment environment for build identity (/actuator/info) and metric common tags. From APP_ENV —

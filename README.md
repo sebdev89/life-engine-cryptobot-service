@@ -26,6 +26,7 @@ wallet → portfolio → risk detection → AI analysis → rebalance proposal
 | Execute (devnet) | Second explicit click. Re-simulates on a fresh blockhash, asks the **isolated signer** (separate process, own secret) to sign, verifies the signature against the wallet key, broadcasts, confirms, links the explorer. | `ExecutionService` · `signer/` |
 | Audit | Append-only `audit_event` per transition: created, simulated, policy evaluated, awaiting approval, approved/rejected, started, signed, submitted, executed/failed, reconciled. | `AuditService` |
 | On-chain authority (KAN-437, paper level 4) | `programs/intent-authority`: a Solana program (devnet target) that refuses an execution unless the **agent signed** and its policy PDA is registered and not revoked (I1), the claimed `H_R` equals the one **committed on-chain** (I4), the current slot is within `valid_until_slot` (I2), and neither the receipt PDA of `H_I` nor the nonce PDA of `(agent, nonce)` exists (I3) — then leaves a receipt account atomically. Java client (PDAs, instructions, account decoders) byte-exact with the program via shared SDK vectors. Not yet wired into `ExecutionService`, not yet deployed (needs the Solana CLI: human step). | `programs/intent-authority` · `adapters/solana/authority` |
+| Decision Receipts (KAN-391, Endgame §6-7) | Every step above leaves a **signed, content-addressed receipt**: `WALLET_SNAPSHOT` → `RISK_DECISION` (L1) · `HUMAN_IDEA` → `MARKET_ANALYSIS` (L0: prompt commitment, model, run id, tokens) → `STRATEGY` (L1) → `RISK_DECISION` (validates) · `SIMULATION` → `EXECUTION`. The id is `SHA-256("life-engine.cryptobot.receipt" ‖ 0x00 ‖ JCS(body))`; the body names its parents, so a cycle cannot be built; Ed25519 by the service key over a domain-tagged hash; `verify` recomputes all of it. Prompts, answers and keys never enter a receipt. | `application/receipt` · `domain/receipt` · `api/controlplane/ReceiptsController` |
 | Reliable execution (KAN-403) | `operationId` idempotency key bound **before** signing; optimistic version + status guard on every write; signature persisted **before** broadcast; `EXECUTING`/`SUBMITTED` rows reconciled against `getSignatureStatuses` at startup and every 30 s — never re-sent; transactional outbox (`trade.*` events) with `SKIP LOCKED` worker, backoff and dead-letter queue. | `ExecutionService` · `ReconciliationService` · `OutboxPublisher` |
 
 Legacy (pre-hackathon, still available, not part of the demo): Binance-public watchlist / price
@@ -87,6 +88,7 @@ All endpoints take `Authorization: Bearer <Life Engine JWT>`. Everything is scop
 | `POST /api/cryptobot/proposals/{id}/approve` · `/reject` | human decision |
 | `POST /api/cryptobot/proposals/{id}/execute` (header `Idempotency-Key: <uuid>` or body `{operationId}`) | devnet execution. Same key ⇒ same result, never a second transaction; different key while `EXECUTING`/`SUBMITTED` ⇒ 409 (KAN-403) |
 | `GET /api/cryptobot/proposals/{id}` · `/audit` · `/events` | proposal with its trail · durable `trade.*` events (outbox, with delivery state) and dead letters |
+| `GET /api/cryptobot/receipts/{hash}` · `POST …/verify` · `GET /api/cryptobot/proposals/{id}/receipts` · `GET /api/cryptobot/wallets/{id}/receipts` · `GET /api/cryptobot/receipts/signing-key` | a receipt with its edges · recompute hash + body + signature + parents · the receipts of a proposal (oldest first) / a wallet (newest first) · the public key and the three formulas to verify offline (KAN-391) |
 | `GET /api/cryptobot/quotes/{asset}?ars=<monto>&network=<red>` · `?side=SELL&amount=<unidades>` | ARS quotes across Argentine exchanges, ranked "recibís X" (KAN-355) |
 
 ### ARS quotes across exchanges (KAN-355)
@@ -251,10 +253,31 @@ for byte. What this PR does **not** do: deploy (needs the Solana CLI — a human
 `programs/intent-authority/scripts/deploy-devnet.sh`) or wire `ExecutionService` to the program
 (next issue in the epic).
 
+### Decision Receipts (KAN-391, Endgame §6–7 / §10)
+
+Audit events say *what happened*; receipts make it **verifiable by someone who does not trust
+this database**. One receipt per step, schema `ir/1`:
+
+| | |
+|---|---|
+| id | `receiptHash = SHA-256("life-engine.cryptobot.receipt" ‖ 0x00 ‖ canonical)`, `canonical` = RFC 8785 (`JsonCanonicalizer`: sorted keys, no whitespace, NFC, integers or decimal strings only, absent ≠ null). The body lists `parents[]` (sorted), so the child's id depends on its parents' ids: **no cycles, no forward references**, by construction — the store adds the FK. |
+| body | `kind`, `tenantId`/`ownerId` (the JWT subject, server-side), `agentId`, `parents[]`, `inputs[{type,hash}]`, `promptHash`, `model{ref,provider,providerDigest,weightsHash}`, `engine{id,version,weightsHash}`, `runtime{runId,serviceVersion,serviceCommit}`, `params`, `output{hash,schema,artifactRef}`, `compute{inputTokens,outputTokens,units,wallMs}`, `reproducibility`, `startedAt`, `completedAt`, `nonce`, `refs{walletId,proposalId,snapshotId}`. Hashes, ids, versions, counts, timestamps — **never a prompt, an answer, a chunk or a key**. |
+| privacy | the user's question and the payload sent to the Runtime are committed as `H(salt_tenant ‖ 0x00 ‖ text)`, `salt_tenant = HMAC-SHA256(secret, tenantId)`: a short guessable text cannot be confirmed by brute force from the receipt; the salt opens it in an audit. |
+| signature | Ed25519 by the service key (`cryptobot.receipts.signing-key`, 64-byte `seed ‖ pub`, from `secrets/`; `key-id` for rotation) over `"life-engine.cryptobot.receipt.sig" ‖ 0x00 ‖ receiptHashBytes`. No key configured ⇒ ephemeral key, WARN in the log, fine for a dev box. `GET /receipts/signing-key` publishes the public half. |
+| levels | `L0_SIGNED` for everything the LLM or the chain touched; `L1_REPRODUCIBLE` only for the pure-Java engines (`risk-engine`, `rebalance-planner`), whose `output.hash` another node recomputes from the same inputs. `reproduced` in `verify` stays `null` until the engine re-execution of the next issue: a receipt is never marked reproduced because it says so. |
+| replay | `UNIQUE (tenant_id, nonce)`: snapshot id, message id, Runtime run id, proposal id, `sim:<proposal>`, `exec:<operationId>` — the idempotency key of KAN-403 is also the receipt's replay guard; the reconciler leaves the same `EXECUTION` receipt the interrupted path would have. |
+| tables | `intelligence_receipt` (body JSONB + the exact canonical bytes + signature + anchor columns, filled later by the memo batch), `receipt_edge` (child → parent, role `DERIVES_FROM \| VALIDATES \| EXECUTES \| REUSES`), `artifact` (content-addressed outputs, `storage_ref` into the aggregate). Migration `V6`. |
+| what is measured | tokens and latency come from the Runtime run's `LLM_CALL_SUCCEEDED` events; no tokens ⇒ no `compute` block. `cost` is never claimed (no price table yet). Meters: `intelligence_receipts_total{result=issued\|verified\|invalid\|failed}`, `deterministic_inference_total`. |
+
+Golden vectors (`src/test/resources/receipt/vectors-v1.json`) were produced outside this code
+(python `json` + `hashlib` + `cryptography`): canonical strings, hashes, deterministic Ed25519
+signatures and salted commitments (NFC and NFD forms of the same question commit equal). v1 is
+frozen; a change of canonicalization is `ir/2` and a new file.
+
 ## Tests
 
 ```bash
-./mvnw test                     # 334 tests: adapters (recorded responses), engines, state machine, HTTP flow with fake RPC + Runtime, ARS quotes (fixtures, no network), idempotency + crash/reconciliation + outbox (KAN-403), intent schema + canonicalization vectors (KAN-435), deterministic policy: decision table + golden vectors + 2-implementation agreement (KAN-436), adversarial benchmark 10 000 intents + invariants I1–I7 + chaos (KAN-440), PDA derivation + program client vs SDK vectors (KAN-437)
+./mvnw test                     # 347 tests: adapters (recorded responses), engines, state machine, HTTP flow with fake RPC + Runtime, ARS quotes (fixtures, no network), idempotency + crash/reconciliation + outbox (KAN-403), intent schema + canonicalization vectors (KAN-435), deterministic policy: decision table + golden vectors + 2-implementation agreement (KAN-436), adversarial benchmark 10 000 intents + invariants I1–I7 + chaos (KAN-440), PDA derivation + program client vs SDK vectors (KAN-437), receipt vectors + DAG invariants + verify + the 7-kind DAG over the HTTP flow (KAN-391)
 ./mvnw -f signer/pom.xml test   # 10 tests: signing policy (every refusal reason), token, signature verification
 (cd programs/intent-authority && cargo test)   # 29 tests: on-chain rules, bank simulator, shared vectors (KAN-437)
 cd ../cryptobot-ui && npx ng test
@@ -280,4 +303,5 @@ README and the Docker files. The exact list lives in the vault:
 Full list with defaults in `src/main/resources/application.yml` under `cryptobot.solana`,
 `cryptobot.marketdata`, `cryptobot.quotes`, `cryptobot.risk`, `cryptobot.policy`,
 `cryptobot.signer`, `cryptobot.advisor`, `cryptobot.reliability` (outbox publisher and
-reconciliation job: intervals, batch sizes, `max-attempts`, `grace`). Nothing secret has a default.
+reconciliation job: intervals, batch sizes, `max-attempts`, `grace`), `cryptobot.receipts`
+(`key-id`, `signing-key`, `salt-secret` — see `.env.template`). Nothing secret has a default.

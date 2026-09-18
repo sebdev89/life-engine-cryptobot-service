@@ -1,5 +1,6 @@
 package io.lifeengine.cryptobot.application.controlplane;
 
+import io.lifeengine.cryptobot.application.receipt.ReceiptService;
 import io.lifeengine.cryptobot.domain.policy.PolicyDecision;
 import io.lifeengine.cryptobot.domain.policy.PolicyVerdict;
 import io.lifeengine.cryptobot.domain.reliability.OutboxEvent;
@@ -60,6 +61,8 @@ public class ProposalService {
     private final SignerClient signer;
     private final AuditService audit;
     private final CryptobotMetrics metrics;
+    private final ReceiptService receipts;
+    private final Receipts receiptOf;
     private final Clock clock;
 
     public ProposalService(
@@ -71,7 +74,9 @@ public class ProposalService {
             PolicyEngine policy,
             SignerClient signer,
             AuditService audit,
-            CryptobotMetrics metrics) {
+            CryptobotMetrics metrics,
+            ReceiptService receipts,
+            Receipts receiptOf) {
         this.proposals = proposals;
         this.portfolio = portfolio;
         this.planner = planner;
@@ -81,9 +86,17 @@ public class ProposalService {
         this.signer = signer;
         this.audit = audit;
         this.metrics = metrics;
+        this.receipts = receipts;
+        this.receiptOf = receiptOf;
         this.clock = Clock.systemUTC();
     }
 
+    /**
+     * KAN-391: three receipts on the way to the human. {@code STRATEGY} (the plan, L1; parents: the
+     * snapshot it was planned on and, if the caller passed the advisor's {@code runtimeRunId}, the
+     * {@code MARKET_ANALYSIS} that suggested it), {@code RISK_DECISION} over the projected portfolio
+     * (VALIDATES the strategy, L1) and {@code SIMULATION} (DERIVES_FROM the strategy).
+     */
     public Mono<ActionProposal> createRebalance(Wallet wallet, String actor, RebalanceIntent intent, String reasoningSummary, UUID runtimeRunId) {
         return portfolio.latest(wallet).flatMap(view -> {
             RebalancePlan plan = planner.plan(view.snapshot(), intent);
@@ -92,22 +105,33 @@ public class ProposalService {
                 return Mono.error(new ControlPlaneExceptions.InvalidRequest("NOOP", "Portfolio is already within the requested targets"));
             }
             metrics.strategyCreated("proposed", assetOf(plan));
-            RiskReport riskAfter = riskEngine.evaluate(planner.project(view.snapshot(), plan), null);
+            io.lifeengine.cryptobot.domain.portfolio.PortfolioSnapshot projected = planner.project(view.snapshot(), plan);
+            RiskReport riskAfter = riskEngine.evaluate(projected, null);
             Instant now = clock.instant();
             String title = "Rebalance: " + String.join(", ", intent.targetWeights().keySet()) + " → " + intent.targetWeights().values();
             ActionProposal p = new ActionProposal(UUID.randomUUID(), wallet.id(), wallet.ownerUserId(), wallet.address(), wallet.cluster().id(),
                     ProposalStatus.PROPOSED, "REBALANCE", title, blankToNull(reasoningSummary), actor, intent, plan, view.risk(), riskAfter,
                     null, null, null, null, null, runtimeRunId, view.snapshot().id(), now.plus(policy.properties().proposalTtl()), now, now, null, 0);
+            String tenant = Receipts.tenantOf(wallet.ownerUserId());
+            Mono<Optional<String>> snapshotReceipt = receipts.byNonce(tenant, view.snapshot().id().toString())
+                    .map(r -> Optional.of(r.receiptHash())).defaultIfEmpty(Optional.empty());
+            Mono<Optional<String>> analysisReceipt = runtimeRunId == null ? Mono.just(Optional.empty())
+                    : receipts.byNonce(tenant, runtimeRunId.toString()).map(r -> Optional.of(r.receiptHash())).defaultIfEmpty(Optional.empty());
             return proposals.insert(p)
                     .flatMap(saved -> audit.record(saved.ownerUserId(), saved.walletId(), saved.id(), EV_CREATED, actor,
                             payload("plan", plan.summary(), "turnoverUsd", plan.turnoverUsd(), "riskBefore", view.risk().overall(), "riskAfter", riskAfter.overall(),
                                     "runtimeRunId", runtimeRunId)).thenReturn(saved))
-                    .flatMap(saved -> simulate(saved, wallet, view.snapshot()))
+                    .flatMap(saved -> Mono.zip(snapshotReceipt, analysisReceipt)
+                            .flatMap(refs -> receipts.issue(receiptOf.strategy(wallet, saved, view.snapshot(), intent, plan, refs.getT1().orElse(null), refs.getT2().orElse(null))))
+                            .flatMap(strategy -> receipts.issue(receiptOf.riskDecisionAfter(wallet, saved, projected, riskAfter, strategy.receiptHash()))
+                                    .thenReturn(strategy.receiptHash()))
+                            .flatMap(strategyHash -> simulate(saved, wallet, view.snapshot(), strategyHash)))
                     .flatMap(sim -> evaluatePolicy(sim, wallet, view.snapshot().capturedAt()));
         });
     }
 
-    private Mono<ActionProposal> simulate(ActionProposal p, Wallet wallet, io.lifeengine.cryptobot.domain.portfolio.PortfolioSnapshot snapshot) {
+    private Mono<ActionProposal> simulate(ActionProposal p, Wallet wallet, io.lifeengine.cryptobot.domain.portfolio.PortfolioSnapshot snapshot, String strategyReceipt) {
+        Instant started = clock.instant();
         return simulation.simulate(wallet, snapshot, p.plan())
                 .flatMap(sim -> {
                     Instant now = clock.instant();
@@ -117,7 +141,9 @@ public class ProposalService {
                                     payload("onchainOk", sim.outcome().onchain().ok(), "onchainError", sim.outcome().onchain().error(),
                                             "unitsConsumed", sim.outcome().onchain().unitsConsumed(),
                                             "expectedOut", sim.outcome().economic() == null ? null : sim.outcome().economic().expectedBuyAmount(),
-                                            "lamports", sim.transaction() == null ? null : sim.transaction().lamports()))));
+                                            "lamports", sim.transaction() == null ? null : sim.transaction().lamports()))))
+                            .flatMap(simulated -> receipts.issue(receiptOf.simulation(simulated, sim.outcome(), sim.transaction(), strategyReceipt, started))
+                                    .thenReturn(simulated));
                 });
     }
 

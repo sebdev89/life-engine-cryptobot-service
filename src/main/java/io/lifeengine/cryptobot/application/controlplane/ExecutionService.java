@@ -70,10 +70,11 @@ public class ExecutionService {
     private final SolanaRpcClient rpc;
     private final AuditService audit;
     private final CryptobotMetrics metrics;
+    private final ExecutionReceipts executionReceipts;
     private final Clock clock;
 
     public ExecutionService(ProposalService proposals, WalletService wallets, SimulationService simulation, PolicyEngine policy,
-            SignerClient signer, SolanaRpcClient rpc, AuditService audit, CryptobotMetrics metrics) {
+            SignerClient signer, SolanaRpcClient rpc, AuditService audit, CryptobotMetrics metrics, ExecutionReceipts executionReceipts) {
         this.proposals = proposals;
         this.wallets = wallets;
         this.simulation = simulation;
@@ -82,6 +83,7 @@ public class ExecutionService {
         this.rpc = rpc;
         this.audit = audit;
         this.metrics = metrics;
+        this.executionReceipts = executionReceipts;
         this.clock = Clock.systemUTC();
     }
 
@@ -276,7 +278,8 @@ public class ExecutionService {
                     .withStatus(ProposalStatus.FAILED, now);
             return proposals.commit(ProposalTransition.from(p, failed)
                     .audit(audit.event(p.ownerUserId(), p.walletId(), p.id(), EV_FAILED, actor, ProposalService.payload("signature", prev.signature(), "error", status.error())))
-                    .publish(ProposalService.tradeEvent(failed, TradeEvents.FAILED, now, ProposalService.payload("signature", prev.signature(), "error", status.error(), "stage", "onchain"))));
+                    .publish(ProposalService.tradeEvent(failed, TradeEvents.FAILED, now, ProposalService.payload("signature", prev.signature(), "error", status.error(), "stage", "onchain"))))
+                    .flatMap(terminal -> executionReceipts.receiptFor(terminal, p.execution().submittedAt()));
         }
         if ("pending".equals(status.confirmationStatus()) || status.confirmationStatus() == null) {
             // We stopped polling before the chain answered. The row stays SUBMITTED — honest — and
@@ -294,7 +297,8 @@ public class ExecutionService {
                 .audit(audit.event(p.ownerUserId(), p.walletId(), p.id(), EV_EXECUTED, actor,
                         ProposalService.payload("signature", prev.signature(), "explorerUrl", prev.explorerUrl(), "confirmation", status.confirmationStatus())))
                 .publish(ProposalService.tradeEvent(executed, TradeEvents.CONFIRMED, now,
-                        ProposalService.payload("signature", prev.signature(), "explorerUrl", prev.explorerUrl(), "confirmation", status.confirmationStatus()))));
+                        ProposalService.payload("signature", prev.signature(), "explorerUrl", prev.explorerUrl(), "confirmation", status.confirmationStatus()))))
+                .flatMap(terminal -> executionReceipts.receiptFor(terminal, p.execution().submittedAt()));
     }
 
     /** Only for failures where nothing can be on the chain: before signing, or a node-side rejection of the broadcast. */
@@ -310,7 +314,8 @@ public class ExecutionService {
         ActionProposal failed = executing.withExecution(rec, now).withStatus(ProposalStatus.FAILED, now);
         return proposals.commit(ProposalTransition.from(executing, failed)
                 .audit(audit.event(executing.ownerUserId(), executing.walletId(), executing.id(), EV_FAILED, actor, ProposalService.payload("error", ex.getMessage(), "stage", stage.name())))
-                .publish(ProposalService.tradeEvent(failed, TradeEvents.FAILED, now, ProposalService.payload("error", ex.getMessage(), "stage", stage.name().toLowerCase(java.util.Locale.ROOT)))));
+                .publish(ProposalService.tradeEvent(failed, TradeEvents.FAILED, now, ProposalService.payload("error", ex.getMessage(), "stage", stage.name().toLowerCase(java.util.Locale.ROOT)))))
+                .flatMap(terminal -> executionReceipts.receiptFor(terminal, executing.updatedAt()));
     }
 
     private static final class Pending extends RuntimeException {

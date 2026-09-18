@@ -4,6 +4,8 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.lifeengine.cryptobot.adapters.solana.Base58;
+import io.lifeengine.cryptobot.application.receipt.ReceiptService;
+import io.lifeengine.cryptobot.application.receipt.TenantSalts;
 import io.lifeengine.cryptobot.domain.advisor.AdvisorAnswer;
 import io.lifeengine.cryptobot.domain.advisor.AdvisorMessage;
 import io.lifeengine.cryptobot.domain.portfolio.Position;
@@ -17,10 +19,12 @@ import io.lifeengine.cryptobot.integration.lifeengine.AdvisorRuntimeClient;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.Clock;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -46,7 +50,8 @@ public class AdvisorService {
     private static final int MAX_QUESTION_CHARS = 1000;
     static final int MAX_POSITIONS_FOR_LLM = 15;
 
-    public record Asked(AdvisorAnswer answer, UUID runtimeRunId, String runtimeBaseUrl, String ssePath) {}
+    /** {@code receiptHash} is the {@code MARKET_ANALYSIS} receipt of this answer (KAN-391). */
+    public record Asked(AdvisorAnswer answer, UUID runtimeRunId, String runtimeBaseUrl, String ssePath, String receiptHash) {}
 
     private final PortfolioService portfolio;
     private final AdvisorRuntimeClient runtime;
@@ -54,19 +59,32 @@ public class AdvisorService {
     private final PolicyProperties policy;
     private final AdvisorMessageRepository messages;
     private final ObjectMapper objectMapper;
+    private final ReceiptService receipts;
+    private final Receipts receiptOf;
+    private final TenantSalts salts;
     private final Clock clock;
 
     public AdvisorService(PortfolioService portfolio, AdvisorRuntimeClient runtime, AdvisorProperties props, PolicyProperties policy,
-            AdvisorMessageRepository messages, ObjectMapper objectMapper) {
+            AdvisorMessageRepository messages, ObjectMapper objectMapper, ReceiptService receipts, Receipts receiptOf, TenantSalts salts) {
         this.portfolio = portfolio;
         this.runtime = runtime;
         this.props = props;
         this.policy = policy;
         this.messages = messages;
         this.objectMapper = objectMapper;
+        this.receipts = receipts;
+        this.receiptOf = receiptOf;
+        this.salts = salts;
         this.clock = Clock.systemUTC();
     }
 
+    /**
+     * KAN-391: two receipts per question. {@code HUMAN_IDEA} before the Runtime is called (the
+     * question as a salted commitment, parent: the wallet's latest {@code WALLET_SNAPSHOT}), and
+     * {@code MARKET_ANALYSIS} once the run succeeded (prompt commitment, model, run id, tokens if
+     * Runtime reported them, hash of the structured answer; parents: the idea, the snapshot and
+     * its {@code RISK_DECISION}). The prompt and the answer never enter a receipt.
+     */
     public Mono<Asked> ask(Wallet wallet, String actor, String rawQuestion, ActionProposal proposalContext, String bearer) {
         String question = rawQuestion == null ? "" : rawQuestion.trim();
         if (question.isEmpty()) {
@@ -82,16 +100,43 @@ public class AdvisorService {
         return portfolio.latest(wallet).flatMap(view -> {
             String input = buildInput(wallet, view, question, proposalContext);
             String correlationId = "cryptobot-advisor-" + UUID.randomUUID();
-            return messages.insert(new AdvisorMessage(UUID.randomUUID(), wallet.id(), wallet.ownerUserId(), "user", question, Map.of(), null, clock.instant()))
-                    .then(runtime.start(input, correlationId, bearer))
-                    .flatMap(started -> runtime.awaitTerminal(started.runId(), bearer)
-                            .map(done -> parse(done.detail()))
-                            .flatMap(answer -> messages.insert(new AdvisorMessage(UUID.randomUUID(), wallet.id(), wallet.ownerUserId(), "assistant",
-                                            answer.answer(), asMap(answer), started.runId(), clock.instant()))
-                                    .thenReturn(new Asked(answer, started.runId(), runtime.runtimeBaseUrl(), "/api/runtime/runs/" + started.runId() + "/events"))))
+            String tenant = Receipts.tenantOf(wallet.ownerUserId());
+            Instant askedAt = clock.instant();
+            AdvisorMessage userTurn = new AdvisorMessage(UUID.randomUUID(), wallet.id(), wallet.ownerUserId(), "user", question, Map.of(), null, askedAt);
+            // The receipts of the snapshot the advisor is looking at (absent for snapshots older than the receipt layer).
+            Mono<Optional<String>> snapshotReceipt = receipts.byNonce(tenant, view.snapshot().id().toString())
+                    .map(r -> Optional.of(r.receiptHash())).defaultIfEmpty(Optional.empty());
+            Mono<Optional<String>> riskReceipt = receipts.byNonce(tenant, "risk:" + view.snapshot().id())
+                    .map(r -> Optional.of(r.receiptHash())).defaultIfEmpty(Optional.empty());
+            return messages.insert(userTurn)
+                    .then(Mono.zip(snapshotReceipt, riskReceipt))
+                    .flatMap(refs -> receipts.issue(receiptOf.humanIdea(wallet, userTurn.id(), question, askedAt, refs.getT1().orElse(null)))
+                            .map(idea -> new Context(idea.receiptHash(), refs.getT1().orElse(null), refs.getT2().orElse(null))))
+                    .flatMap(ctx -> runtime.start(input, correlationId, bearer)
+                            .flatMap(started -> runtime.awaitTerminal(started.runId(), bearer)
+                                    .flatMap(done -> {
+                                        AdvisorAnswer answer = parse(done.detail());
+                                        AdvisorMessage assistantTurn = new AdvisorMessage(UUID.randomUUID(), wallet.id(), wallet.ownerUserId(), "assistant",
+                                                answer.answer(), asMap(answer), started.runId(), clock.instant());
+                                        List<String> parents = new ArrayList<>();
+                                        parents.add(ctx.ideaReceipt());
+                                        if (ctx.snapshotReceipt() != null) {
+                                            parents.add(ctx.snapshotReceipt());
+                                        }
+                                        if (ctx.riskReceipt() != null) {
+                                            parents.add(ctx.riskReceipt());
+                                        }
+                                        return messages.insert(assistantTurn)
+                                                .then(receipts.issue(receiptOf.marketAnalysis(wallet, runtime.workflowId(), props.locale(), input,
+                                                        salts.commit(tenant, question), answer, done.detail(), assistantTurn.id(), parents, askedAt)))
+                                                .map(analysis -> new Asked(answer, started.runId(), runtime.runtimeBaseUrl(),
+                                                        "/api/runtime/runs/" + started.runId() + "/events", analysis.receiptHash()));
+                                    })))
                     .onErrorMap(java.util.concurrent.TimeoutException.class, ex -> new ControlPlaneExceptions.UpstreamUnavailable("The advisor did not answer in time", ex));
         });
     }
+
+    private record Context(String ideaReceipt, String snapshotReceipt, String riskReceipt) {}
 
     public Flux<AdvisorMessage> history(UUID walletId, int limit) {
         return messages.findByWallet(walletId, limit);

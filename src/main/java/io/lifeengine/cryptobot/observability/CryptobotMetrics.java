@@ -48,9 +48,9 @@ import java.util.concurrent.atomic.AtomicLong;
  *   --- KAN-440 (authority layer: the deterministic verdict, what the funnel's "blocked" is made of) ---
  *   policy.verdicts               → policy_verdicts_total{decision,escalation}  allow | deny | escalate × none | require_second_agent | require_human_signature
  *   policy.predicate.failed       → policy_predicate_failed_total{predicate}    one increment per failed predicate of a DENY (a verdict may count several)
- *   --- registered at 0 until KAN-390 (Decision Receipts / determinismo) feeds them ---
- *   intelligence.receipts         → intelligence_receipts_total{result}    issued | verified
- *   deterministic.inference       → deterministic_inference_total
+ *   --- KAN-391 (Decision Receipts: fed by ReceiptService; mismatch waits for the L1 re-execution of KAN-392) ---
+ *   intelligence.receipts         → intelligence_receipts_total{result}    issued | verified | invalid (verify failed a check) | failed (could not be written)
+ *   deterministic.inference       → deterministic_inference_total          one per L1 receipt (risk engine, planner)
  *   deterministic.mismatch        → deterministic_mismatch_total
  * </pre>
  *
@@ -224,7 +224,7 @@ public class CryptobotMetrics {
         dlqSize.set(size);
     }
 
-    // ---- KAN-390: Decision Receipts / determinismo (registered now, fed later) -----------------
+    // ---- KAN-391: Decision Receipts / determinismo --------------------------------------------
 
     public void intelligenceReceipt(String result) {
         counter(INTELLIGENCE_RECEIPTS, "result", low(result)).increment();

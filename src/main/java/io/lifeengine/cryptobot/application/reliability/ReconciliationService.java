@@ -4,6 +4,7 @@ import io.lifeengine.cryptobot.adapters.solana.SolanaCluster;
 import io.lifeengine.cryptobot.adapters.solana.SolanaRpcClient;
 import io.lifeengine.cryptobot.application.controlplane.AuditService;
 import io.lifeengine.cryptobot.application.controlplane.ControlPlaneExceptions;
+import io.lifeengine.cryptobot.application.controlplane.ExecutionReceipts;
 import io.lifeengine.cryptobot.application.controlplane.ExecutionService;
 import io.lifeengine.cryptobot.application.controlplane.ProposalService;
 import io.lifeengine.cryptobot.domain.reliability.DeadLetter;
@@ -68,23 +69,25 @@ public class ReconciliationService {
     private final AuditService audit;
     private final CryptobotMetrics metrics;
     private final ReliabilityProperties.Reconciliation config;
+    private final ExecutionReceipts executionReceipts;
     private final Clock clock;
 
     @org.springframework.beans.factory.annotation.Autowired
     public ReconciliationService(ActionProposalRepository proposals, DeadLetterRepository deadLetters, SolanaRpcClient rpc, AuditService audit,
-            CryptobotMetrics metrics, ReliabilityProperties properties) {
-        this(proposals, deadLetters, rpc, audit, metrics, properties, Clock.systemUTC());
+            CryptobotMetrics metrics, ReliabilityProperties properties, ExecutionReceipts executionReceipts) {
+        this(proposals, deadLetters, rpc, audit, metrics, properties, executionReceipts, Clock.systemUTC());
     }
 
     /** Clock injectable for tests (grace and attempt timestamps). */
     public ReconciliationService(ActionProposalRepository proposals, DeadLetterRepository deadLetters, SolanaRpcClient rpc, AuditService audit,
-            CryptobotMetrics metrics, ReliabilityProperties properties, Clock clock) {
+            CryptobotMetrics metrics, ReliabilityProperties properties, ExecutionReceipts executionReceipts, Clock clock) {
         this.proposals = proposals;
         this.deadLetters = deadLetters;
         this.rpc = rpc;
         this.audit = audit;
         this.metrics = metrics;
         this.config = properties.reconciliation();
+        this.executionReceipts = executionReceipts;
         this.clock = clock;
     }
 
@@ -194,6 +197,8 @@ public class ReconciliationService {
                                         ProposalService.payload("signature", prev.signature(), "explorerUrl", prev.explorerUrl(), "confirmation", confirmation)))
                         .publish(ProposalService.tradeEvent(next, TradeEvents.CONFIRMED, now,
                                 ProposalService.payload("signature", prev.signature(), "explorerUrl", prev.explorerUrl(), "confirmation", confirmation, "reconciled", true))))
+                // KAN-391: the same EXECUTION receipt the synchronous path would have left.
+                .flatMap(terminal -> executionReceipts.receiptFor(terminal, prev.submittedAt()))
                 .thenReturn(Result.CORRECTED);
     }
 
@@ -213,6 +218,7 @@ public class ReconciliationService {
                                 audit.event(p.ownerUserId(), p.walletId(), p.id(), ExecutionService.EV_FAILED, ACTOR, ProposalService.payload("error", reason)))
                         .publish(ProposalService.tradeEvent(next, TradeEvents.FAILED, now,
                                 ProposalService.payload("error", reason, "stage", "reconciliation", "signature", rec.signature(), "mismatch", mismatch))))
+                .flatMap(terminal -> executionReceipts.receiptFor(terminal, prev == null ? p.updatedAt() : prev.submittedAt()))
                 .thenReturn(Result.CORRECTED);
     }
 

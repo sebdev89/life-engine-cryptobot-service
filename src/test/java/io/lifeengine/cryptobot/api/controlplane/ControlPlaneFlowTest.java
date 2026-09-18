@@ -155,6 +155,39 @@ class ControlPlaneFlowTest {
         assertThat(input.path("contractId").asText()).isEqualTo("crypto.portfolio-advisor-input.v1");
         assertThat(input.path("riskFindings").get(0).path("code").asText()).isEqualTo("CONCENTRATION");
         assertThat(input.toString()).doesNotContain("unsignedTransaction").doesNotContain("secret");
+        // KAN-391: the answer carries its MARKET_ANALYSIS receipt; the receipt carries hashes, never the question or the answer.
+        String analysisHash = asked.path("receiptHash").asText();
+        assertThat(analysisHash).matches("sha256:[0-9a-f]{64}");
+        JsonNode analysis = JSON.readTree(web.get().uri("/api/cryptobot/receipts/" + analysisHash).header(HttpHeaders.AUTHORIZATION, token)
+                .exchange().expectStatus().isOk().expectBody().returnResult().getResponseBody());
+        JsonNode analysisBody = analysis.path("receipt").path("body");
+        assertThat(analysisBody.path("kind").asText()).isEqualTo("MARKET_ANALYSIS");
+        assertThat(analysisBody.path("model").path("ref").asText()).isEqualTo("qwen3:14b");
+        assertThat(analysisBody.path("runtime").path("runId").asText()).isEqualTo(asked.path("runtimeRunId").asText());
+        assertThat(analysisBody.path("promptHash").asText()).matches("sha256:[0-9a-f]{64}");
+        assertThat(analysisBody.path("compute").path("inputTokens").asLong()).isEqualTo(3512);
+        assertThat(analysisBody.path("compute").path("outputTokens").asLong()).isEqualTo(240);
+        assertThat(analysisBody.path("compute").path("units").asLong()).isEqualTo(3512 + 3 * 240);
+        assertThat(analysisBody.path("reproducibility").asText()).isEqualTo("L0_SIGNED");
+        assertThat(analysis.path("receipt").path("canonicalJson").asText()).doesNotContain("biggest risk").doesNotContain("70%").doesNotContain("drawdown");
+        // Its parents: the human idea, the wallet snapshot and the risk decision of that snapshot.
+        assertThat(analysis.path("parents")).hasSize(3);
+        List<String> parentKinds = new java.util.ArrayList<>();
+        for (JsonNode e : analysis.path("parents")) {
+            JsonNode parent = JSON.readTree(web.get().uri("/api/cryptobot/receipts/" + e.path("parentHash").asText()).header(HttpHeaders.AUTHORIZATION, token)
+                    .exchange().expectStatus().isOk().expectBody().returnResult().getResponseBody());
+            parentKinds.add(parent.path("receipt").path("body").path("kind").asText());
+        }
+        assertThat(parentKinds).containsExactlyInAnyOrder("HUMAN_IDEA", "WALLET_SNAPSHOT", "RISK_DECISION");
+        // verify recomputes hash, body, signature and parents.
+        JsonNode verified = JSON.readTree(web.post().uri("/api/cryptobot/receipts/" + analysisHash + "/verify").header(HttpHeaders.AUTHORIZATION, token)
+                .exchange().expectStatus().isOk().expectBody().returnResult().getResponseBody());
+        assertThat(verified.path("valid").asBoolean()).isTrue();
+        assertThat(verified.path("signatureValid").asBoolean()).isTrue();
+        assertThat(verified.path("parentsPresent").asBoolean()).isTrue();
+        // The other user gets a 404, not the receipt.
+        web.get().uri("/api/cryptobot/receipts/" + analysisHash).header(HttpHeaders.AUTHORIZATION, bearer(UUID.randomUUID()))
+                .exchange().expectStatus().isNotFound();
 
         // A pasted private key never leaves the service.
         String fakeSecret = io.lifeengine.cryptobot.adapters.solana.Base58.encode(io.lifeengine.cryptobot.adapters.solana.tx.SolanaKeypair.generate().secretKey());
@@ -165,7 +198,7 @@ class ControlPlaneFlowTest {
         // 3. Propose SOL 70% → 50%.
         JsonNode proposed = JSON.readTree(web.post().uri("/api/cryptobot/wallets/" + walletId + "/proposals").header(HttpHeaders.AUTHORIZATION, token)
                 .contentType(MediaType.APPLICATION_JSON)
-                .bodyValue("{\"kind\":\"REBALANCE\",\"targetWeights\":{\"SOL\":50},\"reasoningSummary\":\"advisor flagged 70% concentration\"}")
+                .bodyValue("{\"kind\":\"REBALANCE\",\"targetWeights\":{\"SOL\":50},\"reasoningSummary\":\"advisor flagged 70% concentration\",\"runtimeRunId\":\"" + asked.path("runtimeRunId").asText() + "\"}")
                 .exchange().expectStatus().isCreated().expectBody().returnResult().getResponseBody());
         JsonNode p = proposed.path("proposal");
         String proposalId = p.path("id").asText();
@@ -192,6 +225,43 @@ class ControlPlaneFlowTest {
         assertThat(verdict.path("policyVersion").asText()).isEqualTo("test-policy-v1");
         assertThat(verdict.path("policyHash").asText()).matches("sha256:[0-9a-f]{64}");
         assertThat(verdict.path("inputHash").asText()).matches("sha256:[0-9a-f]{64}");
+        // KAN-391: the proposal left STRATEGY (L1, derives from the snapshot and the analysis), RISK_DECISION (validates the
+        // strategy, L1) and SIMULATION (derives from the strategy). No EXECUTION yet: nothing was approved.
+        JsonNode proposalReceipts = JSON.readTree(web.get().uri("/api/cryptobot/proposals/" + proposalId + "/receipts").header(HttpHeaders.AUTHORIZATION, token)
+                .exchange().expectStatus().isOk().expectBody().returnResult().getResponseBody());
+        List<String> kinds = new java.util.ArrayList<>();
+        proposalReceipts.forEach(r -> kinds.add(r.path("body").path("kind").asText()));
+        assertThat(kinds).containsExactly("STRATEGY", "RISK_DECISION", "SIMULATION");
+        JsonNode strategy = proposalReceipts.get(0);
+        assertThat(strategy.path("body").path("reproducibility").asText()).isEqualTo("L1_REPRODUCIBLE");
+        assertThat(strategy.path("body").path("engine").path("id").asText()).isEqualTo("rebalance-planner");
+        assertThat(strategy.path("body").path("parents")).hasSize(2);
+        List<String> strategyParents = new java.util.ArrayList<>();
+        strategy.path("body").path("parents").forEach(h -> strategyParents.add(h.asText()));
+        assertThat(strategyParents).contains(analysisHash);
+        assertThat(strategy.path("body").path("output").path("schema").asText()).isEqualTo("rebalance-plan/1");
+        assertThat(strategy.path("body").path("refs").path("proposalId").asText()).isEqualTo(proposalId);
+        JsonNode riskAfter = proposalReceipts.get(1);
+        assertThat(riskAfter.path("body").path("engine").path("id").asText()).isEqualTo("risk-engine");
+        assertThat(riskAfter.path("body").path("engine").path("weightsHash").asText()).matches("sha256:[0-9a-f]{64}");
+        assertThat(riskAfter.path("body").path("parents").get(0).asText()).isEqualTo(strategy.path("receiptHash").asText());
+        JsonNode riskEdges = JSON.readTree(web.get().uri("/api/cryptobot/receipts/" + riskAfter.path("receiptHash").asText()).header(HttpHeaders.AUTHORIZATION, token)
+                .exchange().expectStatus().isOk().expectBody().returnResult().getResponseBody());
+        assertThat(riskEdges.path("parents").get(0).path("role").asText()).isEqualTo("VALIDATES");
+        JsonNode sim = proposalReceipts.get(2);
+        assertThat(sim.path("body").path("inputs").toString()).contains("TRANSACTION");
+        assertThat(sim.path("body").path("parents").get(0).asText()).isEqualTo(strategy.path("receiptHash").asText());
+        assertThat(sim.path("canonicalJson").asText()).doesNotContain(p.path("transaction").path("unsignedTransactionBase64").asText());
+        // Every receipt of the wallet, and the signing key anyone can verify them with.
+        JsonNode walletReceipts = JSON.readTree(web.get().uri("/api/cryptobot/wallets/" + walletId + "/receipts").header(HttpHeaders.AUTHORIZATION, token)
+                .exchange().expectStatus().isOk().expectBody().returnResult().getResponseBody());
+        assertThat(walletReceipts.size()).isGreaterThanOrEqualTo(9); // 2 snapshots × (WALLET_SNAPSHOT + RISK_DECISION) + idea + analysis + 3 of the proposal
+        JsonNode signingKey = JSON.readTree(web.get().uri("/api/cryptobot/receipts/signing-key").header(HttpHeaders.AUTHORIZATION, token)
+                .exchange().expectStatus().isOk().expectBody().returnResult().getResponseBody());
+        assertThat(signingKey.path("publicKeyHex").asText()).hasSize(64);
+        assertThat(signingKey.path("keyId").asText()).isEqualTo(strategy.path("signature").path("keyId").asText());
+        web.get().uri("/api/cryptobot/proposals/" + proposalId + "/receipts").header(HttpHeaders.AUTHORIZATION, bearer(UUID.randomUUID()))
+                .exchange().expectStatus().isNotFound();
 
         // 4. Execute before approval is impossible.
         web.post().uri("/api/cryptobot/proposals/" + proposalId + "/execute").header(HttpHeaders.AUTHORIZATION, token)
@@ -297,6 +367,7 @@ class ControlPlaneFlowTest {
                 .contains("trade_reconciled_total{")
                 .contains("intelligence_receipts_total{")
                 .contains("deterministic_inference_total{")
+                .contains("deterministic_inference_total{")
                 .contains("deterministic_mismatch_total{")
                 .contains("trade_failed_total{")
                 .contains("service=\"cryptobot-service\"");
@@ -392,7 +463,9 @@ class ControlPlaneFlowTest {
                 String output = "{\\\"answer\\\":\\\"SOL is 70% of your wallet; one drawdown moves everything.\\\",\\\"keyRisks\\\":[{\\\"title\\\":\\\"Concentration\\\",\\\"severity\\\":\\\"HIGH\\\",\\\"why\\\":\\\"70% > 60%\\\"}],"
                         + "\\\"suggestedActions\\\":[{\\\"action\\\":\\\"REBALANCE\\\",\\\"asset\\\":\\\"SOL\\\",\\\"targetWeightPct\\\":50,\\\"rationale\\\":\\\"halve the exposure\\\"}],\\\"confidence\\\":0.8,\\\"disclaimer\\\":\\\"not advice\\\",\\\"promptVersion\\\":\\\"crypto-portfolio-advisor-v1\\\"}";
                 return json("{\"runId\":\"" + runId + "\",\"workflowId\":\"crypto.portfolio-advisor.v1\",\"status\":\"SUCCEEDED\",\"agentStages\":[{\"stageId\":\"stage-1\",\"status\":\"SUCCEEDED\",\"output\":\"" + output + "\"}],"
-                        + "\"llmCalls\":[{\"stageId\":\"stage-1\",\"agentId\":\"crypto-portfolio-advisor-agent\",\"model\":\"qwen3:14b\"}]}");
+                        + "\"llmCalls\":[{\"stageId\":\"stage-1\",\"agentId\":\"crypto-portfolio-advisor-agent\",\"model\":\"qwen3:14b\"}],"
+                        + "\"events\":[{\"type\":\"LLM_CALL_SUCCEEDED\",\"attributes\":{\"agentId\":\"crypto-portfolio-advisor-agent\",\"model\":\"qwen3:14b\","
+                        + "\"latencyMs\":\"16100\",\"usage\":\"{\\\"prompt_tokens\\\":3512,\\\"completion_tokens\\\":240,\\\"total_tokens\\\":3752}\"}}]}");
             }
             return new MockResponse().setResponseCode(404);
         }

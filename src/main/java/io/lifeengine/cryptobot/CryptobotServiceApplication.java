@@ -37,7 +37,8 @@ import org.springframework.boot.context.properties.EnableConfigurationProperties
     io.lifeengine.cryptobot.integration.lifeengine.AdvisorProperties.class,
     io.lifeengine.cryptobot.infrastructure.solana.SolanaMarketProperties.class,
     io.lifeengine.cryptobot.adapters.quotes.QuotesProperties.class,
-    io.lifeengine.cryptobot.application.reliability.ReliabilityProperties.class
+    io.lifeengine.cryptobot.application.reliability.ReliabilityProperties.class,
+    io.lifeengine.cryptobot.application.receipt.ReceiptProperties.class
 })
 public class CryptobotServiceApplication {
 

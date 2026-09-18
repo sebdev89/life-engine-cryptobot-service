@@ -4,6 +4,10 @@ import io.lifeengine.cryptobot.adapters.solana.SolanaCluster;
 import io.lifeengine.cryptobot.domain.advisor.AdvisorMessage;
 import io.lifeengine.cryptobot.application.controlplane.ControlPlaneExceptions;
 import io.lifeengine.cryptobot.domain.portfolio.PortfolioSnapshot;
+import io.lifeengine.cryptobot.domain.receipt.IntelligenceReceipt;
+import io.lifeengine.cryptobot.domain.receipt.ReceiptArtifact;
+import io.lifeengine.cryptobot.domain.receipt.ReceiptEdge;
+import io.lifeengine.cryptobot.domain.receipt.ReceiptKind;
 import io.lifeengine.cryptobot.domain.reliability.DeadLetter;
 import io.lifeengine.cryptobot.domain.reliability.OutboxEvent;
 import io.lifeengine.cryptobot.domain.transactions.ActionProposal;
@@ -16,6 +20,7 @@ import io.lifeengine.cryptobot.infrastructure.persistence.controlplane.AuditEven
 import io.lifeengine.cryptobot.infrastructure.persistence.controlplane.DeadLetterRepository;
 import io.lifeengine.cryptobot.infrastructure.persistence.controlplane.OutboxRepository;
 import io.lifeengine.cryptobot.infrastructure.persistence.controlplane.PortfolioSnapshotRepository;
+import io.lifeengine.cryptobot.infrastructure.persistence.controlplane.ReceiptRepository;
 import io.lifeengine.cryptobot.infrastructure.persistence.controlplane.WalletRepository;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -44,6 +49,9 @@ public final class InMemoryControlPlaneRepositories {
     public static final List<AuditEvent> AUDIT = new CopyOnWriteArrayList<>();
     public static final Map<UUID, OutboxEvent> OUTBOX = new ConcurrentHashMap<>();
     public static final List<DeadLetter> DEAD_LETTERS = new CopyOnWriteArrayList<>();
+    public static final Map<String, IntelligenceReceipt> RECEIPTS = new ConcurrentHashMap<>();
+    public static final List<ReceiptEdge> EDGES = new CopyOnWriteArrayList<>();
+    public static final List<ReceiptArtifact> ARTIFACTS = new CopyOnWriteArrayList<>();
 
     public static void reset() {
         WALLETS.clear();
@@ -53,6 +61,16 @@ public final class InMemoryControlPlaneRepositories {
         AUDIT.clear();
         OUTBOX.clear();
         DEAD_LETTERS.clear();
+        RECEIPTS.clear();
+        EDGES.clear();
+        ARTIFACTS.clear();
+    }
+
+    /** Receipts of one proposal, oldest first — the pipeline as the DAG API would return it. */
+    public static List<IntelligenceReceipt> receiptsOf(UUID proposalId) {
+        return RECEIPTS.values().stream()
+                .filter(r -> r.body().refs() != null && proposalId.toString().equals(r.body().refs().proposalId()))
+                .sorted(Comparator.comparing(IntelligenceReceipt::createdAt).thenComparing(IntelligenceReceipt::receiptHash)).toList();
     }
 
     /** Outbox events of one proposal, oldest first — what the tests assert on. */
@@ -241,6 +259,90 @@ public final class InMemoryControlPlaneRepositories {
             @Override
             public Mono<Long> countUnresolved() {
                 return Mono.just(DEAD_LETTERS.stream().filter(d -> d.resolvedAt() == null).count());
+            }
+        };
+    }
+
+    /**
+     * Same contract as the R2DBC store (KAN-391): content-addressed no-op on the same hash, a
+     * replayed {@code (tenant, nonce)} with another hash is refused, an edge to an unknown parent is
+     * refused (the FK), artifacts collapse on their hash.
+     */
+    public static ReceiptRepository receipts() {
+        return new ReceiptRepository() {
+            @Override
+            public Mono<IntelligenceReceipt> insert(IntelligenceReceipt receipt, List<ReceiptEdge> edges, List<ReceiptArtifact> artifacts) {
+                return Mono.defer(() -> {
+                    synchronized (RECEIPTS) {
+                        IntelligenceReceipt existing = RECEIPTS.get(receipt.receiptHash());
+                        if (existing != null) {
+                            return Mono.just(existing);
+                        }
+                        boolean replay = RECEIPTS.values().stream().anyMatch(r -> r.body().tenantId().equals(receipt.body().tenantId())
+                                && r.body().nonce().equals(receipt.body().nonce()));
+                        boolean dangling = edges.stream().anyMatch(e -> !RECEIPTS.containsKey(e.parentHash()));
+                        if (replay || dangling) {
+                            return Mono.error(new ControlPlaneExceptions.Conflict("Receipt refused: nonce already used or a parent does not exist (" + receipt.receiptHash() + ")"));
+                        }
+                        RECEIPTS.put(receipt.receiptHash(), receipt);
+                        EDGES.addAll(edges);
+                        for (ReceiptArtifact a : artifacts) {
+                            if (ARTIFACTS.stream().noneMatch(x -> x.artifactHash().equals(a.artifactHash()))) {
+                                ARTIFACTS.add(a);
+                            }
+                        }
+                        return Mono.just(receipt);
+                    }
+                });
+            }
+
+            @Override
+            public Mono<IntelligenceReceipt> findByHash(String receiptHash) {
+                return Mono.justOrEmpty(RECEIPTS.get(receiptHash));
+            }
+
+            @Override
+            public Mono<IntelligenceReceipt> findByHashAndOwner(String receiptHash, UUID ownerId) {
+                IntelligenceReceipt r = RECEIPTS.get(receiptHash);
+                return r == null || !r.body().ownerId().equals(ownerId.toString()) ? Mono.empty() : Mono.just(r);
+            }
+
+            @Override
+            public Flux<String> existingInTenant(List<String> hashes, String tenantId) {
+                return Flux.fromIterable(hashes).filter(h -> RECEIPTS.containsKey(h) && RECEIPTS.get(h).body().tenantId().equals(tenantId));
+            }
+
+            @Override
+            public Mono<IntelligenceReceipt> findByNonce(String tenantId, String nonce) {
+                return Flux.fromIterable(RECEIPTS.values())
+                        .filter(r -> r.body().tenantId().equals(tenantId) && r.body().nonce().equals(nonce)).next();
+            }
+
+            @Override
+            public Flux<IntelligenceReceipt> findByWallet(UUID walletId, int limit) {
+                return Flux.fromIterable(RECEIPTS.values())
+                        .filter(r -> r.body().refs() != null && walletId.toString().equals(r.body().refs().walletId()))
+                        .sort(Comparator.comparing(IntelligenceReceipt::createdAt).reversed()).take(limit);
+            }
+
+            @Override
+            public Flux<IntelligenceReceipt> findByProposal(UUID proposalId) {
+                return Flux.fromIterable(receiptsOf(proposalId));
+            }
+
+            @Override
+            public Mono<IntelligenceReceipt> findLatestByWalletAndKind(UUID walletId, ReceiptKind kind) {
+                return findByWallet(walletId, Integer.MAX_VALUE).filter(r -> r.kind() == kind).next();
+            }
+
+            @Override
+            public Flux<ReceiptEdge> parentsOf(String childHash) {
+                return Flux.fromIterable(new ArrayList<>(EDGES)).filter(e -> e.childHash().equals(childHash));
+            }
+
+            @Override
+            public Flux<ReceiptEdge> childrenOf(String parentHash) {
+                return Flux.fromIterable(new ArrayList<>(EDGES)).filter(e -> e.parentHash().equals(parentHash));
             }
         };
     }

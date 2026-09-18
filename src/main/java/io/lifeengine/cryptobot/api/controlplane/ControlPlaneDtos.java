@@ -36,7 +36,8 @@ public final class ControlPlaneDtos {
 
     public record AskRequest(String question, UUID proposalId) {}
 
-    public record AskResponse(AdvisorAnswer answer, UUID runtimeRunId, String runtimeBaseUrl, String ssePath) {}
+    /** {@code receiptHash}: the {@code MARKET_ANALYSIS} receipt of this answer (KAN-391). */
+    public record AskResponse(AdvisorAnswer answer, UUID runtimeRunId, String runtimeBaseUrl, String ssePath, String receiptHash) {}
 
     public record MessageView(UUID id, String role, String content, Map<String, Object> structured, UUID runtimeRunId, Instant createdAt) {
         public static MessageView of(AdvisorMessage m) {

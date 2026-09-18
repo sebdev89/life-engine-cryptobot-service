@@ -10,6 +10,10 @@ import static org.mockito.Mockito.when;
 import io.lifeengine.cryptobot.adapters.solana.SolanaCluster;
 import io.lifeengine.cryptobot.adapters.solana.SolanaRpcClient;
 import io.lifeengine.cryptobot.adapters.solana.tx.SolanaKeypair;
+import io.lifeengine.cryptobot.application.receipt.ReceiptService;
+import io.lifeengine.cryptobot.application.receipt.TenantSalts;
+import io.lifeengine.cryptobot.domain.receipt.IntelligenceReceipt;
+import io.lifeengine.cryptobot.domain.receipt.ReceiptSigningKey;
 import io.lifeengine.cryptobot.domain.policy.PolicyDecision;
 import io.lifeengine.cryptobot.domain.strategy.RebalanceLeg;
 import io.lifeengine.cryptobot.domain.strategy.RebalancePlan;
@@ -51,6 +55,12 @@ final class ExecutionHarness {
     final SignerClient signer = mock(SignerClient.class);
     final SolanaRpcClient rpc = mock(SolanaRpcClient.class);
     final AuditService audit = new AuditService(InMemoryControlPlaneRepositories.audit());
+    // KAN-391: a real receipt pipeline (ephemeral key, in-memory store) so EXECUTION receipts are asserted, not mocked.
+    final ReceiptService receiptService = new ReceiptService(InMemoryControlPlaneRepositories.receipts(),
+            ReceiptSigningKey.generate("test-key"), metrics);
+    final Receipts receiptOf = new Receipts(new TenantSalts("test-salt-secret".getBytes(StandardCharsets.UTF_8)),
+            new RiskRulesProperties(null, null, null, null, null), null, new com.fasterxml.jackson.databind.ObjectMapper());
+    final ExecutionReceipts executionReceipts = new ExecutionReceipts(receiptService, receiptOf, metrics);
 
     final SolanaKeypair keypair = SolanaKeypair.generate();
     final Instant now = Instant.parse("2026-09-15T12:00:00Z");
@@ -84,7 +94,7 @@ final class ExecutionHarness {
         when(rpc.simulateTransaction(eq(SolanaCluster.DEVNET), anyString(), eq(false)))
                 .thenReturn(Mono.just(new SolanaRpcClient.SimulationResult(true, null, List.of(), 150L)));
 
-        service = new ExecutionService(proposals, wallets, simulation, policy, signer, rpc, audit, metrics);
+        service = new ExecutionService(proposals, wallets, simulation, policy, signer, rpc, audit, metrics, executionReceipts);
     }
 
     /** The signer signs the real message with the wallet key; returns the transaction id (base58 of the signature). */
@@ -110,6 +120,11 @@ final class ExecutionHarness {
 
     List<String> auditTypes() {
         return InMemoryControlPlaneRepositories.AUDIT.stream().filter(e -> approved.id().equals(e.proposalId())).map(e -> e.eventType()).toList();
+    }
+
+    /** EXECUTION receipts of the proposal, oldest first. */
+    List<IntelligenceReceipt> receipts() {
+        return InMemoryControlPlaneRepositories.receiptsOf(approved.id());
     }
 
     List<String> outboxTypes() {
