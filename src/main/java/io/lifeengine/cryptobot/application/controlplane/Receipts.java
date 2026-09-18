@@ -264,6 +264,10 @@ public class Receipts {
         if (proposal.policy() != null && proposal.policy().authorization() != null) {
             inputs.add(new ReceiptInput(ReceiptInput.POLICY_VERDICT, proposal.policy().authorization().hash()));
         }
+        if (proposal.policy() != null && proposal.policy().oracle() != null) {
+            // KAN-439: the state reference — the quotes the decision was priced with, under the committed limits.
+            inputs.add(new ReceiptInput(ReceiptInput.ORACLE_READING, proposal.policy().oracle().quotesHash()));
+        }
         if (proposal.approval() != null) {
             inputs.add(new ReceiptInput(ReceiptInput.APPROVAL, hash(ordered("decision", proposal.approval().decision().name(), "by", proposal.approval().by(),
                     "at", proposal.approval().at().toString()))));

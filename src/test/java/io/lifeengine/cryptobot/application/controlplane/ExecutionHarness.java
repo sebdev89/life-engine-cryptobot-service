@@ -10,6 +10,7 @@ import static org.mockito.Mockito.when;
 import io.lifeengine.cryptobot.adapters.solana.SolanaCluster;
 import io.lifeengine.cryptobot.adapters.solana.SolanaRpcClient;
 import io.lifeengine.cryptobot.adapters.solana.tx.SolanaKeypair;
+import io.lifeengine.cryptobot.application.oracle.PriceOracleService;
 import io.lifeengine.cryptobot.application.receipt.ReceiptService;
 import io.lifeengine.cryptobot.application.receipt.TenantSalts;
 import io.lifeengine.cryptobot.domain.receipt.IntelligenceReceipt;
@@ -54,6 +55,8 @@ final class ExecutionHarness {
     final PolicyEngine policy = mock(PolicyEngine.class);
     final SignerClient signer = mock(SignerClient.class);
     final SolanaRpcClient rpc = mock(SolanaRpcClient.class);
+    // KAN-439: the oracle re-read at execution; by default the world agrees with the plan (SOL $100).
+    final PriceOracleService oracle = mock(PriceOracleService.class);
     final AuditService audit = new AuditService(InMemoryControlPlaneRepositories.audit());
     // KAN-391: a real receipt pipeline (ephemeral key, in-memory store) so EXECUTION receipts are asserted, not mocked.
     final ReceiptService receiptService = new ReceiptService(InMemoryControlPlaneRepositories.receipts(),
@@ -78,7 +81,7 @@ final class ExecutionHarness {
         RebalancePlan plan = new RebalancePlan(List.of(
                 new RebalanceLeg(RebalanceLeg.Action.SELL, "SOL", "So111", new BigDecimal("2"), new BigDecimal("200"), new BigDecimal("70"), new BigDecimal("50"), "USDC")),
                 new BigDecimal("1000"), Map.of(), Map.of(), new BigDecimal("200"), "SELL 2 SOL");
-        PolicyDecision executable = new PolicyDecision(true, true, List.of(), List.of(), List.of(), now, null);
+        PolicyDecision executable = new PolicyDecision(true, true, List.of(), List.of(), List.of(), now, null, Fixtures.oracle("100", now));
         ApprovalRecord approval = new ApprovalRecord(ApprovalRecord.Decision.APPROVED, "op", now, null);
         approved = repo.insert(new ActionProposal(UUID.randomUUID(), wallet.id(), wallet.ownerUserId(), wallet.address(), "devnet",
                 ProposalStatus.APPROVED, "REBALANCE", "t", null, "op", null, plan, null, null, executable, null, tx, approval, null, null, null,
@@ -90,11 +93,13 @@ final class ExecutionHarness {
         when(proposals.commit(any())).thenAnswer(inv -> repo.commit(inv.<ProposalTransition>getArgument(0)));
         when(wallets.require(eq(wallet.ownerUserId()), eq(wallet.id()))).thenReturn(Mono.just(wallet));
         when(policy.executionPreconditions(any())).thenReturn(List.of());
+        when(policy.oracleProblems(any(), any())).thenReturn(List.of());
+        when(oracle.read(any())).thenReturn(Mono.just(Fixtures.oracle("100", now)));
         when(simulation.prepareTransfer(eq(wallet), anyLong())).thenReturn(Mono.just(tx));
         when(rpc.simulateTransaction(eq(SolanaCluster.DEVNET), anyString(), eq(false)))
                 .thenReturn(Mono.just(new SolanaRpcClient.SimulationResult(true, null, List.of(), 150L)));
 
-        service = new ExecutionService(proposals, wallets, simulation, policy, signer, rpc, audit, metrics, executionReceipts);
+        service = new ExecutionService(proposals, wallets, simulation, policy, signer, rpc, oracle, audit, metrics, executionReceipts);
     }
 
     /** The signer signs the real message with the wallet key; returns the transaction id (base58 of the signature). */

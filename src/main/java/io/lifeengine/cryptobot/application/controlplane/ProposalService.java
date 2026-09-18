@@ -1,6 +1,8 @@
 package io.lifeengine.cryptobot.application.controlplane;
 
+import io.lifeengine.cryptobot.application.oracle.PriceOracleService;
 import io.lifeengine.cryptobot.application.receipt.ReceiptService;
+import io.lifeengine.cryptobot.domain.oracle.OracleReading;
 import io.lifeengine.cryptobot.domain.policy.PolicyDecision;
 import io.lifeengine.cryptobot.domain.policy.PolicyVerdict;
 import io.lifeengine.cryptobot.domain.reliability.OutboxEvent;
@@ -59,6 +61,7 @@ public class ProposalService {
     private final SimulationService simulation;
     private final PolicyEngine policy;
     private final SignerClient signer;
+    private final PriceOracleService oracle;
     private final AuditService audit;
     private final CryptobotMetrics metrics;
     private final ReceiptService receipts;
@@ -73,6 +76,7 @@ public class ProposalService {
             SimulationService simulation,
             PolicyEngine policy,
             SignerClient signer,
+            PriceOracleService oracle,
             AuditService audit,
             CryptobotMetrics metrics,
             ReceiptService receipts,
@@ -84,6 +88,7 @@ public class ProposalService {
         this.simulation = simulation;
         this.policy = policy;
         this.signer = signer;
+        this.oracle = oracle;
         this.audit = audit;
         this.metrics = metrics;
         this.receipts = receipts;
@@ -150,29 +155,35 @@ public class ProposalService {
     /**
      * The authoritative state {@code S} the policy needs comes from this wallet's own history:
      * the last execution (cooldown) and the notional executed in the last 24 h (daily exposure),
-     * from the most recent proposals. The snapshot's valuation time is the oracle age.
+     * from the most recent proposals — and, since KAN-439, from a fresh multi-source reading of
+     * every asset the plan touches: the prices {@code S} is allowed to contain, and the oracle age.
      */
     private Mono<ActionProposal> evaluatePolicy(ActionProposal p, Wallet wallet, Instant pricesAsOf) {
         Instant now = clock.instant();
+        Mono<OracleReading> reading = oracle.read(assetsOf(p.plan()));
         Mono<PolicyEngine.WalletState> state = proposals.findByWallet(wallet.id(), 20)
                 .filter(x -> x.status() == ProposalStatus.EXECUTED && x.execution() != null && x.execution().submittedAt() != null)
                 .collectList()
-                .map(executed -> {
+                .zipWith(reading)
+                .map(t -> {
+                    List<ActionProposal> executed = t.getT1();
                     Optional<Instant> last = executed.stream().map(x -> x.execution().submittedAt()).max(Instant::compareTo);
                     BigDecimal last24h = executed.stream()
                             .filter(x -> !x.execution().submittedAt().isBefore(now.minus(Duration.ofHours(24))))
                             .map(x -> x.plan() == null || x.plan().turnoverUsd() == null ? BigDecimal.ZERO : x.plan().turnoverUsd())
                             .reduce(BigDecimal.ZERO, BigDecimal::add);
-                    return new PolicyEngine.WalletState(last, last24h, pricesAsOf);
+                    return new PolicyEngine.WalletState(last, last24h, pricesAsOf, t.getT2());
                 });
         return Mono.zip(state, signer.identity()).flatMap(t -> {
             PolicyDecision decision = policy.evaluate(p, wallet, t.getT1(), t.getT2().map(SignerClient.Identity::publicKey));
             PolicyVerdict verdict = decision.authorization();
             ProposalStatus next = decision.allowed() ? ProposalStatus.AWAITING_APPROVAL : ProposalStatus.BLOCKED_BY_POLICY;
             ActionProposal updated = p.withPolicy(decision, now).withStatus(next, now);
-            log.info("proposal_policy proposalId={} allowed={} executable={} violations={} executionViolations={} decision={} escalation={} tier={} policyHash={}",
+            OracleReading oracleReading = decision.oracle();
+            log.info("proposal_policy proposalId={} allowed={} executable={} violations={} executionViolations={} decision={} escalation={} tier={} policyHash={} oracleAccepted={} oracleQuotesHash={}",
                     p.id(), decision.allowed(), decision.executable(), decision.violations().size(), decision.executionViolations().size(),
-                    verdict.decision(), verdict.escalation(), verdict.tier(), verdict.policyHash());
+                    verdict.decision(), verdict.escalation(), verdict.tier(), verdict.policyHash(),
+                    oracleReading != null && oracleReading.accepted(), oracleReading == null ? null : oracleReading.quotesHash());
             // Funnel step 1: the trade was requested — it either reached the human or policy stopped it.
             metrics.tradeRequested(next.name(), assetOf(p.plan()));
             // Authority layer (KAN-440): which verdict, and — on DENY — which predicates said no.
@@ -187,7 +198,12 @@ public class ProposalService {
                                             "decision", verdict.decision().name(), "escalation", verdict.escalation().name(), "tier", verdict.tier().name(),
                                             "failedPredicates", verdict.failedPredicates().stream().map(Enum::name).toList(),
                                             "policyVersion", verdict.policyVersion(), "policyHash", verdict.policyHash(),
-                                            "inputHash", verdict.inputHash(), "verdictHash", verdict.hash())),
+                                            "inputHash", verdict.inputHash(), "verdictHash", verdict.hash(),
+                                            // KAN-439: the state reference — which quotes, under which limits, and whether they agreed.
+                                            "oracleAccepted", oracleReading == null ? null : oracleReading.accepted(),
+                                            "oracleQuotesHash", oracleReading == null ? null : oracleReading.quotesHash(),
+                                            "oracleLimitsHash", oracleReading == null ? null : oracleReading.limitsHash(),
+                                            "oracleProblems", oracleReading == null ? null : oracleReading.problems())),
                             audit.event(p.ownerUserId(), p.walletId(), p.id(), decision.allowed() ? EV_AWAITING : EV_BLOCKED, SERVICE_ACTOR,
                                     payload("expiresAt", updated.expiresAt())));
             if (decision.allowed()) {
@@ -293,6 +309,25 @@ public class ProposalService {
                 .map(RebalanceLeg::symbol)
                 .findFirst()
                 .orElse(plan.legs().get(0).symbol());
+    }
+
+    /** Every symbol a plan depends on — each leg's asset and its counter asset — in first-seen order. */
+    public static List<String> assetsOf(RebalancePlan plan) {
+        List<String> assets = new java.util.ArrayList<>();
+        if (plan == null) {
+            return assets;
+        }
+        for (RebalanceLeg leg : plan.legs()) {
+            for (String s : new String[] {leg.symbol(), leg.counterAsset()}) {
+                if (s != null && !s.isBlank()) {
+                    String u = s.trim().toUpperCase(java.util.Locale.ROOT);
+                    if (!assets.contains(u)) {
+                        assets.add(u);
+                    }
+                }
+            }
+        }
+        return assets;
     }
 
     public static Map<String, Object> payload(Object... kv) {

@@ -21,6 +21,8 @@ public record ReceiptInput(String type, String hash) {
     public static final String INTENT = "INTENT";
     public static final String TRANSACTION = "TRANSACTION";
     public static final String POLICY_VERDICT = "POLICY_VERDICT";
+    /** {@code oracle-reading/1}: the multi-source quotes a decision was priced with (KAN-439). */
+    public static final String ORACLE_READING = "ORACLE_READING";
     public static final String APPROVAL = "APPROVAL";
     public static final String RAG_DOC = "RAG_DOC";
     public static final String MARKET_SNAPSHOT = "MARKET_SNAPSHOT";

@@ -5,6 +5,7 @@ import io.lifeengine.cryptobot.adapters.solana.SolanaCluster;
 import io.lifeengine.cryptobot.adapters.solana.SolanaRpcClient;
 import io.lifeengine.cryptobot.adapters.solana.SolanaRpcException;
 import io.lifeengine.cryptobot.adapters.solana.tx.SolanaKeypair;
+import io.lifeengine.cryptobot.application.oracle.PriceOracleService;
 import io.lifeengine.cryptobot.domain.reliability.TradeEvents;
 import io.lifeengine.cryptobot.domain.transactions.ActionProposal;
 import io.lifeengine.cryptobot.domain.transactions.ExecutionRecord;
@@ -68,19 +69,22 @@ public class ExecutionService {
     private final PolicyEngine policy;
     private final SignerClient signer;
     private final SolanaRpcClient rpc;
+    private final PriceOracleService oracle;
     private final AuditService audit;
     private final CryptobotMetrics metrics;
     private final ExecutionReceipts executionReceipts;
     private final Clock clock;
 
     public ExecutionService(ProposalService proposals, WalletService wallets, SimulationService simulation, PolicyEngine policy,
-            SignerClient signer, SolanaRpcClient rpc, AuditService audit, CryptobotMetrics metrics, ExecutionReceipts executionReceipts) {
+            SignerClient signer, SolanaRpcClient rpc, PriceOracleService oracle, AuditService audit, CryptobotMetrics metrics,
+            ExecutionReceipts executionReceipts) {
         this.proposals = proposals;
         this.wallets = wallets;
         this.simulation = simulation;
         this.policy = policy;
         this.signer = signer;
         this.rpc = rpc;
+        this.oracle = oracle;
         this.audit = audit;
         this.metrics = metrics;
         this.executionReceipts = executionReceipts;
@@ -109,12 +113,22 @@ public class ExecutionService {
             if (!problems.isEmpty()) {
                 return Mono.error(new ControlPlaneExceptions.Conflict(String.join("; ", problems)));
             }
-            return wallets.require(ownerUserId, p.walletId())
-                    .flatMap(wallet -> start(p, operationId, actor)
-                            .flatMap(executing -> executing.operationId().equals(operationId) && executing.status() == ProposalStatus.EXECUTING
-                                    && executing.execution() == null
-                                    ? run(executing, wallet, actor)
-                                    : Mono.just(executing)));
+            // KAN-439: the envelope's data-integrity assumptions are re-checked against a fresh reading right
+            // before anything is signed — quorum, deviation, the breaker, and the plan's price vs. the world now.
+            return oracle.read(ProposalService.assetsOf(p.plan())).flatMap(reading -> {
+                List<String> oracleProblems = policy.oracleProblems(p, reading);
+                if (!oracleProblems.isEmpty()) {
+                    metrics.oracleExecutionRefused();
+                    log.warn("execution_oracle_refused proposalId={} problems={} quotesHash={}", p.id(), oracleProblems, reading.quotesHash());
+                    return Mono.error(new ControlPlaneExceptions.Conflict("Oracle refused execution: " + String.join("; ", oracleProblems)));
+                }
+                return wallets.require(ownerUserId, p.walletId())
+                        .flatMap(wallet -> start(p, operationId, actor)
+                                .flatMap(executing -> executing.operationId().equals(operationId) && executing.status() == ProposalStatus.EXECUTING
+                                        && executing.execution() == null
+                                        ? run(executing, wallet, actor)
+                                        : Mono.just(executing)));
+            });
         });
     }
 

@@ -87,6 +87,7 @@ public class CryptobotMetrics {
     static final String DLQ_SIZE = "dlq.size";
     static final String POLICY_VERDICTS = "policy.verdicts";
     static final String POLICY_PREDICATE_FAILED = "policy.predicate.failed";
+    static final String ORACLE_EXECUTION_REFUSED = "oracle.execution.refused";
     static final String SOLANA_RPC_ERRORS = "solana.rpc.errors";
     static final String SOLANA_CONFIRMATION_LATENCY = "solana.confirmation.latency";
     static final String INTELLIGENCE_RECEIPTS = "intelligence.receipts";
@@ -190,6 +191,13 @@ public class CryptobotMetrics {
     /** One failed predicate of a DENY verdict; a verdict with three failures increments three series. */
     public void policyPredicateFailed(String predicate) {
         counter(POLICY_PREDICATE_FAILED, "predicate", low(predicate)).increment();
+    }
+
+    // ---- KAN-439: oracle integrity at execution (paper §22) ------------------------------------
+
+    /** The fresh reading right before signing refused the trade: no consensus, breaker tripped, or the plan's price drifted. */
+    public void oracleExecutionRefused() {
+        counter(ORACLE_EXECUTION_REFUSED).increment();
     }
 
     // ---- Solana ------------------------------------------------------------------------------

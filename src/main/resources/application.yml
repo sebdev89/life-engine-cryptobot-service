@@ -68,11 +68,46 @@ cryptobot:
       devnet-url: ${CRYPTOBOT_SOLANA_DEVNET_RPC:https://api.devnet.solana.com}
       mainnet-url: ${CRYPTOBOT_SOLANA_MAINNET_RPC:https://api.mainnet-beta.solana.com}
       timeout: ${CRYPTOBOT_SOLANA_RPC_TIMEOUT:8s}
+  # ---- Price oracle (KAN-439, paper §22): ≥2 independent keyless sources, median, freshness, deviation
+  # bound, circuit breaker. No consensus ⇒ the portfolio view falls back to the static prices below
+  # (labelled "fallback-static") and the policy DENIES every proposal: CorrectRules + CorruptState ⇏ SafeExecution.
   marketdata:
     jupiter-enabled: ${CRYPTOBOT_JUPITER_ENABLED:true}
     jupiter-base-url: ${CRYPTOBOT_JUPITER_BASE_URL:https://lite-api.jup.ag}
     timeout: 6s
-    # Stale-but-honest prices used only when Jupiter is unreachable; the snapshot says "fallback-static".
+    pyth:
+      enabled: ${CRYPTOBOT_PYTH_ENABLED:true}
+      base-url: ${CRYPTOBOT_PYTH_BASE_URL:https://hermes.pyth.network}
+      # symbol → Hermes price-feed id (hex). Only the policy's allowed assets are pinned here; a symbol
+      # without a feed is simply not observed by Pyth (the other sources still have to reach quorum).
+      feeds:
+        SOL: ef0d8b6fda2ceba41da15d4095d1da392a0d2f8ed0c6c7bc0f4cfac8c280b56d
+        USDC: eaa020c61cc479712813461ce153894a96a6c00b21ed0cfc2798d1f9a9e9c94a
+        USDT: 2b89b9dc8fdf9f34709a5b106b472f0f39bb6ca9ce04b0fd7f2e971688e2e53b
+    coingecko:
+      enabled: ${CRYPTOBOT_COINGECKO_ENABLED:true}
+      base-url: ${CRYPTOBOT_COINGECKO_BASE_URL:https://api.coingecko.com}
+      # symbol → CoinGecko coin id. Unknown ids are ignored by the API.
+      ids:
+        SOL: solana
+        USDC: usd-coin
+        USDT: tether
+        JUP: jupiter-exchange-solana
+        BONK: bonk
+        MSOL: msol
+        JITOSOL: jito-staked-sol
+        RAY: raydium
+        WIF: dogwifcoin
+        PYTH: pyth-network
+        JTO: jito-governance-token
+    # The integrity assumptions of the execution envelope. Their hash travels in every decision.
+    oracle:
+      min-sources: ${CRYPTOBOT_ORACLE_MIN_SOURCES:2}          # quorum; never below 2
+      max-age: ${CRYPTOBOT_ORACLE_MAX_AGE:120s}               # an observation older than this is not a fact
+      max-deviation-bps: ${CRYPTOBOT_ORACLE_MAX_DEVIATION_BPS:100}   # every source within 1 % of the median
+      max-move-bps: ${CRYPTOBOT_ORACLE_MAX_MOVE_BPS:1000}     # breaker: 10 % vs the last accepted consensus…
+      move-interval: ${CRYPTOBOT_ORACLE_MOVE_INTERVAL:5m}     # …younger than this; also the plan-vs-oracle drift bound
+    # Stale-but-honest prices used only when there is no consensus; the snapshot says "fallback-static".
     fallback-prices:
       SOL: 100
       USDC: 1

@@ -1,5 +1,6 @@
 package io.lifeengine.cryptobot.domain.policy;
 
+import io.lifeengine.cryptobot.domain.oracle.OracleReading;
 import java.time.Instant;
 import java.util.List;
 
@@ -21,6 +22,12 @@ import java.util.List;
  * over {@code (I, S, R_v)}: ALLOW / ESCALATE / DENY with the failed predicates and the hash of
  * the policy that decided. {@code null} only on rows persisted before the verdict existed; the
  * execution preconditions treat that as "not authorized".
+ *
+ * <p>{@code oracle} (KAN-439) is the multi-source reading the state {@code S} was priced with:
+ * which quotes, from which sources, under which integrity limits, and whether they reached a
+ * consensus. It is the state reference of the decision ({@code oracle.quotesHash()}), exposed
+ * in the EXECUTION receipt. {@code null} only on rows persisted before the oracle existed;
+ * those do not execute either.
  */
 public record PolicyDecision(
         boolean allowed,
@@ -29,7 +36,8 @@ public record PolicyDecision(
         List<Violation> executionViolations,
         List<String> rulesApplied,
         Instant evaluatedAt,
-        PolicyVerdict authorization) {
+        PolicyVerdict authorization,
+        OracleReading oracle) {
 
     public record Violation(String rule, String message) {}
 
@@ -37,5 +45,11 @@ public record PolicyDecision(
         violations = violations == null ? List.of() : List.copyOf(violations);
         executionViolations = executionViolations == null ? List.of() : List.copyOf(executionViolations);
         rulesApplied = rulesApplied == null ? List.of() : List.copyOf(rulesApplied);
+    }
+
+    /** Pre-KAN-439 shape: no oracle reading. */
+    public PolicyDecision(boolean allowed, boolean executable, List<Violation> violations, List<Violation> executionViolations,
+            List<String> rulesApplied, Instant evaluatedAt, PolicyVerdict authorization) {
+        this(allowed, executable, violations, executionViolations, rulesApplied, evaluatedAt, authorization, null);
     }
 }
