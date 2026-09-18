@@ -2,10 +2,14 @@ package io.lifeengine.cryptobot.application.controlplane;
 
 import io.lifeengine.cryptobot.domain.portfolio.PortfolioDiff;
 import io.lifeengine.cryptobot.domain.portfolio.PortfolioSnapshot;
-import io.lifeengine.cryptobot.domain.portfolio.Position;
+import io.lifeengine.cryptobot.domain.risk.DeterministicDecision;
+import io.lifeengine.cryptobot.domain.risk.DeterministicRiskEngine;
 import io.lifeengine.cryptobot.domain.risk.RiskFinding;
+import io.lifeengine.cryptobot.domain.risk.RiskInput;
 import io.lifeengine.cryptobot.domain.risk.RiskReport;
 import io.lifeengine.cryptobot.domain.risk.RiskSeverity;
+import io.lifeengine.cryptobot.domain.risk.RiskVerdict;
+import io.lifeengine.cryptobot.domain.risk.RiskWeights;
 import io.lifeengine.cryptobot.observability.CryptobotMetrics;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
@@ -18,121 +22,120 @@ import org.springframework.stereotype.Service;
 /**
  * Deterministic rules over a valued snapshot (and optionally its diff). No LLM here on purpose:
  * the findings are the ground truth the advisor is asked to explain, never the other way round.
+ *
+ * <p>Since KAN-392 this is an adapter: it quantises the snapshot into the canonical integer
+ * {@link RiskInput}, runs the pure {@link DeterministicRiskEngine} (versioned, weights hashed),
+ * and renders its discrete {@link RiskVerdict} as the {@link RiskReport} the UI already shows.
+ * The prose below is presentation; nothing in it enters a hash.
  */
 @Service
 public class RiskEngine {
 
-    public static final String CONCENTRATION = "CONCENTRATION";
-    public static final String NO_STABLES = "NO_STABLES";
-    public static final String DUST_POSITIONS = "DUST_POSITIONS";
-    public static final String SHARP_MOVE = "SHARP_MOVE";
-    public static final String UNKNOWN_TOKENS = "UNKNOWN_TOKENS";
-    public static final String EMPTY_PORTFOLIO = "EMPTY_PORTFOLIO";
+    public static final String CONCENTRATION = DeterministicRiskEngine.CONCENTRATION;
+    public static final String NO_STABLES = DeterministicRiskEngine.NO_STABLES;
+    public static final String DUST_POSITIONS = DeterministicRiskEngine.DUST_POSITIONS;
+    public static final String SHARP_MOVE = DeterministicRiskEngine.SHARP_MOVE;
+    public static final String UNKNOWN_TOKENS = DeterministicRiskEngine.UNKNOWN_TOKENS;
+    public static final String EMPTY_PORTFOLIO = DeterministicRiskEngine.EMPTY_PORTFOLIO;
 
-    private final RiskRulesProperties rules;
+    private final DeterministicRiskEngine engine;
     private final CryptobotMetrics metrics;
     private final Clock clock;
 
-    /** Test-friendly: rules only, metrics go to a private registry nobody scrapes. */
-    public RiskEngine(RiskRulesProperties rules) {
-        this(rules, CryptobotMetrics.noop());
+    /** Test-friendly: the shipped weights, metrics to a private registry nobody scrapes. */
+    public RiskEngine() {
+        this(DeterministicRiskEngine.v1(), CryptobotMetrics.noop());
     }
 
     @Autowired
-    public RiskEngine(RiskRulesProperties rules, CryptobotMetrics metrics) {
-        this.rules = rules;
+    public RiskEngine(CryptobotMetrics metrics) {
+        this(DeterministicRiskEngine.v1(), metrics);
+    }
+
+    public RiskEngine(DeterministicRiskEngine engine, CryptobotMetrics metrics) {
+        this.engine = engine;
         this.metrics = metrics;
         this.clock = Clock.systemUTC();
     }
 
-    public RiskRulesProperties rules() {
-        return rules;
+    public DeterministicRiskEngine engine() {
+        return engine;
+    }
+
+    public RiskWeights weights() {
+        return engine.weights();
     }
 
     public RiskReport evaluate(PortfolioSnapshot snapshot, PortfolioDiff diff) {
+        DeterministicDecision decision = engine.decide(RiskInput.quantize(snapshot, diff));
+        RiskVerdict v = decision.output();
         List<RiskFinding> findings = new ArrayList<>();
-        BigDecimal total = snapshot.totalUsd() == null ? BigDecimal.ZERO : snapshot.totalUsd();
-
-        if (total.signum() <= 0) {
-            findings.add(new RiskFinding(EMPTY_PORTFOLIO, RiskSeverity.LOW, "Nothing to value",
-                    "The wallet holds no priced assets.", null, BigDecimal.ZERO, null));
-            return finish(findings);
+        for (RiskVerdict.Signal s : v.signals()) {
+            findings.add(render(s));
         }
-
-        // 1. Concentration — the headline rule of the demo.
-        for (Position p : snapshot.positions()) {
-            if (!p.priced() || p.stable()) {
-                continue;
-            }
-            BigDecimal w = p.weightPct();
-            if (w.compareTo(rules.concentrationHighPct()) >= 0) {
-                findings.add(new RiskFinding(CONCENTRATION, RiskSeverity.HIGH,
-                        p.symbol() + " is " + w.setScale(1, RoundingMode.HALF_UP) + "% of the portfolio",
-                        "A single volatile asset above " + rules.concentrationHighPct() + "% means one drawdown moves the whole wallet.",
-                        p.symbol(), w, rules.concentrationHighPct()));
-            } else if (w.compareTo(rules.concentrationMediumPct()) >= 0) {
-                findings.add(new RiskFinding(CONCENTRATION, RiskSeverity.MEDIUM,
-                        p.symbol() + " is " + w.setScale(1, RoundingMode.HALF_UP) + "% of the portfolio",
-                        "Above " + rules.concentrationMediumPct() + "%: worth watching, not yet urgent.",
-                        p.symbol(), w, rules.concentrationMediumPct()));
-            }
-        }
-
-        // 2. No stablecoin buffer.
-        BigDecimal stablePct = snapshot.positions().stream()
-                .filter(p -> p.priced() && p.stable())
-                .map(Position::weightPct)
-                .reduce(BigDecimal.ZERO, BigDecimal::add);
-        if (stablePct.compareTo(rules.minStablePct()) < 0) {
-            findings.add(new RiskFinding(NO_STABLES, RiskSeverity.MEDIUM,
-                    "Stablecoins are " + stablePct.setScale(1, RoundingMode.HALF_UP) + "% of the portfolio",
-                    "Below " + rules.minStablePct() + "% there is no dry powder to rebalance into or to cover fees in a drawdown.",
-                    null, stablePct, rules.minStablePct()));
-        }
-
-        // 3. Dust.
-        long dust = snapshot.positions().stream()
-                .filter(p -> p.priced() && p.valueUsd().compareTo(rules.dustUsd()) < 0 && p.amount().signum() > 0)
-                .count();
-        if (dust > 0) {
-            findings.add(new RiskFinding(DUST_POSITIONS, RiskSeverity.LOW,
-                    dust + " dust position" + (dust == 1 ? "" : "s") + " under $" + rules.dustUsd(),
-                    "Tiny balances cost more in fees to move than they are worth; consider closing the token accounts.",
-                    null, BigDecimal.valueOf(dust), rules.dustUsd()));
-        }
-
-        // 4. Unknown / unpriced tokens.
-        long unknown = snapshot.positions().stream().filter(p -> !p.priced() && p.amount().signum() > 0).count();
-        if (unknown > 0) {
-            findings.add(new RiskFinding(UNKNOWN_TOKENS, RiskSeverity.MEDIUM,
-                    unknown + " token" + (unknown == 1 ? "" : "s") + " without a price",
-                    "Unrecognised mints are excluded from the valuation. They may be airdrops, spam, or real exposure the model cannot see.",
-                    null, BigDecimal.valueOf(unknown), null));
-        }
-
-        // 5. Sharp move since the previous snapshot.
-        if (diff != null && diff.totalUsdDeltaPct() != null && diff.totalUsdDeltaPct().abs().compareTo(rules.sharpMovePct()) >= 0) {
-            boolean down = diff.totalUsdDeltaPct().signum() < 0;
-            findings.add(new RiskFinding(SHARP_MOVE, down ? RiskSeverity.HIGH : RiskSeverity.MEDIUM,
-                    "Portfolio " + (down ? "fell" : "rose") + " " + diff.totalUsdDeltaPct().abs().setScale(1, RoundingMode.HALF_UP) + "% since last snapshot",
-                    "Largest move: " + diff.largestMoveSymbol() + ". A move above " + rules.sharpMovePct() + "% between checks is worth a look.",
-                    diff.largestMoveSymbol(), diff.totalUsdDeltaPct(), rules.sharpMovePct()));
-        }
-
-        return finish(findings);
+        metrics.riskAnalysis(v.overall().name());
+        return new RiskReport(findings, v.overall(), v.score(), clock.instant(), decision);
     }
 
-    private RiskReport finish(List<RiskFinding> findings) {
-        RiskSeverity overall = findings.stream().map(RiskFinding::severity).max(Enum::compareTo).orElse(RiskSeverity.LOW);
-        int score = 0;
-        for (RiskFinding f : findings) {
-            score += switch (f.severity()) {
-                case HIGH -> 40;
-                case MEDIUM -> 20;
-                case LOW -> 5;
-            };
-        }
-        metrics.riskAnalysis(overall.name());
-        return new RiskReport(findings, overall, Math.min(100, score), clock.instant());
+    /** Prose for one signal. Metric/threshold come back in the units the UI shows (percent, dollars, counts). */
+    private RiskFinding render(RiskVerdict.Signal s) {
+        RiskWeights w = engine.weights();
+        return switch (s.code()) {
+            case DeterministicRiskEngine.EMPTY_PORTFOLIO -> new RiskFinding(s.code(), s.severity(), "Nothing to value",
+                    "The wallet holds no priced assets.", null, BigDecimal.ZERO, null);
+            case DeterministicRiskEngine.CONCENTRATION -> {
+                BigDecimal pct = pct(s.metric());
+                BigDecimal threshold = pct(s.threshold());
+                yield new RiskFinding(s.code(), s.severity(), s.asset() + " is " + pct.setScale(1, RoundingMode.HALF_UP) + "% of the portfolio",
+                        s.severity() == RiskSeverity.HIGH
+                                ? "A single volatile asset above " + plain(threshold) + "% means one drawdown moves the whole wallet."
+                                : "Above " + plain(threshold) + "%: worth watching, not yet urgent.",
+                        s.asset(), pct, threshold);
+            }
+            case DeterministicRiskEngine.NO_STABLES -> {
+                BigDecimal pct = pct(s.metric());
+                BigDecimal threshold = pct(s.threshold());
+                yield new RiskFinding(s.code(), s.severity(), "Stablecoins are " + pct.setScale(1, RoundingMode.HALF_UP) + "% of the portfolio",
+                        "Below " + plain(threshold) + "% there is no dry powder to rebalance into or to cover fees in a drawdown.",
+                        null, pct, threshold);
+            }
+            case DeterministicRiskEngine.DUST_POSITIONS -> {
+                BigDecimal dustUsd = usd(w.dustUsdMicros());
+                yield new RiskFinding(s.code(), s.severity(), s.metric() + " dust position" + (s.metric() == 1 ? "" : "s") + " under $" + plain(dustUsd),
+                        "Tiny balances cost more in fees to move than they are worth; consider closing the token accounts.",
+                        null, BigDecimal.valueOf(s.metric()), dustUsd);
+            }
+            case DeterministicRiskEngine.UNKNOWN_TOKENS -> new RiskFinding(s.code(), s.severity(),
+                    s.metric() + " token" + (s.metric() == 1 ? "" : "s") + " without a price",
+                    "Unrecognised mints are excluded from the valuation. They may be airdrops, spam, or real exposure the model cannot see.",
+                    null, BigDecimal.valueOf(s.metric()), null);
+            case DeterministicRiskEngine.SHARP_MOVE -> {
+                BigDecimal pct = pct(s.metric());
+                BigDecimal threshold = pct(s.threshold());
+                boolean down = s.metric() < 0;
+                yield new RiskFinding(s.code(), s.severity(),
+                        "Portfolio " + (down ? "fell" : "rose") + " " + pct.abs().setScale(1, RoundingMode.HALF_UP) + "% since last snapshot",
+                        "Largest move: " + s.asset() + ". A move above " + plain(threshold) + "% between checks is worth a look.",
+                        s.asset(), pct, threshold);
+            }
+            default -> new RiskFinding(s.code(), s.severity(), s.code(), "", s.asset(), BigDecimal.valueOf(s.metric()),
+                    s.threshold() == null ? null : BigDecimal.valueOf(s.threshold()));
+        };
+    }
+
+    private static BigDecimal pct(long bps) {
+        return BigDecimal.valueOf(bps, 2);
+    }
+
+    private static BigDecimal pct(Long bps) {
+        return bps == null ? null : pct(bps.longValue());
+    }
+
+    private static BigDecimal usd(long micros) {
+        return BigDecimal.valueOf(micros, 6);
+    }
+
+    private static String plain(BigDecimal v) {
+        return v.stripTrailingZeros().toPlainString();
     }
 }

@@ -4,6 +4,7 @@ import io.lifeengine.cryptobot.adapters.solana.SolanaCluster;
 import io.lifeengine.cryptobot.domain.advisor.AdvisorMessage;
 import io.lifeengine.cryptobot.application.controlplane.ControlPlaneExceptions;
 import io.lifeengine.cryptobot.domain.portfolio.PortfolioSnapshot;
+import io.lifeengine.cryptobot.domain.receipt.DeterministicInference;
 import io.lifeengine.cryptobot.domain.receipt.IntelligenceReceipt;
 import io.lifeengine.cryptobot.domain.receipt.ReceiptArtifact;
 import io.lifeengine.cryptobot.domain.receipt.ReceiptEdge;
@@ -52,6 +53,7 @@ public final class InMemoryControlPlaneRepositories {
     public static final Map<String, IntelligenceReceipt> RECEIPTS = new ConcurrentHashMap<>();
     public static final List<ReceiptEdge> EDGES = new CopyOnWriteArrayList<>();
     public static final List<ReceiptArtifact> ARTIFACTS = new CopyOnWriteArrayList<>();
+    public static final Map<String, DeterministicInference> INFERENCES = new ConcurrentHashMap<>();
 
     public static void reset() {
         WALLETS.clear();
@@ -64,6 +66,7 @@ public final class InMemoryControlPlaneRepositories {
         RECEIPTS.clear();
         EDGES.clear();
         ARTIFACTS.clear();
+        INFERENCES.clear();
         InMemoryAnchorRepository.reset();
     }
 
@@ -272,7 +275,8 @@ public final class InMemoryControlPlaneRepositories {
     public static ReceiptRepository receipts() {
         return new ReceiptRepository() {
             @Override
-            public Mono<IntelligenceReceipt> insert(IntelligenceReceipt receipt, List<ReceiptEdge> edges, List<ReceiptArtifact> artifacts) {
+            public Mono<IntelligenceReceipt> insert(IntelligenceReceipt receipt, List<ReceiptEdge> edges, List<ReceiptArtifact> artifacts,
+                    DeterministicInference inference) {
                 return Mono.defer(() -> {
                     synchronized (RECEIPTS) {
                         IntelligenceReceipt existing = RECEIPTS.get(receipt.receiptHash());
@@ -292,6 +296,9 @@ public final class InMemoryControlPlaneRepositories {
                                 ARTIFACTS.add(a);
                             }
                         }
+                        if (inference != null) {
+                            INFERENCES.put(receipt.receiptHash(), inference.bound(receipt.receiptHash()));
+                        }
                         return Mono.just(receipt);
                     }
                 });
@@ -300,6 +307,11 @@ public final class InMemoryControlPlaneRepositories {
             @Override
             public Mono<IntelligenceReceipt> findByHash(String receiptHash) {
                 return Mono.justOrEmpty(RECEIPTS.get(receiptHash));
+            }
+
+            @Override
+            public Mono<DeterministicInference> findInference(String receiptHash) {
+                return Mono.justOrEmpty(INFERENCES.get(receiptHash));
             }
 
             @Override

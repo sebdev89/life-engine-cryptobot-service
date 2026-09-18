@@ -9,14 +9,17 @@ import io.lifeengine.cryptobot.domain.intent.JsonCanonicalizer;
 import io.lifeengine.cryptobot.domain.portfolio.PortfolioDiff;
 import io.lifeengine.cryptobot.domain.portfolio.PortfolioSnapshot;
 import io.lifeengine.cryptobot.domain.portfolio.Position;
+import io.lifeengine.cryptobot.domain.receipt.DeterministicInference;
 import io.lifeengine.cryptobot.domain.receipt.Digests;
 import io.lifeengine.cryptobot.domain.receipt.ReceiptBody;
 import io.lifeengine.cryptobot.domain.receipt.ReceiptEdge;
 import io.lifeengine.cryptobot.domain.receipt.ReceiptInput;
 import io.lifeengine.cryptobot.domain.receipt.ReceiptKind;
 import io.lifeengine.cryptobot.domain.receipt.ReproducibilityLevel;
-import io.lifeengine.cryptobot.domain.risk.RiskFinding;
+import io.lifeengine.cryptobot.domain.risk.DeterministicDecision;
+import io.lifeengine.cryptobot.domain.risk.DeterministicRiskEngine;
 import io.lifeengine.cryptobot.domain.risk.RiskReport;
+import io.lifeengine.cryptobot.domain.risk.RiskVerdict;
 import io.lifeengine.cryptobot.domain.strategy.RebalanceIntent;
 import io.lifeengine.cryptobot.domain.strategy.RebalanceLeg;
 import io.lifeengine.cryptobot.domain.strategy.RebalancePlan;
@@ -51,7 +54,9 @@ import org.springframework.stereotype.Component;
  *
  * <ul>
  *   <li>{@code portfolio-snapshot/1} — the valued positions (amounts, prices, weights as decimal strings).
- *   <li>{@code risk-report/1} — codes, severities, metrics, thresholds, overall, score. No text, no timestamp: L1.
+ *   <li>{@code risk-decision/1} — the discrete verdict of the deterministic risk engine (action, buckets, reasons, signals
+ *       in integer units). No text, no timestamp. L1: the canonical input ({@code risk-input/1}) is declared as a
+ *       {@code RISK_INPUT} and stored next to the receipt, so {@code verify} re-executes the engine (KAN-392).
  *   <li>{@code user-text-commitment/1} — {@code H(salt_tenant ‖ 0x00 ‖ text)}: the question never leaves.
  *   <li>{@code advisor-answer/1} — the structured answer the LLM returned.
  *   <li>{@code rebalance-plan/1} — the legs, weights before/after, turnover. Deterministic planner: L1.
@@ -65,30 +70,28 @@ import org.springframework.stereotype.Component;
 @Component
 public class Receipts {
 
-    static final String ENGINE_RISK = "risk-engine";
+    static final String ENGINE_RISK = DeterministicRiskEngine.ID;
     static final String ENGINE_PLANNER = "rebalance-planner";
     static final String ENGINE_VERSION = "1.0.0";
     static final String AGENT_PORTFOLIO = "portfolio-agent@1.0.0";
-    static final String AGENT_RISK = "risk-engine@" + ENGINE_VERSION;
+    static final String AGENT_RISK = DeterministicRiskEngine.ID + "@" + DeterministicRiskEngine.VERSION;
     static final String AGENT_HUMAN = "human";
     static final String AGENT_STRATEGY = "strategy-agent@1.0.0";
     static final String AGENT_EXECUTION = "execution-agent@1.0.0";
     static final String PROVIDER_RUNTIME = "life-engine-runtime";
 
     private final TenantSalts salts;
-    private final RiskRulesProperties riskRules;
     private final BuildIdentity build;
     private final ObjectMapper objectMapper;
     private final Clock clock;
 
     @Autowired
-    public Receipts(TenantSalts salts, RiskRulesProperties riskRules, BuildIdentity build, ObjectMapper objectMapper) {
-        this(salts, riskRules, build, objectMapper, Clock.systemUTC());
+    public Receipts(TenantSalts salts, BuildIdentity build, ObjectMapper objectMapper) {
+        this(salts, build, objectMapper, Clock.systemUTC());
     }
 
-    public Receipts(TenantSalts salts, RiskRulesProperties riskRules, BuildIdentity build, ObjectMapper objectMapper, Clock clock) {
+    public Receipts(TenantSalts salts, BuildIdentity build, ObjectMapper objectMapper, Clock clock) {
         this.salts = salts;
-        this.riskRules = riskRules;
         this.build = build;
         this.objectMapper = objectMapper;
         this.clock = clock;
@@ -115,38 +118,54 @@ public class Receipts {
 
     // ---- 2. RISK_DECISION ------------------------------------------------------------------------
 
-    /** The engine's verdict over a stored snapshot (parent: its WALLET_SNAPSHOT receipt, if it has one). */
+    /**
+     * The engine's verdict over a stored snapshot (parent: its WALLET_SNAPSHOT receipt, if it has one).
+     * L1: the receipt names the engine (id, version, {@code weightsHash}), declares the canonical
+     * input as {@code RISK_INPUT}, hashes the canonical verdict as output, and carries the input and
+     * output trees as a {@link DeterministicInference} for the store — what {@code verify} re-runs.
+     */
     public ReceiptDraft riskDecision(Wallet wallet, PortfolioSnapshot snapshot, PortfolioDiff diff, RiskReport report, String snapshotReceipt) {
+        DeterministicDecision d = requireDecision(report);
         List<ReceiptInput> inputs = new ArrayList<>();
         inputs.add(new ReceiptInput(ReceiptInput.WALLET_SNAPSHOT, snapshotHash(snapshot)));
+        inputs.add(new ReceiptInput(ReceiptInput.RISK_INPUT, d.inputHash()));
         if (diff != null) {
             inputs.add(new ReceiptInput(ReceiptInput.PORTFOLIO_DIFF, hash(diffTree(diff))));
         }
         List<String> parents = snapshotReceipt == null ? List.of() : List.of(snapshotReceipt);
-        ReceiptBody body = riskBody(wallet, report, parents, inputs, "risk:" + snapshot.id(), new ReceiptBody.Refs(wallet.id().toString(), null, snapshot.id().toString()),
-                "risk_report:portfolio_snapshot:" + snapshot.id());
-        return ReceiptDraft.of(body);
+        ReceiptBody body = riskBody(wallet, report, d, parents, inputs, "risk:" + snapshot.id(), new ReceiptBody.Refs(wallet.id().toString(), null, snapshot.id().toString()),
+                "risk_decision:portfolio_snapshot:" + snapshot.id());
+        return ReceiptDraft.of(body).withInference(inference(body.tenantId(), d));
     }
 
     /** The engine's verdict over the portfolio a plan would leave (parent: the STRATEGY receipt, role VALIDATES). */
     public ReceiptDraft riskDecisionAfter(Wallet wallet, ActionProposal proposal, PortfolioSnapshot projected, RiskReport report, String strategyReceipt) {
-        List<ReceiptInput> inputs = List.of(new ReceiptInput(ReceiptInput.WALLET_SNAPSHOT, snapshotHash(projected)));
-        ReceiptBody body = riskBody(wallet, report, List.of(strategyReceipt), inputs, "risk-after:" + proposal.id(),
-                new ReceiptBody.Refs(wallet.id().toString(), proposal.id().toString(), null), "risk_report:action_proposal:" + proposal.id() + "#riskAfter");
-        return ReceiptDraft.of(body).withRole(strategyReceipt, ReceiptEdge.Role.VALIDATES);
+        DeterministicDecision d = requireDecision(report);
+        List<ReceiptInput> inputs = List.of(
+                new ReceiptInput(ReceiptInput.WALLET_SNAPSHOT, snapshotHash(projected)),
+                new ReceiptInput(ReceiptInput.RISK_INPUT, d.inputHash()));
+        ReceiptBody body = riskBody(wallet, report, d, List.of(strategyReceipt), inputs, "risk-after:" + proposal.id(),
+                new ReceiptBody.Refs(wallet.id().toString(), proposal.id().toString(), null), "risk_decision:action_proposal:" + proposal.id() + "#riskAfter");
+        return ReceiptDraft.of(body).withRole(strategyReceipt, ReceiptEdge.Role.VALIDATES).withInference(inference(body.tenantId(), d));
     }
 
-    private ReceiptBody riskBody(Wallet wallet, RiskReport report, List<String> parents, List<ReceiptInput> inputs, String nonce, ReceiptBody.Refs refs, String ref) {
+    private ReceiptBody riskBody(Wallet wallet, RiskReport report, DeterministicDecision d, List<String> parents, List<ReceiptInput> inputs, String nonce,
+            ReceiptBody.Refs refs, String ref) {
         return new ReceiptBody(null, ReceiptKind.RISK_DECISION, tenantOf(wallet.ownerUserId()), wallet.ownerUserId().toString(), AGENT_RISK,
-                parents, inputs, null, null, new ReceiptBody.Engine(ENGINE_RISK, ENGINE_VERSION, riskWeightsHash()), runtimeRef(null), Map.of(),
-                new ReceiptBody.Output(riskHash(report), "risk-report/1", ref), new ReceiptBody.Compute(null, null, 1, null), null,
+                parents, inputs, null, null, new ReceiptBody.Engine(d.engineId(), d.engineVersion(), d.weightsHash()), runtimeRef(null), Map.of(),
+                new ReceiptBody.Output(d.outputHash(), RiskVerdict.SCHEMA, ref), new ReceiptBody.Compute(null, null, 1, null), null,
                 ReproducibilityLevel.L1_REPRODUCIBLE, report.evaluatedAt(), clock.instant(), nonce, refs);
     }
 
-    /** {@code weightsHash} of the risk engine: the thresholds it runs with, canonicalised. Same rules ⇒ same hash on any host. */
-    public String riskWeightsHash() {
-        return hash(ordered("concentrationHighPct", dec(riskRules.concentrationHighPct()), "concentrationMediumPct", dec(riskRules.concentrationMediumPct()),
-                "minStablePct", dec(riskRules.minStablePct()), "dustUsd", dec(riskRules.dustUsd()), "sharpMovePct", dec(riskRules.sharpMovePct())));
+    private static DeterministicInference inference(String tenantId, DeterministicDecision d) {
+        return DeterministicInference.unbound(tenantId, d.engineId(), d.engineVersion(), d.weightsHash(), d.input().toMap(), d.output().toMap());
+    }
+
+    private static DeterministicDecision requireDecision(RiskReport report) {
+        if (report.decision() == null) {
+            throw new IllegalArgumentException("a RISK_DECISION receipt needs the engine's decision; RiskReport.none() has none");
+        }
+        return report.decision();
     }
 
     // ---- 3. HUMAN_IDEA ---------------------------------------------------------------------------
@@ -324,13 +343,9 @@ public class Receipts {
                 "largestMoveSymbol", d.largestMoveSymbol(), "largestWeightPctDelta", dec(d.largestWeightPctDelta()));
     }
 
-    /** {@code risk-report/1}: the discrete verdict, no prose, no timestamp — what an L1 verifier recomputes. */
+    /** {@code risk-decision/1}: the discrete verdict, no prose, no timestamp — what an L1 verifier recomputes. */
     public static String riskHash(RiskReport r) {
-        List<Map<String, Object>> findings = new ArrayList<>();
-        for (RiskFinding f : r.findings()) {
-            findings.add(ordered("code", f.code(), "severity", f.severity().name(), "asset", f.asset(), "metric", dec(f.metric()), "threshold", dec(f.threshold())));
-        }
-        return hash(ordered("overall", r.overall().name(), "score", r.score(), "findings", findings));
+        return requireDecision(r).outputHash();
     }
 
     private static Map<String, Object> answerTree(AdvisorAnswer a) {
