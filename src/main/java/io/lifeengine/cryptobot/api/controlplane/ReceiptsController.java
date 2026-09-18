@@ -1,7 +1,9 @@
 package io.lifeengine.cryptobot.api.controlplane;
 
+import com.fasterxml.jackson.annotation.JsonUnwrapped;
 import io.lifeengine.cryptobot.application.controlplane.ProposalService;
 import io.lifeengine.cryptobot.application.controlplane.WalletService;
+import io.lifeengine.cryptobot.application.receipt.AnchorService;
 import io.lifeengine.cryptobot.application.receipt.ReceiptService;
 import io.lifeengine.cryptobot.domain.receipt.IntelligenceReceipt;
 import io.lifeengine.cryptobot.domain.receipt.ReceiptCanonicalizer;
@@ -36,11 +38,13 @@ public class ReceiptsController {
     public record SigningKeyView(String keyId, String alg, String publicKeyHex, String hashDomain, String signatureDomain, String canonicalization) {}
 
     private final ReceiptService receipts;
+    private final AnchorService anchors;
     private final ProposalService proposals;
     private final WalletService wallets;
 
-    public ReceiptsController(ReceiptService receipts, ProposalService proposals, WalletService wallets) {
+    public ReceiptsController(ReceiptService receipts, AnchorService anchors, ProposalService proposals, WalletService wallets) {
         this.receipts = receipts;
+        this.anchors = anchors;
         this.proposals = proposals;
         this.wallets = wallets;
     }
@@ -59,10 +63,18 @@ public class ReceiptsController {
                         .map(t -> new ReceiptView(r, t.getT1(), t.getT2())));
     }
 
+    /**
+     * The receipt's own checks (hash, body, signature, parents — {@link ReceiptService.Verification},
+     * unwrapped so the fields and {@code valid} keep their names) plus its Merkle inclusion in the
+     * anchoring batch (KAN-394): {@code anchor.proofValid} folds the stored proof back to the root.
+     */
+    public record ReceiptVerification(@JsonUnwrapped ReceiptService.Verification receipt, AnchorService.Inclusion anchor) {}
+
     @PostMapping("/receipts/{receiptHash}/verify")
-    public Mono<ReceiptService.Verification> verify(@PathVariable String receiptHash, @AuthenticationPrincipal CryptobotPrincipal principal) {
+    public Mono<ReceiptVerification> verify(@PathVariable String receiptHash, @AuthenticationPrincipal CryptobotPrincipal principal) {
         CryptobotPrincipal p = Principals.require(principal);
-        return receipts.verify(p.userId(), receiptHash);
+        return receipts.require(p.userId(), receiptHash)
+                .flatMap(r -> Mono.zip(receipts.verify(r), anchors.inclusion(r)).map(t -> new ReceiptVerification(t.getT1(), t.getT2())));
     }
 
     /** The receipts a proposal left behind, oldest first: STRATEGY → RISK_DECISION → SIMULATION → EXECUTION. */

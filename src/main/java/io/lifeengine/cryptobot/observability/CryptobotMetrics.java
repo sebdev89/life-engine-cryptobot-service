@@ -52,6 +52,11 @@ import java.util.concurrent.atomic.AtomicLong;
  *   intelligence.receipts         → intelligence_receipts_total{result}    issued | verified | invalid (verify failed a check) | failed (could not be written)
  *   deterministic.inference       → deterministic_inference_total          one per L1 receipt (risk engine, planner)
  *   deterministic.mismatch        → deterministic_mismatch_total
+ *   --- KAN-394 (anchoring on devnet: fed by AnchorService) ---
+ *   receipt.anchors               → receipt_anchors_total{result}         submitted | finalized | failed | abandoned (one per batch transition)
+ *   anchored.receipts             → anchored_receipts_total               receipts stamped by a FINALIZED batch
+ *   anchor.pending                → anchor_pending          (gauge)       receipts without a finalized anchor (Endgame §24)
+ *   anchor.finality.latency       → anchor_finality_latency_seconds       broadcast → finalized, per batch
  * </pre>
  *
  * <h2>Labels</h2>
@@ -87,6 +92,10 @@ public class CryptobotMetrics {
     static final String INTELLIGENCE_RECEIPTS = "intelligence.receipts";
     static final String DETERMINISTIC_INFERENCE = "deterministic.inference";
     static final String DETERMINISTIC_MISMATCH = "deterministic.mismatch";
+    static final String RECEIPT_ANCHORS = "receipt.anchors";
+    static final String ANCHORED_RECEIPTS = "anchored.receipts";
+    static final String ANCHOR_PENDING = "anchor.pending";
+    static final String ANCHOR_FINALITY_LATENCY = "anchor.finality.latency";
 
     /** Stages of {@code ExecutionService.run}; the one reached when it failed is the label. */
     public enum FailureStage {
@@ -109,6 +118,7 @@ public class CryptobotMetrics {
     private final AtomicLong outboxPending = new AtomicLong();
     private final AtomicLong outboxFailed = new AtomicLong();
     private final AtomicLong dlqSize = new AtomicLong();
+    private final AtomicLong anchorPending = new AtomicLong();
 
     public CryptobotMetrics(MeterRegistry registry, Collection<String> knownAssets) {
         this.registry = registry;
@@ -238,6 +248,33 @@ public class CryptobotMetrics {
         counter(DETERMINISTIC_MISMATCH).increment();
     }
 
+    // ---- KAN-394: anchoring on devnet ---------------------------------------------------------
+
+    /** {@code submitted | finalized | failed | abandoned}: one per transition of a batch. */
+    public void receiptAnchor(String result) {
+        counter(RECEIPT_ANCHORS, "result", low(result)).increment();
+    }
+
+    /** Receipts stamped by a FINALIZED batch. */
+    public void anchoredReceipts(long count) {
+        if (count > 0) {
+            counter(ANCHORED_RECEIPTS).increment(count);
+        }
+    }
+
+    /** Receipts still without a finalized anchor, refreshed every sweep. */
+    public void anchorPending(long size) {
+        anchorPending.set(Math.max(0, size));
+    }
+
+    /** From {@code sendTransaction} to {@code finalized}, per batch. */
+    public void anchorFinalityLatency(Duration elapsed) {
+        Timer.builder(ANCHOR_FINALITY_LATENCY)
+                .description("Time from memo broadcast to finalized, per anchoring batch (KAN-394)")
+                .register(registry)
+                .record(elapsed);
+    }
+
     // ---- plumbing -----------------------------------------------------------------------------
 
     /**
@@ -259,6 +296,13 @@ public class CryptobotMetrics {
         counter(INTELLIGENCE_RECEIPTS, "result", "verified");
         counter(DETERMINISTIC_INFERENCE);
         counter(DETERMINISTIC_MISMATCH);
+        // KAN-394: the anchoring batch, so "0 abandoned" is measured and the gauge exists before the first sweep.
+        Gauge.builder(ANCHOR_PENDING, anchorPending, AtomicLong::doubleValue)
+                .description("Receipts without a finalized devnet anchor (KAN-394)").register(registry);
+        for (String r : new String[] {"submitted", "finalized", "failed", "abandoned"}) {
+            counter(RECEIPT_ANCHORS, "result", r);
+        }
+        counter(ANCHORED_RECEIPTS);
         // The funnel and its failure modes also start at 0 for the asset-less series, so the ratio
         // panels divide by something and the "dónde se cae" panel lists every stage.
         for (String r : new String[] {"awaiting_approval", "blocked_by_policy"}) {

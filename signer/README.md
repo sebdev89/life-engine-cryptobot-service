@@ -16,9 +16,15 @@ export SIGNER_MAX_LAMPORTS=2000000000                            # 2 SOL
 mvn -f signer/pom.xml spring-boot:run                            # :8096
 ```
 
-`GET /api/signer/identity` · `POST /api/signer/sign` — both require `X-Signer-Token`.
-`SIGNER_ENABLED=false` is the emergency stop on this side; `CRYPTOBOT_EXECUTION_ENABLED=false`
-is the one on the service side. Either alone is enough.
+`GET /api/signer/identity` · `POST /api/signer/sign` · `POST /api/signer/sign-anchor` — all require
+`X-Signer-Token`. `SIGNER_ENABLED=false` is the emergency stop on this side;
+`CRYPTOBOT_EXECUTION_ENABLED=false` is the one on the service side. Either alone is enough.
+
+`sign-anchor` (KAN-394) is the only non-transfer this signer signs: a transaction whose single
+instruction is an SPL Memo with **no accounts** and whose text is exactly
+`ir/1 root=<sha256> n=<count> ts=<…>` for the `root`/`receiptCount` the caller claims — the
+signer re-derives it from the bytes, never from the request. Refused on any cluster but devnet
+(`anchor_cluster_not_devnet`). The memo moves nothing; the fee payer is the signer key.
 
 The Solana wire classes under `signer/solana` are a copy of the service's
 `adapters/solana` (copy-not-reuse, so the signer does not depend on the service jar).

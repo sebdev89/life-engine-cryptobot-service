@@ -72,4 +72,27 @@ class SignerControllerTest {
                 .bodyValue(Map.of("proposalId", "p3", "unsignedTransactionBase64", tx.unsignedBase64()))
                 .exchange().expectStatus().isUnauthorized();
     }
+
+    @Test
+    void signsAnAnchorMemoAndRefusesAMismatchedOne() {
+        String me = KEY.publicKeyBase58();
+        String root = "sha256:" + "ef".repeat(32);
+        String memo = "ir/1 root=" + root + " n=2 ts=2026-09-18T03:00:00Z";
+        LegacyTransaction tx = new LegacyTransaction(me, BLOCKHASH, List.of(new LegacyTransaction.Instruction(SigningPolicy.MEMO_PROGRAM_ID, List.of(), memo.getBytes())));
+        byte[] body = web.post().uri("/api/signer/sign-anchor").header("X-Signer-Token", "test-token")
+                .bodyValue(Map.of("root", root, "receiptCount", 2, "unsignedTransactionBase64", tx.unsignedBase64(), "expectedFeePayer", me))
+                .exchange().expectStatus().isOk().expectBody().returnResult().getResponseBody();
+        String signed = new String(body).replaceAll(".*\"signedTransactionBase64\":\"([^\"]+)\".*", "$1");
+        byte[] wire = Base64.getDecoder().decode(signed);
+        byte[] message = tx.serializeMessage();
+        assertThat(Arrays.copyOfRange(wire, 65, wire.length)).isEqualTo(message);
+        assertThat(SolanaKeypair.verify(KEY.publicKeyBytes(), message, Arrays.copyOfRange(wire, 1, 65))).isTrue();
+
+        web.post().uri("/api/signer/sign-anchor").header("X-Signer-Token", "test-token")
+                .bodyValue(Map.of("root", root, "receiptCount", 3, "unsignedTransactionBase64", tx.unsignedBase64(), "expectedFeePayer", me))
+                .exchange().expectStatus().isForbidden().expectBody().jsonPath("$.reason").isEqualTo("memo_mismatch");
+        web.post().uri("/api/signer/sign-anchor")
+                .bodyValue(Map.of("root", root, "receiptCount", 2, "unsignedTransactionBase64", tx.unsignedBase64()))
+                .exchange().expectStatus().isUnauthorized();
+    }
 }
