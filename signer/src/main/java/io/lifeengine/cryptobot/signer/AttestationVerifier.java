@@ -26,7 +26,10 @@ import org.springframework.stereotype.Component;
  *   <li>{@code message_hash} is SHA-256 of the message bytes the signer just decoded — the
  *       attestation covers <em>these</em> bytes, not a description of them;
  *   <li>{@code decision} is ALLOW or ESCALATE (a DENY attestation is evidence, not authority);
- *   <li>the attestation is inside its {@code [issued_at, expires_at]} window (small clock skew allowed).
+ *   <li>the attestation is inside its {@code [issued_at, expires_at]} window (small clock skew allowed);
+ *   <li>KAN-493: {@code cluster} is present and is the cluster the request named — the validator
+ *       attested these bytes <em>for that cluster</em>, so a devnet attestation cannot be replayed
+ *       for mainnet bytes and vice-versa.
  * </ol>
  *
  * It never re-evaluates the policy: that is the validator's job, and the whole point is that
@@ -85,7 +88,8 @@ public class AttestationVerifier {
         return props.requireAttestation();
     }
 
-    public Verdict verify(Attestation att, String proposalId, byte[] message) {
+    /** @param cluster the cluster the sign request named; the attestation must be for the same one. */
+    public Verdict verify(Attestation att, String proposalId, byte[] message, String cluster) {
         if (!props.requireAttestation()) {
             return new Verdict(true, null, null, "NOT_REQUIRED", null);
         }
@@ -140,6 +144,13 @@ public class AttestationVerifier {
         }
         if (expires.asLong() < now - CLOCK_SKEW_SECONDS) {
             return Verdict.refuse("attestation_expired");
+        }
+        String attestedCluster = SignerProperties.canonicalCluster(text(p, "cluster"));
+        if (attestedCluster == null) {
+            return Verdict.refuse("attestation_cluster_missing");
+        }
+        if (!attestedCluster.equals(SignerProperties.canonicalCluster(cluster))) {
+            return Verdict.refuse("attestation_cluster_mismatch");
         }
         return new Verdict(true, null, validator, decision, text(p, "verdict_hash"));
     }

@@ -30,8 +30,9 @@ import org.springframework.stereotype.Component;
  *       deny — and refuses if the agent's recorded verdict hash disagrees (§17: validator
  *       disagreement ⇒ DENY);
  *   <li>issues a short-lived Ed25519 <b>attestation</b> bound to the proposal, the transaction
- *       message hash, {@code H_R}, the input hash and the verdict hash. The signer signs nothing
- *       without one, and nothing whose bytes are not the ones attested.
+ *       message hash, the cluster the bytes are for (KAN-493), {@code H_R}, the input hash and
+ *       the verdict hash. The signer signs nothing without one, and nothing whose bytes — or
+ *       cluster — are not the ones attested.
  * </ol>
  *
  * The attestation says "an independent process, holding policy {@code H_R}, re-derived this
@@ -49,13 +50,15 @@ public class ValidationService {
     public static final String REFUSAL_POLICY_HASH = "POLICY_HASH_MISMATCH";
     public static final String REFUSAL_DISAGREEMENT = "VERDICT_DISAGREEMENT";
 
+    /** {@code cluster} (KAN-493): {@code devnet} | {@code mainnet-beta} ({@code mainnet} accepted); required, attested verbatim. */
     public record Request(
             String proposalId,
             String policyHash,
             String expectedVerdictHash,
             String messageHash,
             Map<String, Object> intent,
-            Map<String, Object> state) {}
+            Map<String, Object> state,
+            String cluster) {}
 
     public record Attestation(String payload, String signature, String validator) {}
 
@@ -113,6 +116,10 @@ public class ValidationService {
         if (claimedPolicyHash == null) {
             throw new MalformedRequest("missing_policy_hash");
         }
+        String cluster = canonicalCluster(req.cluster());
+        if (cluster == null) {
+            throw new MalformedRequest("missing_or_invalid_cluster");
+        }
 
         PolicyInput input = Facts.input(req.intent(), req.state());
         PolicyVerdict verdict = IndependentPolicyTable.evaluate(policy.rules(), input);
@@ -136,6 +143,7 @@ public class ValidationService {
         payload.put("schema_version", SCHEMA_VERSION);
         payload.put("proposal_id", proposalId);
         payload.put("message_hash", messageHash);
+        payload.put("cluster", cluster);
         payload.put("policy_hash", policy.hash());
         payload.put("input_hash", verdict.inputHash());
         payload.put("verdict_hash", verdict.hash());
@@ -147,8 +155,8 @@ public class ValidationService {
         String canonical = CanonicalJson.canonicalize(payload);
         String signature = Base58.encode(keys.sign(canonical.getBytes(StandardCharsets.UTF_8)));
 
-        log.info("validator_decision proposalId={} decision={} escalation={} tier={} failed={} refusals={} policyHash={} verdictHash={} messageHash={}",
-                proposalId, decision, escalation, verdict.tier(), verdict.failedPredicates(), refusals, policy.hash(), verdict.hash(), messageHash);
+        log.info("validator_decision proposalId={} cluster={} decision={} escalation={} tier={} failed={} refusals={} policyHash={} verdictHash={} messageHash={}",
+                proposalId, cluster, decision, escalation, verdict.tier(), verdict.failedPredicates(), refusals, policy.hash(), verdict.hash(), messageHash);
         return new Response(
                 decision.name(),
                 escalation.name(),
@@ -166,6 +174,19 @@ public class ValidationService {
 
     private static String blankToNull(String s) {
         return s == null || s.isBlank() ? null : s.trim();
+    }
+
+    /** {@code devnet} | {@code mainnet-beta}, or {@code null} for anything else — an unknown cluster is a malformed request. */
+    static String canonicalCluster(String raw) {
+        String v = blankToNull(raw);
+        if (v == null) {
+            return null;
+        }
+        return switch (v.toLowerCase(Locale.ROOT)) {
+            case "devnet" -> "devnet";
+            case "mainnet", "mainnet-beta" -> "mainnet-beta";
+            default -> null;
+        };
     }
 
     /**

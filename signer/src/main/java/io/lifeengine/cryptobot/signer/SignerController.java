@@ -25,8 +25,12 @@ public class SignerController {
     private static final Logger log = LoggerFactory.getLogger(SignerController.class);
     public static final String TOKEN_HEADER = "X-Signer-Token";
 
-    /** {@code attestation} (KAN-438): the validator's signed payload; required unless {@code signer.require-attestation=false}. */
-    public record SignRequest(String proposalId, String unsignedTransactionBase64, String expectedFeePayer, AttestationVerifier.Attestation attestation) {}
+    /**
+     * {@code cluster} (KAN-493): the cluster the bytes are for; mainnet is refused unless {@code signer.allow-mainnet=true}.
+     * {@code attestation} (KAN-438): the validator's signed payload; required unless {@code signer.require-attestation=false}.
+     */
+    public record SignRequest(String proposalId, String unsignedTransactionBase64, String expectedFeePayer, String cluster,
+            AttestationVerifier.Attestation attestation) {}
 
     public record SignResponse(String signedTransactionBase64, String signer, String txHash, String signature, String validator, String verdictHash) {}
 
@@ -62,15 +66,15 @@ public class SignerController {
         if (req == null || req.unsignedTransactionBase64() == null || req.unsignedTransactionBase64().isBlank()) {
             return Mono.just(ResponseEntity.badRequest().body(Map.of("reason", "missing_transaction")));
         }
-        SigningPolicy.Verdict v = policy.evaluate(req.unsignedTransactionBase64(), req.expectedFeePayer());
+        SigningPolicy.Verdict v = policy.evaluate(req.unsignedTransactionBase64(), req.expectedFeePayer(), req.cluster());
         if (!v.allowed()) {
-            log.warn("signer_refused proposalId={} reason={}", req.proposalId(), v.reason());
+            log.warn("signer_refused proposalId={} cluster={} reason={}", req.proposalId(), req.cluster(), v.reason());
             return Mono.just(ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("reason", v.reason())));
         }
         byte[] message = v.decoded().message();
         // Level 5 (paper §20): the bytes that passed our own limits must also have been attested by
-        // the independent validator — for this proposal, these exact bytes, and not as a DENY.
-        AttestationVerifier.Verdict a = attestations.verify(req.attestation(), req.proposalId(), message);
+        // the independent validator — for this proposal, these exact bytes, for this cluster, and not as a DENY.
+        AttestationVerifier.Verdict a = attestations.verify(req.attestation(), req.proposalId(), message, req.cluster());
         if (!a.ok()) {
             log.warn("signer_refused proposalId={} reason={}", req.proposalId(), a.reason());
             return Mono.just(ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("reason", a.reason())));

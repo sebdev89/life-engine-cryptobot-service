@@ -71,7 +71,7 @@ class ValidationServiceTest {
 
     static ValidationService.Request request(ValidationService svc, String expectedVerdictHash) {
         PolicyStore store = new PolicyStore(props(true, ""));
-        return new ValidationService.Request("prop-1", store.hash(), expectedVerdictHash, MSG, intent(), state());
+        return new ValidationService.Request("prop-1", store.hash(), expectedVerdictHash, MSG, intent(), state(), "devnet");
     }
 
     @Test
@@ -94,7 +94,9 @@ class ValidationServiceTest {
         ValidationService.Attestation a = r.attestation();
         assertThat(a.validator()).isEqualTo(KEY.publicKeyBase58());
         assertThat(a.payload()).contains("\"message_hash\":\"" + MSG + "\"").contains("\"proposal_id\":\"prop-1\"")
-                .contains("\"decision\":\"ESCALATE\"").contains("\"verdict_hash\":\"" + expected.hash() + "\"");
+                .contains("\"decision\":\"ESCALATE\"").contains("\"verdict_hash\":\"" + expected.hash() + "\"")
+                // KAN-493: ... and to the cluster the bytes are for.
+                .contains("\"cluster\":\"devnet\"");
         assertThat(SolanaKeypair.verify(KEY.publicKeyBytes(), a.payload().getBytes(StandardCharsets.UTF_8), Base58.decode(a.signature()))).isTrue();
         // A byte flipped in the payload no longer verifies: the signer cannot be fooled by editing it.
         String tampered = a.payload().replace("\"decision\":\"ESCALATE\"", "\"decision\":\"ALLOW\"");
@@ -113,7 +115,7 @@ class ValidationServiceTest {
     @Test
     void anotherPolicyHashIsDeny() {
         ValidationService svc = service(true);
-        ValidationService.Request req = new ValidationService.Request("prop-1", "sha256:" + "f".repeat(64), null, MSG, intent(), state());
+        ValidationService.Request req = new ValidationService.Request("prop-1", "sha256:" + "f".repeat(64), null, MSG, intent(), state(), "devnet");
         ValidationService.Response r = svc.validate(req);
         assertThat(r.decision()).isEqualTo("DENY");
         assertThat(r.refusals()).containsExactly(ValidationService.REFUSAL_POLICY_HASH);
@@ -126,7 +128,7 @@ class ValidationServiceTest {
         partial.remove("trade_value_cents");
         Map<String, Object> s = state();
         s.put("oracle_age_seconds", "30"); // wrong type ⇒ unknown, never coerced
-        ValidationService.Response r = svc.validate(new ValidationService.Request("prop-1", new PolicyStore(props(true, "")).hash(), null, MSG, partial, s));
+        ValidationService.Response r = svc.validate(new ValidationService.Request("prop-1", new PolicyStore(props(true, "")).hash(), null, MSG, partial, s, "devnet"));
         assertThat(r.decision()).isEqualTo("DENY");
         assertThat(r.failedPredicates()).contains("TRADE_WITHIN_MAX", "DAILY_LIMIT", "ORACLE_FRESH");
         assertThat(r.tier()).isEqualTo("OVER_LIMIT");
@@ -144,11 +146,11 @@ class ValidationServiceTest {
     void malformedRequestsGetNoAttestation() {
         ValidationService svc = service(true);
         String hash = new PolicyStore(props(true, "")).hash();
-        assertThatThrownBy(() -> svc.validate(new ValidationService.Request(null, hash, null, MSG, intent(), state())))
+        assertThatThrownBy(() -> svc.validate(new ValidationService.Request(null, hash, null, MSG, intent(), state(), "devnet")))
                 .isInstanceOf(ValidationService.MalformedRequest.class).hasMessage("missing_proposal_id");
-        assertThatThrownBy(() -> svc.validate(new ValidationService.Request("p", hash, null, "zz", intent(), state())))
+        assertThatThrownBy(() -> svc.validate(new ValidationService.Request("p", hash, null, "zz", intent(), state(), "devnet")))
                 .isInstanceOf(ValidationService.MalformedRequest.class).hasMessage("missing_or_invalid_message_hash");
-        assertThatThrownBy(() -> svc.validate(new ValidationService.Request("p", " ", null, MSG, intent(), state())))
+        assertThatThrownBy(() -> svc.validate(new ValidationService.Request("p", " ", null, MSG, intent(), state(), "devnet")))
                 .isInstanceOf(ValidationService.MalformedRequest.class).hasMessage("missing_policy_hash");
     }
 
@@ -161,5 +163,20 @@ class ValidationServiceTest {
         assertThat(ValidationService.Facts.lng(1.5)).isNull();
         assertThat(ValidationService.Facts.lng(2.0)).isEqualTo(2L);
         assertThat(ValidationService.Facts.integer(70_000L)).isEqualTo(70_000);
+    }
+
+    @Test
+    void theClusterIsRequiredNormalizedAndAttested() {
+        ValidationService svc = service(true);
+        String hash = new PolicyStore(props(true, "")).hash();
+        assertThatThrownBy(() -> svc.validate(new ValidationService.Request("p", hash, null, MSG, intent(), state(), null)))
+                .isInstanceOf(ValidationService.MalformedRequest.class).hasMessage("missing_or_invalid_cluster");
+        assertThatThrownBy(() -> svc.validate(new ValidationService.Request("p", hash, null, MSG, intent(), state(), "testnet")))
+                .isInstanceOf(ValidationService.MalformedRequest.class).hasMessage("missing_or_invalid_cluster");
+        // "mainnet" and "MAINNET-BETA" are the same cluster; the payload carries the canonical id.
+        assertThat(svc.validate(new ValidationService.Request("p", hash, null, MSG, intent(), state(), "mainnet")).attestation().payload())
+                .contains("\"cluster\":\"mainnet-beta\"");
+        assertThat(svc.validate(new ValidationService.Request("p", hash, null, MSG, intent(), state(), "MAINNET-BETA")).attestation().payload())
+                .contains("\"cluster\":\"mainnet-beta\"");
     }
 }

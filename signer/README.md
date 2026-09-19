@@ -27,11 +27,18 @@ mvn -f signer/pom.xml spring-boot:run                            # :8096
 ```
 
 `GET /api/signer/identity` · `POST /api/signer/sign` · `POST /api/signer/sign-anchor` — all require
-`X-Signer-Token`. The sign body is `{proposalId, unsignedTransactionBase64, expectedFeePayer,
+`X-Signer-Token`. The sign body is `{proposalId, unsignedTransactionBase64, expectedFeePayer, cluster,
 attestation: {payload, signature}}`. `SIGNER_ENABLED=false` is the emergency stop on this side;
 `CRYPTOBOT_EXECUTION_ENABLED=false` is the one on the service side; `VALIDATOR_ENABLED=false` the
 one on the validator's. Any one alone is enough. `SIGNER_REQUIRE_ATTESTATION=false` restores the
-pre-KAN-438 behaviour and is for tests and empty demo wallets only — it is logged as a WARN at boot.
+pre-KAN-438 behaviour and is for tests and empty demo wallets only — since KAN-493 it is accepted
+only under the Spring profile `local` or `test`; any other profile refuses to start.
+
+Mainnet is fail-closed here too (KAN-493): `cluster` is required in the sign request, must be the
+cluster this signer is configured for (`SIGNER_CLUSTER`), and `mainnet-beta` is refused with
+`403 mainnet_disabled` unless `SIGNER_ALLOW_MAINNET=true` (default `false`) — whatever the
+attestation says. The attestation must carry the same `cluster` (`attestation_cluster_mismatch`
+otherwise). Independent of the service's `CRYPTOBOT_ALLOW_MAINNET`.
 
 `sign-anchor` (KAN-394) is the only non-transfer this signer signs: a transaction whose single
 instruction is an SPL Memo with **no accounts** and whose text is exactly

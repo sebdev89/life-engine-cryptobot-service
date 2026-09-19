@@ -15,7 +15,11 @@ import org.springframework.stereotype.Component;
  *   <li>exactly one required signature, and it is ours (fee payer == our public key);
  *   <li>exactly one instruction, and it is {@code SystemProgram.transfer};
  *   <li>the transfer is from us to an allow-listed destination;
- *   <li>lamports ≤ the cap.
+ *   <li>lamports ≤ the cap;
+ *   <li>KAN-493: the cluster the caller says the bytes are for is the one this signer is
+ *       configured for, and it is not mainnet unless {@code signer.allow-mainnet=true}
+ *       ({@code SIGNER_ALLOW_MAINNET}). A request that names no cluster is refused. The
+ *       {@link AttestationVerifier} then checks the validator attested the same cluster.
  * </ol>
  *
  * Anything else is refused with a reason — including a perfectly valid transaction that merely
@@ -90,9 +94,17 @@ public class SigningPolicy {
         return new Verdict(true, null, 0, null, tx);
     }
 
-    public Verdict evaluate(String unsignedBase64, String expectedFeePayer) {
+    /**
+     * @param cluster the cluster the transaction is for, as the caller claims it ({@code devnet},
+     *     {@code mainnet-beta}). Checked first: mainnet is fail-closed.
+     */
+    public Verdict evaluate(String unsignedBase64, String expectedFeePayer, String cluster) {
         if (!props.enabled()) {
             return refuse("signer_disabled");
+        }
+        Verdict clusterVerdict = evaluateCluster(cluster);
+        if (!clusterVerdict.allowed()) {
+            return clusterVerdict;
         }
         LegacyMessageDecoder.Decoded tx;
         try {
@@ -132,6 +144,29 @@ public class SigningPolicy {
             return refuse("amount_over_cap");
         }
         return new Verdict(true, null, lamports, destination, tx);
+    }
+
+    /**
+     * KAN-493 — the signer's mainnet guard, independent of the service's. {@code mainnet_disabled}
+     * unless {@code signer.allow-mainnet=true}; {@code cluster_mismatch} when the request names a
+     * cluster other than the one this signer is configured for; {@code cluster_missing} /
+     * {@code cluster_unknown} for a request that does not say, or says something we do not know.
+     */
+    Verdict evaluateCluster(String cluster) {
+        if (cluster == null || cluster.isBlank()) {
+            return refuse("cluster_missing");
+        }
+        String canonical = SignerProperties.canonicalCluster(cluster);
+        if (canonical == null) {
+            return refuse("cluster_unknown");
+        }
+        if (SignerProperties.isMainnet(canonical) && !props.allowMainnet()) {
+            return refuse("mainnet_disabled");
+        }
+        if (!canonical.equals(SignerProperties.canonicalCluster(props.cluster()))) {
+            return refuse("cluster_mismatch");
+        }
+        return new Verdict(true, null, 0, null, null);
     }
 
     private static Verdict refuse(String reason) {

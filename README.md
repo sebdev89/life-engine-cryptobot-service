@@ -37,6 +37,27 @@ Legacy (pre-hackathon, still available, not part of the demo): Binance-public wa
 zones / journal / indicators and the 5-agent `crypto.market-review.v1` — now also fed by Solana via
 `SolanaSnapshotProvider` (`cryptobot.snapshot.provider=solana-public`, GeckoTerminal pool + Jupiter).
 
+## Mainnet is fail-closed (KAN-493)
+
+Execution and anchoring target **devnet**. Mainnet is not a configuration away: it is refused at
+three independent layers, each reading its own explicit flag, and every default is `false`.
+
+| Layer | What it checks | Refusal | Flag |
+|---|---|---|---|
+| `ExecutionService.execute` | The wallet's cluster **and** the cluster recorded on the proposal, before the proposal moves to `EXECUTING` and before the validator or the signer is asked. Real-engine test: `ExecutionServiceMainnetGateTest`. | `409 MAINNET_DISABLED` | `cryptobot.execution.allow-mainnet` (`CRYPTOBOT_ALLOW_MAINNET`, default `false`) |
+| `SolanaRpcClient.sendTransaction` | The cluster passed **with the transaction** — never a global. Refused before any RPC call. | `MainnetDisabledException` (nothing sent; the row is `FAILED`, not "uncertain") | same flag |
+| `signer/` (`SigningPolicy` + `AttestationVerifier`) | The `cluster` in the sign request must be the signer's configured cluster and, if it is `mainnet-beta`, the signer needs its own flag; the validator's attestation must carry the **same** `cluster` (it is part of the signed payload since KAN-493). | `403 mainnet_disabled` · `cluster_mismatch` · `cluster_missing` · `attestation_cluster_mismatch` | `signer.allow-mainnet` (`SIGNER_ALLOW_MAINNET`, default `false`) |
+
+`cryptobot.policy.execution-cluster: devnet` (`EXECUTION_CLUSTER` rule) stays as it was — belt and
+braces: a mainnet wallet is a paper trade before it is a refused execution.
+
+`SIGNER_REQUIRE_ATTESTATION=false` (the level-5 gate off) is accepted only under the Spring profile
+`local` or `test`; under any other profile — or none — the signer **refuses to start** with the
+variable named in the message (`AttestationRequirementGuard`).
+
+None of the flags is a go-live switch. Mainnet stays closed until an independent readiness gate
+(CB-13) exists.
+
 ## Why this and not a crypto chatbot
 
 A chatbot talks. This acts **inside a policy**: every proposal is simulated against the real chain

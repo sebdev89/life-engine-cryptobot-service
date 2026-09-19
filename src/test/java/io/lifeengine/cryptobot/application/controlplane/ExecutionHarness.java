@@ -98,7 +98,9 @@ final class ExecutionHarness {
                 .thenReturn(Mono.just(new SolanaRpcClient.SimulationResult(true, null, List.of(), 150L)));
         when(validator.authorize(any(), any())).thenReturn(Mono.just(attestation()));
 
-        service = new ExecutionService(proposals, wallets, simulation, policy, signer, validator, rpc, audit, metrics, executionReceipts);
+        // KAN-493: mainnet fail-closed by default here too; the wallet above is on devnet.
+        service = new ExecutionService(proposals, wallets, simulation, policy, signer, validator, rpc, audit, metrics, executionReceipts,
+                io.lifeengine.cryptobot.adapters.solana.ExecutionProperties.failClosed());
     }
 
     /** The signer signs the real message with the wallet key; returns the transaction id (base58 of the signature). */
@@ -109,7 +111,7 @@ final class ExecutionHarness {
         wire[0] = 1;
         System.arraycopy(sig, 0, wire, 1, 64);
         System.arraycopy(message, 0, wire, 65, message.length);
-        when(signer.sign(eq(approved.id()), anyString(), eq(wallet.address()), any()))
+        when(signer.sign(eq(approved.id()), anyString(), eq(wallet.address()), eq(SolanaCluster.DEVNET), any()))
                 .thenReturn(Mono.just(new SignerClient.SignResponse(Base64.getEncoder().encodeToString(wire), keypair.publicKeyBase58(), null)));
         return io.lifeengine.cryptobot.adapters.solana.Base58.encode(sig);
     }

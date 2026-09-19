@@ -73,7 +73,11 @@ class ValidatorClientTest {
     }
 
     static String response(String decision, String policyHash, String verdictHash, String messageHash) {
-        String payload = "{\\\"decision\\\":\\\"" + decision + "\\\",\\\"message_hash\\\":\\\"" + messageHash + "\\\"}";
+        return response(decision, policyHash, verdictHash, messageHash, "devnet");
+    }
+
+    static String response(String decision, String policyHash, String verdictHash, String messageHash, String cluster) {
+        String payload = "{\\\"cluster\\\":\\\"" + cluster + "\\\",\\\"decision\\\":\\\"" + decision + "\\\",\\\"message_hash\\\":\\\"" + messageHash + "\\\"}";
         return "{\"decision\":\"" + decision + "\",\"escalation\":\"REQUIRE_SECOND_AGENT\",\"tier\":\"SECOND_AGENT\",\"failedPredicates\":[],\"refusals\":[],"
                 + "\"policyVersion\":\"cryptobot-policy-v1\",\"policyHash\":\"" + policyHash + "\",\"inputHash\":\"x\",\"verdictHash\":\"" + verdictHash + "\","
                 + "\"issuedAt\":" + NOW.getEpochSecond() + ",\"expiresAt\":" + (NOW.getEpochSecond() + 90) + ","
@@ -103,6 +107,8 @@ class ValidatorClientTest {
         assertThat(body.path("policyHash").asText()).isEqualTo(verdict.policyHash());
         assertThat(body.path("expectedVerdictHash").asText()).isEqualTo(verdict.hash());
         assertThat(body.path("messageHash").asText()).isEqualTo(messageHash());
+        // KAN-493: the cluster the bytes are for travels with the request and comes back attested.
+        assertThat(body.path("cluster").asText()).isEqualTo("devnet");
         // The facts travel in the schema's snake_case, exactly as they were hashed.
         assertThat(body.path("intent").path("trade_value_cents").asLong()).isEqualTo(15_000L);
         assertThat(body.path("intent").path("policy_version").asText()).isEqualTo("cryptobot-policy-v1");
@@ -134,6 +140,12 @@ class ValidatorClientTest {
         server.enqueue(json(response("ESCALATE", verdict.policyHash(), verdict.hash(), "f".repeat(64))));
         StepVerifier.create(client.authorize(proposal(decision), tx()))
                 .expectErrorSatisfies(ex -> assertThat(ex).hasMessageContaining("not for these transaction bytes"))
+                .verify();
+
+        // KAN-493: an attestation for another cluster (or none) is not an attestation for these bytes.
+        server.enqueue(json(response("ESCALATE", verdict.policyHash(), verdict.hash(), messageHash(), "mainnet-beta")));
+        StepVerifier.create(client.authorize(proposal(decision), tx()))
+                .expectErrorSatisfies(ex -> assertThat(ex).hasMessageContaining("not for cluster devnet"))
                 .verify();
 
         server.enqueue(new MockResponse().setResponseCode(503));

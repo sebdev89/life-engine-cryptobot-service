@@ -1,6 +1,8 @@
 package io.lifeengine.cryptobot.application.controlplane;
 
 import io.lifeengine.cryptobot.adapters.solana.Base58;
+import io.lifeengine.cryptobot.adapters.solana.ExecutionProperties;
+import io.lifeengine.cryptobot.adapters.solana.MainnetDisabledException;
 import io.lifeengine.cryptobot.adapters.solana.SolanaCluster;
 import io.lifeengine.cryptobot.adapters.solana.SolanaRpcClient;
 import io.lifeengine.cryptobot.adapters.solana.SolanaRpcException;
@@ -51,6 +53,13 @@ import reactor.util.retry.Retry;
  *       leaves the row in flight for reconciliation — a retry here would be the double trade
  *       Solana only protects against while the blockhash lives (~90 s).
  * </ul>
+ *
+ * <h2>Mainnet is fail-closed (KAN-493)</h2>
+ *
+ * Before the proposal is even moved to {@code EXECUTING}, a wallet or proposal on mainnet is
+ * refused with {@link MainnetDisabledException} ({@code 409 MAINNET_DISABLED}) unless
+ * {@code cryptobot.execution.allow-mainnet=true}. {@code PolicyEngine}'s {@code EXECUTION_CLUSTER}
+ * rule, {@code SolanaRpcClient.sendTransaction} and the signer each check independently.
  */
 @Service
 public class ExecutionService {
@@ -77,11 +86,12 @@ public class ExecutionService {
     private final AuditService audit;
     private final CryptobotMetrics metrics;
     private final ExecutionReceipts executionReceipts;
+    private final ExecutionProperties execution;
     private final Clock clock;
 
     public ExecutionService(ProposalService proposals, WalletService wallets, SimulationService simulation, PolicyEngine policy,
             SignerClient signer, ValidatorClient validator, SolanaRpcClient rpc, AuditService audit, CryptobotMetrics metrics,
-            ExecutionReceipts executionReceipts) {
+            ExecutionReceipts executionReceipts, ExecutionProperties execution) {
         this.proposals = proposals;
         this.wallets = wallets;
         this.simulation = simulation;
@@ -92,6 +102,7 @@ public class ExecutionService {
         this.audit = audit;
         this.metrics = metrics;
         this.executionReceipts = executionReceipts;
+        this.execution = execution == null ? ExecutionProperties.failClosed() : execution;
         this.clock = Clock.systemUTC();
     }
 
@@ -118,12 +129,36 @@ public class ExecutionService {
                 return Mono.error(new ControlPlaneExceptions.Conflict(String.join("; ", problems)));
             }
             return wallets.require(ownerUserId, p.walletId())
+                    .flatMap(wallet -> requireClusterAllowed(p, wallet))
                     .flatMap(wallet -> start(p, operationId, actor)
                             .flatMap(executing -> executing.operationId().equals(operationId) && executing.status() == ProposalStatus.EXECUTING
                                     && executing.execution() == null
                                     ? run(executing, wallet, actor)
                                     : Mono.just(executing)));
         });
+    }
+
+    /**
+     * KAN-493: the first of the three mainnet guards. Checked on the wallet's cluster <em>and</em>
+     * the cluster recorded on the proposal, before any state change and before the validator or
+     * the signer is asked. No flag ⇒ no mainnet, whatever the policy said.
+     */
+    private Mono<Wallet> requireClusterAllowed(ActionProposal p, Wallet wallet) {
+        SolanaCluster proposalCluster;
+        try {
+            proposalCluster = SolanaCluster.parse(p.cluster());
+        } catch (IllegalArgumentException unknown) {
+            return Mono.error(new ControlPlaneExceptions.Conflict("Proposal " + p.id() + " is on an unknown cluster: " + p.cluster()));
+        }
+        SolanaCluster refused = !execution.permits(wallet.cluster()) ? wallet.cluster() : !execution.permits(proposalCluster) ? proposalCluster : null;
+        if (refused != null) {
+            log.warn("execution_mainnet_disabled proposalId={} walletCluster={} proposalCluster={}", p.id(), wallet.cluster().id(), p.cluster());
+            return Mono.error(new MainnetDisabledException("execute", refused));
+        }
+        if (proposalCluster != wallet.cluster()) {
+            return Mono.error(new ControlPlaneExceptions.Conflict("Proposal " + p.id() + " was prepared for " + p.cluster() + "; the wallet is on " + wallet.cluster().id()));
+        }
+        return Mono.just(wallet);
     }
 
     private Mono<ActionProposal> suppressDuplicate(ActionProposal p, String actor) {
@@ -178,7 +213,7 @@ public class ExecutionService {
                         .map(att -> new Attested(tx, att)))
                 // 4. Sign in the isolated signer (which checks the attestation itself), then verify the signature ourselves.
                 .doOnNext(a -> stage.set(CryptobotMetrics.FailureStage.SIGN))
-                .flatMap(a -> signer.sign(executing.id(), a.tx().unsignedTransactionBase64(), wallet.address(), a.attestation().attestation())
+                .flatMap(a -> signer.sign(executing.id(), a.tx().unsignedTransactionBase64(), wallet.address(), wallet.cluster(), a.attestation().attestation())
                         .map(resp -> verifySigned(a.tx(), resp, wallet, a.attestation())))
                 // 5. Persist the signature BEFORE broadcasting: from here on a crash is reconcilable.
                 .flatMap(signed -> persistSigned(executing, signed, wallet, actor).map(s -> new Step(s, signed)))
@@ -259,6 +294,10 @@ public class ExecutionService {
      */
     private Mono<ActionProposal> broadcastFailed(ActionProposal signedP, Signed signed, Throwable ex, String actor, String asset) {
         if (ex instanceof SolanaRpcException rpcEx && rpcEx.getCause() == null) {
+            return fail(signedP, actor, ex, CryptobotMetrics.FailureStage.RPC, asset);
+        }
+        if (ex instanceof MainnetDisabledException) {
+            // KAN-493: the RPC client refused before sending anything — certain, nothing is on the chain.
             return fail(signedP, actor, ex, CryptobotMetrics.FailureStage.RPC, asset);
         }
         log.warn("proposal_broadcast_uncertain proposalId={} signature={} error={}", signedP.id(), signed.signature(), ex.toString());

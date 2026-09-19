@@ -30,6 +30,7 @@ import org.springframework.boot.context.properties.EnableConfigurationProperties
     MonitoringProperties.class,
     io.lifeengine.cryptobot.security.ServiceTokenClientProperties.class,
     io.lifeengine.cryptobot.adapters.solana.SolanaRpcProperties.class,
+    io.lifeengine.cryptobot.adapters.solana.ExecutionProperties.class,
     io.lifeengine.cryptobot.adapters.marketdata.MarketDataProperties.class,
     io.lifeengine.cryptobot.application.controlplane.PolicyProperties.class,
     io.lifeengine.cryptobot.application.controlplane.AuthorizationProperties.class,
