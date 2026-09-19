@@ -2,6 +2,7 @@ package io.lifeengine.cryptobot.application;
 
 import io.lifeengine.cryptobot.api.MarketReviewDtos.MarketReviewRequest;
 import io.lifeengine.cryptobot.api.MarketReviewDtos.MarketReviewResponse;
+import io.lifeengine.cryptobot.infrastructure.runtime.RuntimeClient;
 import java.time.Duration;
 import java.util.List;
 import java.util.UUID;
@@ -25,11 +26,10 @@ import reactor.core.scheduler.Schedulers;
  *       is {@code true}. Uses {@link MonitoringProperties#interval()} as the period.
  * </ol>
  *
- * <p>The scheduled path requires a service-side bearer token (so Runtime can authorise the
- * forwarded request). For Phase 1 we accept a {@code cryptobot.monitoring.service-token} env var as
- * a hatch — when unset, the scheduler simply logs that it has nothing to authenticate with and
- * skips the tick. Manual triggers via the controller use the caller's principal token so this
- * dependency does not block the demo.
+ * <p>The scheduled path has no user behind it. Since KAN-69 it runs with the service's own S2S
+ * credential (Auth client-credentials, {@code aud=runtime}) when {@code cryptobot.s2s.*} is
+ * configured; otherwise the scheduler logs that it has nothing to authenticate with and skips the
+ * tick. Manual triggers via the controller keep using the caller's principal token (pass-through).
  */
 @Service
 public class MonitoringService {
@@ -38,12 +38,17 @@ public class MonitoringService {
 
     private final MarketReviewService marketReviewService;
     private final MonitoringProperties properties;
+    private final RuntimeClient runtimeClient;
 
     private volatile Disposable scheduledLoop;
 
-    public MonitoringService(MarketReviewService marketReviewService, MonitoringProperties properties) {
+    public MonitoringService(
+            MarketReviewService marketReviewService,
+            MonitoringProperties properties,
+            RuntimeClient runtimeClient) {
         this.marketReviewService = marketReviewService;
         this.properties = properties;
+        this.runtimeClient = runtimeClient;
     }
 
     @PostConstruct
@@ -98,9 +103,11 @@ public class MonitoringService {
             log.warn("monitoring_run_skipped reason=no_symbols_configured");
             return Flux.empty();
         }
-        if (bearerToken == null || bearerToken.isBlank()) {
+        if ((bearerToken == null || bearerToken.isBlank()) && !runtimeClient.serviceIdentityAvailable()) {
+            // Sin usuario y sin credencial propia: no hay con qué autenticarse. RuntimeClient
+            // resuelve el token S2S cuando el bearer viene vacío y la credencial existe.
             log.warn(
-                    "monitoring_run_skipped reason=no_bearer_token requestedBy={} symbols={}",
+                    "monitoring_run_skipped reason=no_bearer_token_and_no_s2s_credential requestedBy={} symbols={}",
                     requestedBy,
                     symbols);
             return Flux.empty();

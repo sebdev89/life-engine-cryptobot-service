@@ -90,7 +90,7 @@ class MarketReviewRunServiceTest {
         RuntimeClient runtimeClient =
                 new RuntimeClient(
                         WebClient.builder(),
-                        new RuntimeClientProperties("http://localhost:0", "crypto.market-review.v1")) {
+                        new RuntimeClientProperties("http://localhost:0", "crypto.market-review.v1", null)) {
                     @Override
                     public Mono<RuntimeRunDetail> getRun(UUID runId, String bearerToken) {
                         return Mono.just(
@@ -164,7 +164,7 @@ class MarketReviewRunServiceTest {
     private RuntimeClient stubRuntime() {
         return new RuntimeClient(
                 WebClient.builder(),
-                new RuntimeClientProperties("http://localhost:0", "crypto.market-review.v1")) {
+                new RuntimeClientProperties("http://localhost:0", "crypto.market-review.v1", null)) {
             @Override
             public Mono<RuntimeRunDetail> getRun(UUID runId, String bearerToken) {
                 return Mono.empty();
