@@ -121,6 +121,21 @@ jobs:
       commit: ${{ steps.image-metadata.outputs.commit }}
 
     steps:
+      # KAN-488: config de Docker aislada por job. Los runners de la VM le-ci comparten el
+      # ~/.docker/config.json del usuario del runner, y el post-step de docker/login-action
+      # hace `docker logout` global: si el job de otro repo termina primero, el push de este
+      # falla con `denied: permission_denied: read_package`. Con DOCKER_CONFIG en $RUNNER_TEMP
+      # cada job tiene su propio config.json; login, buildx y logout lo leen del env.
+      #
+      # Va como step y no como `jobs.<id>.env`: el contexto `runner` no existe a nivel job
+      # (sólo github/needs/strategy/matrix/vars/secrets/inputs) y el workflow entero fallaba
+      # con 0 jobs ("workflow file issue"). GITHUB_ENV propaga la variable a los steps
+      # siguientes y a sus post-steps, incluido el logout de docker/login-action.
+      - name: Docker config aislada por job (KAN-488)
+        run: |
+          mkdir -p "$RUNNER_TEMP/.docker"
+          echo "DOCKER_CONFIG=$RUNNER_TEMP/.docker" >> "$GITHUB_ENV"
+
       - name: Checkout
         uses: actions/checkout@v4
         with:
