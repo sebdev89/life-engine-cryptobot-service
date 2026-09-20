@@ -109,15 +109,24 @@ open http://localhost:4204
 
 Devnet SOL for the demo wallet: https://faucet.solana.com (the RPC airdrop is rate-limited).
 
-### The demo, end to end, for real (KAN-570)
+### The demo, one command, from zero (KAN-575 / HK-7)
 
-`docker-compose.demo.yml` is the self-contained version — own Postgres, no Auth/Runtime — wired
-for **real execution on devnet**: `scripts/demo/wallet-devnet.sh` (keys + `.env.demo` + airdrop,
-once) then `scripts/demo/e2e-devnet.sh` runs intent → policy → approval → timelock → validator →
-signer → `sendTransaction` → confirmed → receipt by API and leaves `out/evidence-<ts>.md` with
-the transaction signature, the explorer link and the receipt hash; `--it` runs the same flow as
-`E2EDevnetIT` (`./mvnw -Pe2e-devnet verify`); `--local-validator` rehearses against a local
-`solana-test-validator` when the faucet is dry. Details: `scripts/demo/README.md`.
+```bash
+scripts/demo/run.sh            # → out/demo-report-<ts>.md, < 10 min after the first image build
+```
+
+On a machine with Docker, curl, python3 and git: generates the keys and `.env.demo` if missing,
+picks devnet when the demo wallet holds SOL there (else the local `solana-test-validator`, and says
+so), brings up `docker-compose.demo.yml` — own Postgres, independent validator, isolated signer, no
+Auth/Runtime — and runs the story in four acts, each step printed with its evidence: **execute**
+(intent → policy → approval → timelock → validator → signer → Solana → confirmed → `EXECUTED` →
+receipt → replay → mainnet 409), **risk** (an adversarial intent → `BLOCKED_BY_POLICY` with the
+rules that failed; the cooldown), **recovery** (RPC down at broadcast → dead letter → requeue →
+idempotent retry → one transaction on chain) and **evidence** (receipt DAG, Merkle anchor of the
+receipts finalized on Solana, inclusion proof, metrics). The report and the log are grepped for
+every secret before the script exits. `--target uat` runs the same acts against a deployed
+service (`.env.demo-uat.example`). Details and the underlying scripts (`wallet-devnet.sh`,
+`e2e-devnet.sh --chaos …`, `--it` for `E2EDevnetIT`): `scripts/demo/README.md`.
 
 ## API
 

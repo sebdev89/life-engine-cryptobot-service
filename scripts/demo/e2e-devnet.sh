@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
+# shellcheck disable=SC2034  # RESP/TOKEN/BASE/CURL_OPTS are read by the helpers sourced from lib.sh
 # KAN-570 — the demo, end to end, by API, with evidence. KAN-571 — with a failure injected.
 #
 #   scripts/demo/e2e-devnet.sh [--local-validator] [--no-up] [--keep] [--sell-sol 1] [--it] [--chaos <mode>]
+#                              [--env-file <f>] [--base-url <url> --token-env <VAR>] [--evidence <f>] [--summary <f>]
 #
 # 1. brings the demo stack up (docker-compose.demo.yml + .env.demo; --local-validator adds the
 #    solana-test-validator profile and points the service at it), waits for health;
@@ -25,6 +27,13 @@
 #   With --it, --chaos sets CRYPTOBOT_E2E_CHAOS for E2EDevnetIT (rpc-down by default; `off` skips it).
 # --it runs E2EDevnetIT (Failsafe, profile e2e-devnet) against the same stack instead of curl.
 # --no-up assumes the stack is already up. --keep leaves it running at the end (default: stop).
+# --base-url <url> (KAN-575, HK-7) runs the same flow against a service that is NOT this compose
+#   (UAT, or a stack run.sh already brought up): no docker, no stop at the end; the bearer comes from
+#   the variable named by --token-env (a JWT from Life Engine Auth) or, if absent, is minted from
+#   JWT_SECRET of the env file. --env-file (default .env.demo) must carry DEMO_WALLET_ADDRESS,
+#   CRYPTOBOT_REBALANCE_VAULT and CRYPTOBOT_SOLANA_DEVNET_RPC. CRYPTOBOT_DEMO_CURL_OPTS adds curl
+#   arguments to every call (e.g. --resolve for a UAT host without public DNS).
+# --evidence <f> / --summary <f>: where the Markdown evidence and a key=value summary (for run.sh) go.
 # Never prints a secret: the token is minted in memory from JWT_SECRET, the keys are never read.
 set -euo pipefail
 
@@ -34,6 +43,7 @@ PROJECT="$(cd "${HERE}/../.." && pwd)"
 source "${HERE}/lib.sh"
 
 LOCAL_VALIDATOR=0; UP=1; KEEP=0; RUN_IT=0; SELL_SOL=1; CHAOS=""
+ENV_FILE="${PROJECT}/.env.demo"; BASE_URL=""; TOKEN_ENV=""; EVIDENCE=""; SUMMARY=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --local-validator) LOCAL_VALIDATOR=1; shift ;;
@@ -42,14 +52,20 @@ while [[ $# -gt 0 ]]; do
     --it) RUN_IT=1; shift ;;
     --sell-sol) SELL_SOL="$2"; shift 2 ;;
     --chaos) CHAOS="$2"; shift 2 ;;
-    -h|--help) sed -n 2,31p "$0"; exit 0 ;;
+    --env-file) ENV_FILE="$2"; shift 2 ;;
+    --base-url) BASE_URL="${2%/}"; UP=0; shift 2 ;;
+    --token-env) TOKEN_ENV="$2"; shift 2 ;;
+    --evidence) EVIDENCE="$2"; shift 2 ;;
+    --summary) SUMMARY="$2"; shift 2 ;;
+    -h|--help) sed -n 3,40p "$0"; exit 0 ;;
     *) fail "unknown argument: $1" ;;
   esac
 done
 case "$CHAOS" in ""|uncertain|confirm-timeout|rpc-down) ;; *) fail "--chaos must be uncertain | confirm-timeout | rpc-down (got: $CHAOS)" ;; esac
+[[ -n "$BASE_URL" && "$RUN_IT" -eq 1 ]] && fail "--it runs against the local compose only (E2EDevnetIT); drop --base-url"
 
-need docker; need curl; need python3
-ENV_FILE="${PROJECT}/.env.demo"
+need curl; need python3
+[[ -n "$BASE_URL" ]] || need docker
 [[ -f "$ENV_FILE" ]] || fail "no ${ENV_FILE}: run scripts/demo/wallet-devnet.sh first"
 set -a
 # shellcheck disable=SC1090
@@ -66,11 +82,23 @@ else
   HOST_RPC="${CRYPTOBOT_SOLANA_DEVNET_RPC:-https://api.devnet.solana.com}"
   MODE="devnet (${HOST_RPC})"
 fi
-BASE="http://127.0.0.1:${CRYPTOBOT_DEMO_PORT:-8091}"
+if [[ -n "$BASE_URL" ]]; then
+  BASE="$BASE_URL"
+  MODE="remote ${BASE_URL} · ${MODE}"
+else
+  BASE="http://127.0.0.1:${CRYPTOBOT_DEMO_PORT:-8091}"
+fi
+# Extra curl arguments for every call (e.g. --resolve host:443:ip for a UAT without public DNS).
+read -r -a CURL_OPTS <<< "${CRYPTOBOT_DEMO_CURL_OPTS:-}"
 WALLET="${DEMO_WALLET_ADDRESS:?}"
 TS="$(date +%Y%m%d-%H%M%S)"
 OUT_DIR="${PROJECT}/out"; mkdir -p "$OUT_DIR"
-EVIDENCE="${OUT_DIR}/evidence-${TS}.md"
+[[ -n "$EVIDENCE" ]] || EVIDENCE="${OUT_DIR}/evidence-${TS}.md"
+mkdir -p "$(dirname "$EVIDENCE")"
+# summary <key> <value>: one line per fact, for run.sh (KAN-575). Never a secret.
+summary() { [[ -n "$SUMMARY" ]] && printf '%s=%s\n' "$1" "$2" >> "$SUMMARY" || true; }
+if [[ -n "$SUMMARY" ]]; then mkdir -p "$(dirname "$SUMMARY")"; : > "$SUMMARY"; fi
+summary MODE "$MODE"; summary CHAOS "${CHAOS:-none}"; summary WALLET "$WALLET"; summary RPC "$HOST_RPC"; summary EVIDENCE "$EVIDENCE"
 
 cleanup() {
   if [[ "$KEEP" -eq 0 && "$UP" -eq 1 ]]; then
@@ -88,9 +116,9 @@ if [[ "$UP" -eq 1 ]]; then
 fi
 log "waiting for ${BASE}/api/cryptobot/health"
 for i in $(seq 1 90); do
-  if curl -fsS -m 3 "${BASE}/api/cryptobot/health" 2>/dev/null | grep -q '"UP"'; then break; fi
+  if curl -fsS -m 3 "${CURL_OPTS[@]}" "${BASE}/api/cryptobot/health" 2>/dev/null | grep -q '"UP"'; then break; fi
   sleep 2
-  [[ "$i" -eq 90 ]] && { "${COMPOSE[@]}" logs --tail 50 cryptobot-service >&2; fail "service not UP"; }
+  [[ "$i" -eq 90 ]] && { [[ -z "$BASE_URL" ]] && "${COMPOSE[@]}" logs --tail 50 cryptobot-service >&2; fail "service not UP at ${BASE}"; }
 done
 log "service UP"
 
@@ -118,18 +146,14 @@ if [[ "$RUN_IT" -eq 1 ]]; then
 fi
 
 # ---- 3. the flow, by API ------------------------------------------------------------------------
-TOKEN="$(jwt_hs256 "$JWT_SECRET" "$(python3 -c 'import uuid; print(uuid.uuid4())')" "demo@cryptobot.local")"
-api() { # api <method> <path> [json-body] [extra curl args...]
-  local m="$1" p="$2" b="${3:-}"; shift 3 || shift $#
-  if [[ -n "$b" ]]; then
-    curl -sS -m 150 -X "$m" "${BASE}${p}" -H "Authorization: Bearer ${TOKEN}" -H 'content-type: application/json' -d "$b" -w '\n%{http_code}' "$@"
-  else
-    curl -sS -m 150 -X "$m" "${BASE}${p}" -H "Authorization: Bearer ${TOKEN}" -w '\n%{http_code}' "$@"
-  fi
-}
-jget() { python3 -c "import json,sys; d=json.load(sys.stdin); print(eval('d'+sys.argv[1]))" "$1" 2>/dev/null || true; }
-split_status() { STATUS="${RESP##*$'\n'}"; BODY="${RESP%$'\n'*}"; }
-step() { printf '\n\033[1;32m== %s\033[0m\n' "$*" >&2; }
+if [[ -n "$TOKEN_ENV" && -n "${!TOKEN_ENV:-}" ]]; then
+  TOKEN="${!TOKEN_ENV}"   # a JWT issued by Life Engine Auth (remote target); never printed
+  log "bearer: from \$${TOKEN_ENV}"
+else
+  [[ -n "${JWT_SECRET:-}" ]] || fail "no bearer: set --token-env <VAR> (a JWT from Auth) or JWT_SECRET in ${ENV_FILE}"
+  TOKEN="$(jwt_hs256 "$JWT_SECRET" "$(python3 -c 'import uuid; print(uuid.uuid4())')" "demo@cryptobot.local")"
+fi
+# api / jget / split_status / step come from lib.sh (BASE, TOKEN and CURL_OPTS are set above).
 EV=() ; ev() { EV+=("$*"); }
 
 step "0. register the devnet wallet the signer controls"
@@ -140,6 +164,7 @@ TOTAL_USD="$(printf '%s' "$BODY" | jget "['snapshot']['totalUsd']")"
 RISK="$(printf '%s' "$BODY" | jget "['risk']['overall']")"
 log "wallet ${WALLET_ID}: total \$${TOTAL_USD}, risk ${RISK}"
 ev "wallet | \`${WALLET}\` (id ${WALLET_ID}), portfolio \$${TOTAL_USD}, risk ${RISK}"
+summary WALLET_ID "$WALLET_ID"; summary TOTAL_USD "$TOTAL_USD"; summary RISK "$RISK"
 # The SELL leg is what gets executed: sell --sell-sol SOL, clamped to [21 %, 40 %] of the SOL held so
 # every rule holds whatever the balance: R_v ASSET_CONCENTRATION (SOL ≤ 80 % after), ≤ $500,
 # ≤ 50 % of the portfolio, ≤ 2 SOL per tx. target weight = weight × (1 − sell/amount).
@@ -172,6 +197,7 @@ log "proposal ${PROPOSAL_ID}: ${P_STATUS}; ${PLAN}; lamports=${LAMPORTS}; simula
 [[ "$EXECUTABLE" == "True" ]] || fail "policy says not executable: ${EXEC_VIOL}"
 ev "proposal | \`${PROPOSAL_ID}\` — ${PLAN}; ${LAMPORTS} lamports; simulation ok=${SIM_OK}"
 ev "policy | verdict **${DECISION}** (tier ${TIER}) under \`${POLICY_HASH}\`; executable=${EXECUTABLE}"
+summary PROPOSAL_ID "$PROPOSAL_ID"; summary PLAN "$PLAN"; summary LAMPORTS "$LAMPORTS"; summary DECISION "$DECISION"; summary TIER "$TIER"; summary POLICY_HASH "$POLICY_HASH"
 
 step "4. execute before approval → 409 (executionPreconditions, for real)"
 RESP="$(api POST "/api/cryptobot/proposals/${PROPOSAL_ID}/execute")"; split_status
@@ -219,8 +245,9 @@ vault_tx_count() { rpc "$HOST_RPC" getSignaturesForAddress "[\"${VAULT}\", {\"li
 VAULT_TXS_BEFORE="$(vault_tx_count)"
 chain_status() { rpc "$HOST_RPC" getSignatureStatuses "[[\"$1\"],{\"searchTransactionHistory\":true}]" | python3 -c 'import json,sys; v=json.load(sys.stdin).get("result",{}).get("value",[None])[0]; print("never-seen" if v is None else (("error:"+json.dumps(v["err"])) if v.get("err") else v.get("confirmationStatus")))'; }
 # The KAN-571 series, without the common tags (application/commit/environment/service/version) and without the zero placeholders.
-kan571_metrics() { curl -fsS -m 5 "${BASE}/actuator/prometheus" | grep -E '^cryptobot_(dead_letter_open|dead_letter_total|reconciliation_total)' | grep -v ' 0.0$' \
-  | sed -E 's/(application|commit|environment|service|version)="[^"]*",?//g; s/,\}/}/; s/\{\}//' | tr '\n' ';'; }
+kan571_metrics() { { curl -fsS -m 5 "${CURL_OPTS[@]}" "${BASE}/actuator/prometheus" 2>/dev/null || echo "actuator not reachable from here (403 behind the edge is expected in UAT)"; } \
+  | grep -E '^cryptobot_(dead_letter_open|dead_letter_total|reconciliation_total)|^actuator' | grep -v ' 0.0$' \
+  | sed -E 's/(application|commit|environment|service|version)="[^"]*",?//g; s/,\}/}/; s/\{\}//' | tr '\n' ';' || true; }
 audit_types() { printf '%s' "$1" | python3 -c "import json,sys; d=json.load(sys.stdin); print(' → '.join(e['eventType'] for e in d['audit']))"; }
 audit_field() { printf '%s' "$1" | python3 -c "import json,sys; d=json.load(sys.stdin); e=[x for x in d['audit'] if x['eventType']==sys.argv[1]]; print(e[-1]['payload'].get(sys.argv[2],'') if e else '')" "$2" "$3"; }
 
@@ -326,6 +353,8 @@ if [[ -n "$CHAOS" ]]; then
     [[ $((VAULT_TXS_AFTER - VAULT_TXS_BEFORE)) -eq 1 ]] || fail "vault received $((VAULT_TXS_AFTER - VAULT_TXS_BEFORE)) transfers, expected exactly 1"
     [[ "$START_OP" == "$FINAL_OP" && "$RETRY_OP" == "$FINAL_OP" && "$FINAL_OP" == "$OPERATION_ID" ]] || fail "operationId drifted: started=${START_OP} retried=${RETRY_OP} final=${FINAL_OP} key=${OPERATION_ID}"
     ev "no double execution | on chain: signature #1 **${S1}**, signature #2 **${S2}**; vault transfers ${VAULT_TXS_BEFORE} → ${VAULT_TXS_AFTER} (**+1**); operationId identical in EXECUTION_STARTED, EXECUTION_RETRIED and the row (\`${OPERATION_ID}\`)"
+    summary DEAD_LETTER_ID "$DL_ID"; summary DEAD_LETTER_KIND "$DL_KIND"; summary REQUEUE_OUTCOME "$RQ_OUTCOME"; summary PREVIOUS_SIGNATURE "$PREV_SIG"; summary RETRIES "$RETRIES"
+    summary SIG1_ON_CHAIN "$S1"; summary SIG2_ON_CHAIN "$S2"; summary VAULT_TXS_BEFORE "$VAULT_TXS_BEFORE"; summary VAULT_TXS_AFTER "$VAULT_TXS_AFTER"
     RESP="$(api GET "/api/cryptobot/dead-letters")"; split_status
     ev "DLQ after | open=$(printf '%s' "$BODY" | jget "['open']") (GET /api/cryptobot/dead-letters)"
     METRICS="$(kan571_metrics)"
@@ -357,6 +386,7 @@ if [[ -n "$CHAOS" ]]; then
     [[ $((VAULT_TXS_AFTER - VAULT_TXS_BEFORE)) -eq 1 ]] || fail "vault received $((VAULT_TXS_AFTER - VAULT_TXS_BEFORE)) transfers, expected exactly 1"
     log "signature ${SIG1}: ${S1}; vault transfers ${VAULT_TXS_BEFORE} → ${VAULT_TXS_AFTER}"
     ev "no double execution | on chain: signature **${S1}**; vault transfers ${VAULT_TXS_BEFORE} → ${VAULT_TXS_AFTER} (**+1**); operationId \`${OPERATION_ID}\`"
+    summary RECONCILED_FROM "$RECON_FROM"; summary RETRIES "$RETRIES"; summary SIG1_ON_CHAIN "$S1"; summary VAULT_TXS_BEFORE "$VAULT_TXS_BEFORE"; summary VAULT_TXS_AFTER "$VAULT_TXS_AFTER"
     RESP="$(api GET "/api/cryptobot/dead-letters")"; split_status
     ev "DLQ after | open=$(printf '%s' "$BODY" | jget "['open']")"
     METRICS="$(kan571_metrics)"
@@ -370,6 +400,8 @@ if [[ -n "$CHAOS" ]]; then
   ev "execution | operationId \`${OPERATION_ID}\`, signature \`${SIGNATURE}\`, slot ${SLOT}, ${CONF} on chain (RPC), ${X_CONF} in the service"
   ev "explorer | ${EXPLORER}"
   ev "validator | ${VALIDATOR}"
+  summary OPERATION_ID "$OPERATION_ID"; summary SIGNATURE "$SIGNATURE"; summary SLOT "$SLOT"; summary CONFIRMATION "$CONF"; summary EXPLORER "$EXPLORER"
+  summary VALIDATOR "$VALIDATOR"; summary AUDIT "$AUDIT"; summary EXECUTED_AT "$(date +%s)"
 else
 step "7-10. execute (Idempotency-Key) → validator attests → signer signs → sendTransaction → SUBMITTED → confirm → EXECUTED"
 RESP="$(api POST "/api/cryptobot/proposals/${PROPOSAL_ID}/execute" '' -H "Idempotency-Key: ${OPERATION_ID}")"; split_status
@@ -412,6 +444,8 @@ ev "execution | operationId \`${OPERATION_ID}\`, signature \`${SIGNATURE}\`, slo
 ev "explorer | ${EXPLORER}"
 ev "validator | ${VALIDATOR}"
 ev "audit | ${AUDIT}"
+summary OPERATION_ID "$OPERATION_ID"; summary SIGNATURE "$SIGNATURE"; summary SLOT "$SLOT"; summary CONFIRMATION "$CONF"; summary EXPLORER "$EXPLORER"
+summary VALIDATOR "$VALIDATOR"; summary AUDIT "$AUDIT"; summary EXECUTED_AT "$(date +%s)"
 fi
 
 step "idempotency: the same Idempotency-Key again → same signature, no second transaction"
@@ -438,6 +472,7 @@ VALID="$(printf '%s' "$BODY" | jget "['valid']")"; SIGVALID="$(printf '%s' "$BOD
 log "receipts: ${KINDS}; EXECUTION ${RECEIPT} valid=${VALID} signatureValid=${SIGVALID}"
 ev "receipts | ${KINDS}"
 ev "receipt EXECUTION | \`${RECEIPT}\` — verify: valid=${VALID}, signatureValid=${SIGVALID}"
+summary RECEIPT_KINDS "$KINDS"; summary RECEIPT_EXECUTION "$RECEIPT"; summary RECEIPT_VALID "$VALID"; summary RECEIPT_SIGNATURE_VALID "$SIGVALID"
 
 step "12. mainnet is fail-closed in the same run (read-only mainnet wallet → paper trade → execute 409)"
 MAINNET="${CRYPTOBOT_E2E_MAINNET_WALLET:-MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr}"
@@ -455,13 +490,16 @@ if [[ "$STATUS" == "201" ]]; then
     M_MSG="$(printf '%s' "$BODY" | jget "['message']")"
     log "mainnet proposal ${M_ID}: execute → 409 — ${M_MSG}"
     ev "mainnet fail-closed | proposal \`${M_ID}\` on \`${MAINNET}\` → execute **409** — ${M_MSG}; recorded violations: ${M_VIOL}"
+    summary MAINNET "409 — ${M_MSG}"
   else
     warn "could not plan on the mainnet wallet (HTTP ${STATUS}); mainnet check skipped"
     ev "mainnet fail-closed | skipped: planning on the read-only wallet failed (HTTP ${STATUS})"
+    summary MAINNET "skipped (plan HTTP ${STATUS})"
   fi
 else
   warn "mainnet RPC/pricing unavailable (HTTP ${STATUS}); mainnet check skipped"
   ev "mainnet fail-closed | skipped: mainnet wallet registration failed (HTTP ${STATUS})"
+  summary MAINNET "skipped (register HTTP ${STATUS})"
 fi
 
 # ---- 5. evidence --------------------------------------------------------------------------------
