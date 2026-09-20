@@ -1,0 +1,116 @@
+# KAN-500 — profile of the in-process E2E of the whole chain (ChainE2EIT, `./mvnw -Pe2e-chain verify`).
+#
+# Unlike `test`, nothing is excluded: R2DBC + Flyway run against a real Postgres (Testcontainers, or
+# CRYPTOBOT_IT_PG_* when set), the R2DBC stores are the real beans (@Profile("!test")), the signer
+# and the validator are real processes (`java -jar` of their modules) and only the Solana RPC and
+# the Runtime are HTTP mocks. URLs, ports and tokens are injected by the test (@DynamicPropertySource).
+spring:
+  r2dbc:
+    pool:
+      enabled: true
+      initial-size: 1
+      max-size: 4
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+    baseline-on-migrate: true
+    validate-on-migrate: true
+
+cryptobot:
+  runtime:
+    workflow-id: crypto.market-review.v1
+  snapshot:
+    provider: deterministic-local
+  security:
+    enabled: true
+  binance:
+    base-url: http://localhost:0
+    timeout: 1s
+  monitoring:
+    enabled: false
+    symbols: BTCUSDT,SOLUSDT
+    interval: 10m
+    workflow-id: crypto.market-review.v1
+  solana:
+    rpc:
+      timeout: 5s
+  marketdata:
+    jupiter-enabled: false
+    fallback-prices:
+      SOL: 100
+      USDC: 1
+      USDT: 1
+  quotes:
+    cache-ttl: 45s
+    stale-max: 5m
+    timeout: 1s
+    exchanges:
+      bitso:
+        base-url: http://localhost:0
+      ripio:
+        base-url: http://localhost:0
+      buenbit:
+        base-url: http://localhost:0
+  execution:
+    allow-mainnet: false
+  policy:
+    execution-enabled: true
+    execution-cluster: devnet
+    max-trade-usd: 500
+    max-trade-pct-of-portfolio: 50
+    allowed-assets: SOL,USDC,USDT
+    # Three trades on the same wallet in one run: no cooldown between them.
+    cooldown: 0s
+    rebalance-vault: 9xQeWvG816bUx9EPjHmaT23yvVM2ZWbrrpZb9PusVFin
+    max-lamports-per-tx: 2000000000
+    # Same R_v as `test` (and as the validator process the test starts, pinned by this hash): $200 on a
+    # $1000 wallet is the SECOND_AGENT tier ⇒ ESCALATE ⇒ the escalated timelock applies.
+    authorization:
+      version: test-policy-v1
+      autonomous-up-to-usd: 100
+      second-agent-up-to-usd: 250
+      daily-limit-usd: 2500
+      max-asset-exposure-bps: 8000
+      max-slippage-bps: 100
+      executor-slippage-bps: 50
+      max-oracle-age: 15m
+      enabled-strategies: REBALANCE
+    # Short enough to assert the 409 inside the lock and then wait it out.
+    timelock:
+      autonomous: 0s
+      escalated: 3s
+      execution-window: 30m
+  signer:
+    enabled: true
+    timeout: 8s
+  validator:
+    enabled: true
+    timeout: 8s
+  # No background loops: the test calls tick()/sweep() explicitly and asserts what they did.
+  reliability:
+    outbox:
+      enabled: false
+    reconciliation:
+      enabled: false
+      grace: 0s
+      max-attempts: 3
+      max-retries: 1
+  chaos:
+    enabled: false
+  advisor:
+    workflow-id: crypto.portfolio-advisor.v1
+    timeout: 5s
+    poll-interval: 100ms
+  anchor:
+    enabled: false
+    cluster: devnet
+    batch-size: 64
+    max-attempts: 3
+    finality-wait: 2s
+    poll-interval: 100ms
+# lifeengine.security.jwt.secret: generated per run by the test (never a value in a file), like the
+# signer/validator tokens.
+
+logging:
+  level:
+    io.lifeengine.cryptobot: INFO

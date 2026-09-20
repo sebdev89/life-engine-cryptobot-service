@@ -113,24 +113,33 @@ public class ProposalsController {
         CryptobotPrincipal p = Principals.require(principal);
         String raw = idempotencyKey != null && !idempotencyKey.isBlank() ? idempotencyKey.trim() : body == null ? null : body.operationId();
         UUID operationId;
+        String intentHash = null;
         if (raw == null || raw.isBlank()) {
             operationId = UUID.randomUUID();
         } else {
             try {
-                operationId = operationIdOf(raw.trim());
+                intentHash = intentHashOf(raw.trim());
+                operationId = intentHash != null ? IntentHash.parse(intentHash).toOperationId() : UUID.fromString(raw.trim());
             } catch (IllegalArgumentException ex) {
                 return Mono.error(new ControlPlaneExceptions.InvalidRequest("INVALID_OPERATION_ID",
                         "Idempotency-Key / operationId must be a UUID or an intent hash sha256:<64 hex>"));
             }
         }
-        return execution.execute(p.userId(), proposalId, Principals.actor(p), operationId);
+        // KAN-500 (CB-03): the hash itself is persisted with the row (action_proposal.intent_hash), not only folded into the id.
+        return execution.execute(p.userId(), proposalId, Principals.actor(p), operationId, intentHash);
     }
 
     /** {@code sha256:…} ⇒ the intent's operationId (first 128 bits of the hash); anything else must be a UUID. */
     static UUID operationIdOf(String key) {
+        String hash = intentHashOf(key);
+        return hash != null ? IntentHash.parse(hash).toOperationId() : UUID.fromString(key);
+    }
+
+    /** The canonical {@code sha256:<64 lower-case hex>} when {@code key} is an intent hash; {@code null} when it is not one. */
+    static String intentHashOf(String key) {
         if (key.regionMatches(true, 0, IntentHash.PREFIX, 0, IntentHash.PREFIX.length())) {
-            return IntentHash.parse(key).toOperationId();
+            return IntentHash.parse(key).value();
         }
-        return UUID.fromString(key);
+        return null;
     }
 }

@@ -123,6 +123,16 @@ public class ExecutionService {
      *     different id while the proposal is in flight ⇒ 409.
      */
     public Mono<ActionProposal> execute(UUID ownerUserId, UUID proposalId, String actor, UUID operationId) {
+        return execute(ownerUserId, proposalId, actor, operationId, null);
+    }
+
+    /**
+     * KAN-500 (CB-03): when the idempotency key was an intent hash (KAN-435), {@code intentHash} is
+     * the {@code sha256:…} the caller presented and {@code operationId} derives from it. It is
+     * persisted with the row ({@code action_proposal.intent_hash}) in the commit that moves it to
+     * {@code EXECUTING} and recorded in the {@code EXECUTION_STARTED} event. {@code null} for a UUID key.
+     */
+    public Mono<ActionProposal> execute(UUID ownerUserId, UUID proposalId, String actor, UUID operationId, String intentHash) {
         return proposals.require(ownerUserId, proposalId).flatMap(p -> {
             if (operationId.equals(p.operationId())) {
                 return suppressDuplicate(p, actor);
@@ -137,7 +147,7 @@ public class ExecutionService {
             }
             return wallets.require(ownerUserId, p.walletId())
                     .flatMap(wallet -> requireClusterAllowed(p, wallet))
-                    .flatMap(wallet -> start(p, operationId, actor)
+                    .flatMap(wallet -> start(p, operationId, intentHash, actor)
                             .flatMap(executing -> executing.operationId().equals(operationId) && executing.status() == ProposalStatus.EXECUTING
                                     && executing.execution() == null
                                     ? run(executing, wallet, actor)
@@ -200,11 +210,12 @@ public class ExecutionService {
      * else moved the row: re-read, and if it is our own operation (the same click arrived twice at
      * once) hand the winner's row back instead of failing.
      */
-    private Mono<ActionProposal> start(ActionProposal p, UUID operationId, String actor) {
+    private Mono<ActionProposal> start(ActionProposal p, UUID operationId, String intentHash, String actor) {
         Instant now = clock.instant();
-        ActionProposal executing = p.withOperation(operationId, now).withStatus(ProposalStatus.EXECUTING, now);
+        ActionProposal executing = p.withOperation(operationId, intentHash, now).withStatus(ProposalStatus.EXECUTING, now);
         return proposals.commit(ProposalTransition.from(p, executing)
-                        .audit(audit.event(p.ownerUserId(), p.walletId(), p.id(), EV_STARTED, actor, ProposalService.payload("operationId", operationId))))
+                        .audit(audit.event(p.ownerUserId(), p.walletId(), p.id(), EV_STARTED, actor,
+                                ProposalService.payload("operationId", operationId, "intentHash", intentHash))))
                 .onErrorResume(ControlPlaneExceptions.StaleProposal.class, stale -> proposals.require(p.ownerUserId(), p.id())
                         .flatMap(fresh -> operationId.equals(fresh.operationId()) ? suppressDuplicate(fresh, actor) : Mono.error(stale)));
     }

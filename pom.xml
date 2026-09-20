@@ -13,11 +13,24 @@
     <properties>
         <java.version>21</java.version>
         <spring.boot.version>3.4.2</spring.boot.version>
+        <testcontainers.version>1.21.4</testcontainers.version>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     </properties>
 
     <dependencyManagement>
         <dependencies>
+            <!--
+              KAN-500: the Testcontainers BOM is imported BEFORE Spring Boot's dependencies so its newer
+              versions win over Boot 3.4.2's bundled 1.20.4, whose docker-java speaks API 1.32 and is
+              refused by Docker Engine 25+ ("client version 1.32 is too old"). Same pin as life-engine-runtime.
+            -->
+            <dependency>
+                <groupId>org.testcontainers</groupId>
+                <artifactId>testcontainers-bom</artifactId>
+                <version>${testcontainers.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
             <dependency>
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-dependencies</artifactId>
@@ -106,6 +119,12 @@
             <groupId>com.squareup.okhttp3</groupId>
             <artifactId>mockwebserver</artifactId>
             <version>4.12.0</version>
+            <scope>test</scope>
+        </dependency>
+        <!-- KAN-500: the in-process chain E2E (ChainE2EIT, profile e2e-chain) migrates and runs on a throwaway Postgres. -->
+        <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>postgresql</artifactId>
             <scope>test</scope>
         </dependency>
     </dependencies>
@@ -219,6 +238,51 @@
                                 <include>**/e2e/*IT.java</include>
                             </includes>
                             <trimStackTrace>false</trimStackTrace>
+                        </configuration>
+                        <executions>
+                            <execution>
+                                <goals>
+                                    <goal>integration-test</goal>
+                                    <goal>verify</goal>
+                                </goals>
+                            </execution>
+                        </executions>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+
+        <!--
+          KAN-500 — the whole chain in one JVM-driven test, nothing stubbed inside the service:
+          real Spring context on the real R2DBC stores (Postgres via Testcontainers, or CRYPTOBOT_IT_PG_*),
+          cryptobot-validator and cryptobot-signer as real processes (their jars must be packaged first),
+          Solana RPC and Runtime mocked at the HTTP level. Surefire never picks *IT up; Failsafe does, here:
+            ./mvnw -f validator/pom.xml -DskipTests package && ./mvnw -f signer/pom.xml -DskipTests package
+            ./mvnw -Pe2e-chain verify
+        -->
+        <profile>
+            <id>e2e-chain</id>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-surefire-plugin</artifactId>
+                        <configuration>
+                            <skip>true</skip>
+                        </configuration>
+                    </plugin>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-failsafe-plugin</artifactId>
+                        <version>3.5.2</version>
+                        <configuration>
+                            <includes>
+                                <include>**/e2e/chain/*IT.java</include>
+                            </includes>
+                            <trimStackTrace>false</trimStackTrace>
+                            <!-- `verify` runs after spring-boot:repackage turned target/*.jar into a BOOT-INF fat jar
+                                 that is not a classpath entry; the IT needs the plain classes. -->
+                            <classesDirectory>${project.build.outputDirectory}</classesDirectory>
                         </configuration>
                         <executions>
                             <execution>
