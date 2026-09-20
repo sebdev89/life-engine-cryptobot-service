@@ -104,7 +104,8 @@ public class OutboxPublisher {
                         DeadLetter letter = DeadLetter.of(DeadLetter.Source.OUTBOX, e.id(),
                                 OutboxEvent.AGGREGATE_PROPOSAL.equals(e.aggregateType()) ? e.aggregateId() : null, e.ownerUserId(),
                                 "Outbox delivery failed after " + attempt + " attempts: " + error,
-                                Map.of("eventType", e.eventType(), "aggregateType", e.aggregateType()), clock.instant());
+                                Map.of("eventType", e.eventType(), "aggregateType", e.aggregateType(), "kind", "outbox"), clock.instant());
+                        metrics.deadLetter("outbox");
                         return Mono.just(new OutboxRepository.Outcome.Dead(letter, error));
                     }
                     Instant next = clock.instant().plus(backoff(attempt));

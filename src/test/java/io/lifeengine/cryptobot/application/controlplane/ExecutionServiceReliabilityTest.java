@@ -40,9 +40,9 @@ class ExecutionServiceReliabilityTest {
 
     private final ExecutionHarness h = new ExecutionHarness();
     private final ReliabilityProperties props = new ReliabilityProperties(null,
-            new ReliabilityProperties.Reconciliation(true, Duration.ofSeconds(30), Duration.ofMinutes(2), 3, 100));
+            new ReliabilityProperties.Reconciliation(true, Duration.ofSeconds(30), Duration.ofMinutes(2), 3, 100, null));
     private final ReconciliationService reconciliation = new ReconciliationService(h.repo, InMemoryControlPlaneRepositories.deadLetters(),
-            h.rpc, h.audit, h.metrics, props, h.executionReceipts);
+            h.rpc, h.audit, h.metrics, props, h.executionReceipts, h.service);
 
     @Test
     @DisplayName("double POST with the same operationId: one sendTransaction, same result, duplicate counted")
@@ -198,8 +198,12 @@ class ExecutionServiceReliabilityTest {
     }
 
     @Test
-    @DisplayName("SUBMITTED but never seen and blockhash expired: FAILED without retry, and counted as a mismatch")
-    void submittedNeverSeenAndExpiredFailsWithoutRetry() {
+    @DisplayName("SUBMITTED but never seen and blockhash expired, retries disabled: dead-lettered (retries_exhausted), counted as a mismatch, never re-sent")
+    void submittedNeverSeenAndExpiredWithoutRetriesIsDeadLettered() {
+        ReliabilityProperties noRetries = new ReliabilityProperties(null,
+                new ReliabilityProperties.Reconciliation(true, Duration.ofSeconds(30), Duration.ofMinutes(2), 3, 100, 0));
+        ReconciliationService strict = new ReconciliationService(h.repo, InMemoryControlPlaneRepositories.deadLetters(), h.rpc, h.audit, h.metrics, noRetries,
+                h.executionReceipts, h.service);
         String sig = h.signerSignsForReal();
         when(h.rpc.sendTransaction(eq(SolanaCluster.DEVNET), anyString())).thenReturn(Mono.just(sig));
         when(h.rpc.getSignatureStatus(eq(SolanaCluster.DEVNET), eq(sig)))
@@ -208,12 +212,15 @@ class ExecutionServiceReliabilityTest {
         when(h.rpc.getBlockHeight(SolanaCluster.DEVNET)).thenReturn(Mono.just(1001L)); // > lastValidBlockHeight 1000
 
         h.service.execute(h.wallet.ownerUserId(), h.approved.id(), "op", UUID.randomUUID()).block();
-        assertThat(reconciliation.reconcile(h.current()).block()).isEqualTo(ReconciliationService.Result.CORRECTED);
+        assertThat(strict.reconcile(h.current()).block()).isEqualTo(ReconciliationService.Result.DEAD_LETTERED);
 
         ActionProposal after = h.current();
-        assertThat(after.status()).isEqualTo(ProposalStatus.FAILED);
-        assertThat(after.execution().error()).contains("blockhash expired").contains("not retried");
+        assertThat(after.status()).isEqualTo(ProposalStatus.SUBMITTED); // the truth we have; a human decides (KAN-571)
+        assertThat(after.execution().error()).contains("blockhash expired").contains("0 idempotent retries exhausted");
+        assertThat(InMemoryControlPlaneRepositories.DEAD_LETTERS).hasSize(1);
+        assertThat(InMemoryControlPlaneRepositories.DEAD_LETTERS.get(0).payload()).containsEntry("kind", ReconciliationService.KIND_RETRIES_EXHAUSTED);
         assertThat(h.count("reconciliation.mismatch")).isEqualTo(1);
+        assertThat(h.count("cryptobot.dead.letter", "reason", "retries_exhausted")).isEqualTo(1);
         verify(h.rpc, times(1)).sendTransaction(eq(SolanaCluster.DEVNET), anyString());
     }
 
@@ -271,12 +278,12 @@ class ExecutionServiceReliabilityTest {
 
         // "now" is right after the request: inside the 2-minute grace ⇒ untouched.
         ReconciliationService young = new ReconciliationService(h.repo, InMemoryControlPlaneRepositories.deadLetters(), h.rpc, h.audit, h.metrics, props, h.executionReceipts,
-                Clock.fixed(h.current().updatedAt().plusSeconds(10), ZoneOffset.UTC));
+                h.service, Clock.fixed(h.current().updatedAt().plusSeconds(10), ZoneOffset.UTC));
         assertThat(young.sweep().block()).isZero();
         assertThat(h.current().status()).isEqualTo(ProposalStatus.SUBMITTED);
 
         ReconciliationService old = new ReconciliationService(h.repo, InMemoryControlPlaneRepositories.deadLetters(), h.rpc, h.audit, h.metrics, props, h.executionReceipts,
-                Clock.fixed(h.current().updatedAt().plus(Duration.ofMinutes(3)), ZoneOffset.UTC));
+                h.service, Clock.fixed(h.current().updatedAt().plus(Duration.ofMinutes(3)), ZoneOffset.UTC));
         assertThat(old.sweep().block()).isEqualTo(1);
         assertThat(h.current().status()).isEqualTo(ProposalStatus.EXECUTED);
     }

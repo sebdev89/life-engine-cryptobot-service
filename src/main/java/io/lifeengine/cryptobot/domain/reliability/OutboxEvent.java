@@ -53,6 +53,11 @@ public record OutboxEvent(
         return new OutboxEvent(id, aggregateType, aggregateId, ownerUserId, eventType, payload, Status.PENDING, attempts + 1, next, error, createdAt, null);
     }
 
+    /** KAN-571: back to the publisher after a human requeue — PENDING, attempts reset, due now. */
+    public OutboxEvent requeued(Instant now) {
+        return new OutboxEvent(id, aggregateType, aggregateId, ownerUserId, eventType, payload, Status.PENDING, 0, now, null, createdAt, null);
+    }
+
     public OutboxEvent failed(String error) {
         return new OutboxEvent(id, aggregateType, aggregateId, ownerUserId, eventType, payload, Status.FAILED, attempts + 1, nextAttemptAt, error, createdAt, null);
     }

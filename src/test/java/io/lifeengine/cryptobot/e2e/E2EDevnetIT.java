@@ -60,6 +60,7 @@ import org.junit.jupiter.api.TestInstance;
  * </ul>
  */
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
+@org.junit.jupiter.api.TestMethodOrder(org.junit.jupiter.api.MethodOrderer.OrderAnnotation.class)
 class E2EDevnetIT {
 
     private static final ObjectMapper JSON = new ObjectMapper();
@@ -102,6 +103,7 @@ class E2EDevnetIT {
     }
 
     @Test
+    @org.junit.jupiter.api.Order(1)
     @DisplayName("devnet: intent → policy → approval → timelock → validator → signer → submit → confirmed → receipt, and the signature is on the chain")
     void realExecutionEndToEnd() throws Exception {
         // 0. Register the wallet the signer controls; the portfolio is valued from the real chain.
@@ -222,6 +224,7 @@ class E2EDevnetIT {
     }
 
     @Test
+    @org.junit.jupiter.api.Order(2)
     @DisplayName("mainnet is fail-closed in the same run: a mainnet intent never executes (409) and is recorded as such")
     void mainnetIntentIsRefused() throws Exception {
         String mainnet = env.getOrDefault("CRYPTOBOT_E2E_MAINNET_WALLET", MEMO_PROGRAM);
@@ -246,6 +249,152 @@ class E2EDevnetIT {
         assertThat(after.path("status").asText()).isNotIn("EXECUTING", "SUBMITTED", "EXECUTED");
         assertThat(after.path("execution").isNull()).isTrue();
         evidence.add("mainnet: proposal " + proposalId + " on " + mainnet + " → execute 409 \"" + refused.path("message").asText() + "\"; violations=" + violations);
+    }
+
+    /**
+     * KAN-571 (HK-3) — recovery, for real: the RPC "goes down" at broadcast time (fault injected
+     * through the demo-only chaos endpoint), the row stays in flight with its signature, the
+     * reconciler gets no verdict and dead-letters the trade, a human requeues it by API, the
+     * expired-unseen signature is retried under the SAME operationId with a NEW signature, the
+     * trade ends EXECUTED — and the chain, asked directly, holds exactly one transfer to the vault.
+     * Runs when the stack has chaos enabled ({@code docker-compose.demo.yml} does) unless
+     * {@code CRYPTOBOT_E2E_CHAOS=off}.
+     */
+    @Test
+    @org.junit.jupiter.api.Order(3)
+    @DisplayName("chaos rpc-down: uncertain broadcast → no verdict → dead letter → requeue → idempotent retry (same operationId, new signature) → EXECUTED, one tx on chain")
+    void injectedFailureIsRecoveredWithoutDoubleExecution() throws Exception {
+        assumeTrue(!"off".equalsIgnoreCase(env.getOrDefault("CRYPTOBOT_E2E_CHAOS", "rpc-down")), "CRYPTOBOT_E2E_CHAOS=off");
+        JsonNode chaos = request("GET", "/api/cryptobot/demo/chaos", null, null);
+        assumeTrue(chaos.path("_status").asInt() == 200, "chaos endpoint not available (CRYPTOBOT_CHAOS_ENABLED is not true on this stack)");
+        String vault = env.get("CRYPTOBOT_REBALANCE_VAULT");
+        assumeTrue(vault != null && !vault.isBlank(), "no CRYPTOBOT_REBALANCE_VAULT in .env.demo");
+
+        // Intent → approval → timelock, as in the happy path.
+        JsonNode registered = post("/api/cryptobot/wallets", Map.of("address", wallet, "cluster", "devnet", "label", "KAN-571 e2e chaos"), null, 201);
+        String walletId = registered.path("wallet").path("id").asText();
+        JsonNode sol = positionOf(registered.path("snapshot"), "SOL");
+        assertThat(sol).isNotNull();
+        double amount = sol.path("amount").asDouble();
+        double sellSol = Math.max(0.21 * amount, Math.min(Double.parseDouble(env.getOrDefault("CRYPTOBOT_E2E_SELL_SOL", "1")), 0.4 * amount));
+        assertThat(sellSol).isLessThanOrEqualTo(2.0);
+        int targetPct = (int) (sol.path("weightPct").asDouble() * (1 - sellSol / amount));
+        // The happy-path test just traded on this wallet: the COOLDOWN rule (60 s) blocks a second trade until it elapses.
+        JsonNode proposed = null;
+        for (int attempt = 0; attempt < 8; attempt++) {
+            proposed = post("/api/cryptobot/wallets/" + walletId + "/proposals",
+                    Map.of("kind", "REBALANCE", "targetWeights", Map.of("SOL", targetPct), "reasoningSummary", "KAN-571 e2e chaos"), null, 201);
+            if (proposed.path("proposal").path("policy").path("executable").asBoolean()) {
+                break;
+            }
+            String violations = proposed.path("proposal").path("policy").path("violations").toString() + proposed.path("proposal").path("policy").path("executionViolations");
+            assertThat(violations).as("only the cooldown may block the chaos trade: " + violations).contains("COOLDOWN");
+            Thread.sleep(10_000);
+        }
+        String proposalId = proposed.path("proposal").path("id").asText();
+        assertThat(proposed.path("proposal").path("policy").path("executable").asBoolean())
+                .as("executable; policy=" + proposed.path("proposal").path("policy")).isTrue();
+        JsonNode approved = post("/api/cryptobot/proposals/" + proposalId + "/approve", Map.of("note", "e2e: ok"), null, 200);
+        Instant executableAt = Instant.parse(approved.path("approval").path("executableAt").asText());
+        Thread.sleep(Math.max(0, Duration.between(Instant.now(), executableAt).toMillis() + 500));
+        int vaultTxsBefore = vaultTransfers(vault);
+
+        // 1. Inject: the RPC is down for sendTransaction / getSignatureStatuses / getBlockHeight until we say otherwise.
+        JsonNode armed = request("PUT", "/api/cryptobot/demo/chaos", Map.of("broadcast", "rpc-down", "shots", -1), null);
+        assertThat(armed.path("_status").asInt()).isEqualTo(200);
+        assertThat(armed.path("armed").asBoolean()).isTrue();
+        try {
+            // 2. Execute under the fault: HTTP 200, row EXECUTING + SIGNED, signature persisted, EXECUTION_BROADCAST_UNCERTAIN.
+            UUID operationId = UUID.randomUUID();
+            JsonNode executed = request("POST", "/api/cryptobot/proposals/" + proposalId + "/execute", null, Map.of("Idempotency-Key", operationId.toString()));
+            assertThat(executed.path("_status").asInt()).as("execute: " + executed).isEqualTo(200);
+            assertThat(executed.path("status").asText()).isEqualTo("EXECUTING");
+            assertThat(executed.path("execution").path("status").asText()).isEqualTo("SIGNED");
+            String signature1 = executed.path("execution").path("signature").asText();
+            assertThat(signature1).matches("[1-9A-HJ-NP-Za-km-z]{86,88}");
+            JsonNode afterFault = get("/api/cryptobot/proposals/" + proposalId, null);
+            List<String> types = new ArrayList<>();
+            afterFault.path("audit").forEach(e -> types.add(e.path("eventType").asText()));
+            assertThat(types).containsSubsequence("EXECUTION_STARTED", "EXECUTION_VALIDATED", "EXECUTION_SIGNED", "EXECUTION_BROADCAST_UNCERTAIN");
+            JsonNode faults = request("GET", "/api/cryptobot/demo/chaos", null, null).path("faults");
+            assertThat(faults.size()).isGreaterThanOrEqualTo(1);
+            assertThat(faults.get(0).path("method").asText()).isEqualTo("sendTransaction");
+            evidence.add("chaos: rpc-down armed; execute → EXECUTING/SIGNED signature1=" + signature1 + " audit=" + types);
+
+            // 3. No verdict ⇒ dead letter (ambiguous), visible in the global DLQ and in the metrics.
+            JsonNode letter = waitForDeadLetter(proposalId, Duration.ofSeconds(300));
+            String letterId = letter.path("id").asText();
+            assertThat(letter.path("source").asText()).isEqualTo("RECONCILIATION");
+            assertThat(letter.path("payload").path("kind").asText()).isEqualTo("ambiguous");
+            assertThat(letter.path("reason").asText()).contains("No verdict after").contains("RPC unavailable");
+            assertThat(letter.path("resolvedAt").isNull()).isTrue();
+            String metrics = prometheus();
+            assertThat(metrics).containsPattern("cryptobot_dead_letter_open\\{[^}]*\\} [1-9]");
+            assertThat(metrics).containsPattern("cryptobot_dead_letter_total\\{[^}]*reason=\"ambiguous\"[^}]*\\} [1-9]");
+            evidence.add("dead letter " + letterId + " kind=ambiguous reason=\"" + letter.path("reason").asText() + "\"");
+
+            // 4. The RPC comes back; a human requeues by API. One-shot: the second requeue is a 409.
+            assertThat(request("DELETE", "/api/cryptobot/demo/chaos", null, null).path("armed").asBoolean()).isFalse();
+            JsonNode requeued = request("POST", "/api/cryptobot/dead-letters/" + letterId + "/requeue", Map.of("note", "e2e: rpc is back"), null);
+            assertThat(requeued.path("_status").asInt()).as("requeue: " + requeued).isEqualTo(200);
+            assertThat(requeued.path("deadLetter").path("outcome").asText()).isEqualTo("REQUEUED");
+            assertThat(requeued.path("deadLetter").path("resolvedBy").asText()).isEqualTo("e2e@demo.local");
+            assertThat(requeued.path("deadLetter").path("resolvedAt").asText()).isNotBlank();
+            assertThat(requeued.path("reconciliation").asText()).isIn("RETRIED", "MATCHED", "CORRECTED");
+            JsonNode again = request("POST", "/api/cryptobot/dead-letters/" + letterId + "/requeue", Map.of("note", "double click"), null);
+            assertThat(again.path("_status").asInt()).isEqualTo(409);
+            evidence.add("requeue → " + requeued.path("reconciliation").asText() + " (resolvedBy " + requeued.path("deadLetter").path("resolvedBy").asText() + "); replay → 409");
+
+            // 5. Final state: EXECUTED under the same operationId with a NEW signature; the first one is recorded as superseded.
+            JsonNode terminal = waitForStatus(proposalId, "EXECUTED", Duration.ofSeconds(300));
+            JsonNode proposal = terminal.path("proposal");
+            String signature2 = proposal.path("execution").path("signature").asText();
+            assertThat(proposal.path("operationId").asText()).isEqualTo(operationId.toString());
+            assertThat(signature2).isNotEqualTo(signature1);
+            assertThat(proposal.path("execution").path("previousSignature").asText()).isEqualTo(signature1);
+            assertThat(proposal.path("execution").path("retries").asInt()).isEqualTo(1);
+            types.clear();
+            terminal.path("audit").forEach(e -> types.add(e.path("eventType").asText()));
+            assertThat(types).containsSubsequence("EXECUTION_BROADCAST_UNCERTAIN", "RECONCILIATION_AMBIGUOUS", "DEAD_LETTER_REQUEUED", "EXECUTION_RETRIED",
+                    "EXECUTION_VALIDATED", "EXECUTION_SIGNED", "EXECUTION_SUBMITTED", "EXECUTED");
+            JsonNode retried = eventOf(terminal.path("audit"), "EXECUTION_RETRIED").path("payload");
+            assertThat(retried.path("operationId").asText()).isEqualTo(operationId.toString());
+            assertThat(retried.path("previousSignature").asText()).isEqualTo(signature1);
+            assertThat(retried.path("signature").asText()).isEqualTo(signature2);
+
+            // 6. No double execution — the chain, not the service: signature1 never existed, signature2 is confirmed, the vault got exactly one transfer.
+            JsonNode s1 = rpc("getSignatureStatuses", List.of(List.of(signature1), Map.of("searchTransactionHistory", true))).path("result").path("value").get(0);
+            assertThat(s1 == null || s1.isNull()).as("signature1 must never be on the chain: " + s1).isTrue();
+            JsonNode s2 = waitForChain(signature2);
+            assertThat(s2.path("err").isNull()).isTrue();
+            assertThat(s2.path("confirmationStatus").asText()).isIn("confirmed", "finalized");
+            int vaultTxsAfter = vaultTransfers(vault);
+            assertThat(vaultTxsAfter - vaultTxsBefore).as("transfers into the vault during this operation").isEqualTo(1);
+            // The client's replay of the same key after all that: same row, same (second) signature.
+            JsonNode replay = request("POST", "/api/cryptobot/proposals/" + proposalId + "/execute", null, Map.of("Idempotency-Key", operationId.toString()));
+            assertThat(replay.path("_status").asInt()).isEqualTo(200);
+            assertThat(replay.path("execution").path("signature").asText()).isEqualTo(signature2);
+            JsonNode dlq = get("/api/cryptobot/dead-letters?proposalId=" + proposalId + "&resolved=false", null);
+            assertThat(dlq.path("deadLetters").size()).as("no open letter left for this proposal (other runs may have left theirs)").isZero();
+            assertThat(get("/api/cryptobot/proposals/" + proposalId + "/events", null).path("deadLetters").get(0).path("outcome").asText()).isEqualTo("REQUEUED");
+            String after = prometheus();
+            assertThat(after).containsPattern("cryptobot_reconciliation_total\\{[^}]*outcome=\"retried\"[^}]*\\} [1-9]");
+            assertThat(after).containsPattern("cryptobot_dead_letter_total\\{[^}]*reason=\"requeued\"[^}]*\\} [1-9]");
+            // Only one EXECUTION receipt, nonce = the one operation.
+            int executionReceipts = 0;
+            for (JsonNode r : get("/api/cryptobot/proposals/" + proposalId + "/receipts", null)) {
+                if ("EXECUTION".equals(r.path("body").path("kind").asText())) {
+                    executionReceipts++;
+                    assertThat(r.path("body").path("nonce").asText()).isEqualTo("exec:" + operationId);
+                }
+            }
+            assertThat(executionReceipts).isEqualTo(1);
+            evidence.add("recovered: proposalId=" + proposalId + " operationId=" + operationId + " signature1=" + signature1 + " (never on chain) signature2=" + signature2
+                    + " (" + s2.path("confirmationStatus").asText() + ", slot " + s2.path("slot").asText() + ") vaultTransfers " + vaultTxsBefore + "→" + vaultTxsAfter
+                    + " audit=" + types);
+        } finally {
+            request("DELETE", "/api/cryptobot/demo/chaos", null, null); // never leave the stack faulted
+        }
     }
 
     @org.junit.jupiter.api.AfterAll
@@ -377,6 +526,36 @@ class E2EDevnetIT {
 
     private long balance(String address) throws IOException, InterruptedException {
         return rpc("getBalance", List.of(address)).path("result").path("value").asLong(0);
+    }
+
+    /** The dead letter of a proposal, once the reconciler writes it (KAN-571). */
+    private JsonNode waitForDeadLetter(String proposalId, Duration max) throws IOException, InterruptedException {
+        Instant deadline = Instant.now().plus(max);
+        JsonNode last = null;
+        while (Instant.now().isBefore(deadline)) {
+            last = get("/api/cryptobot/dead-letters?proposalId=" + proposalId + "&resolved=all", null);
+            if (last.path("deadLetters").size() > 0) {
+                return last.path("deadLetters").get(0);
+            }
+            Thread.sleep(3000);
+        }
+        throw new AssertionError("no dead letter for " + proposalId + " within " + max + "; last=" + last);
+    }
+
+    private String prometheus() throws IOException, InterruptedException {
+        HttpRequest req = HttpRequest.newBuilder(URI.create(baseUrl + "/actuator/prometheus")).timeout(Duration.ofSeconds(10)).GET().build();
+        return HTTP.send(req, HttpResponse.BodyHandlers.ofString()).body();
+    }
+
+    /** Confirmed, non-failed transactions that touched {@code address} — for the vault, one per executed transfer. */
+    private int vaultTransfers(String address) throws IOException, InterruptedException {
+        int n = 0;
+        for (JsonNode s : rpc("getSignaturesForAddress", List.of(address, Map.of("limit", 1000, "commitment", "confirmed"))).path("result")) {
+            if (s.path("err").isNull()) {
+                n++;
+            }
+        }
+        return n;
     }
 
     private JsonNode waitForChain(String signature) throws IOException, InterruptedException {

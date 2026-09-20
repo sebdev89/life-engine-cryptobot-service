@@ -52,6 +52,11 @@ import reactor.util.retry.Retry;
  *       transport error or timeout on broadcast, or any error while polling for confirmation,
  *       leaves the row in flight for reconciliation — a retry here would be the double trade
  *       Solana only protects against while the blockhash lives (~90 s).
+ *   <li><b>Idempotent retry (KAN-571).</b> Once that blockhash has expired and the chain has never
+ *       seen the signature, the transaction can no longer land: {@link #retry} runs the pipeline
+ *       again under the <em>same</em> {@code operationId} — fresh blockhash, re-simulation, a new
+ *       attestation, a new signature — and records {@code EXECUTION_RETRIED} with the superseded
+ *       signature. Only the {@code ReconciliationService} calls it, and only after proving that.
  * </ul>
  *
  * <h2>Mainnet is fail-closed (KAN-493)</h2>
@@ -71,6 +76,8 @@ public class ExecutionService {
     public static final String EV_SIGNED = "EXECUTION_SIGNED";
     public static final String EV_SUBMITTED = "EXECUTION_SUBMITTED";
     public static final String EV_BROADCAST_UNCERTAIN = "EXECUTION_BROADCAST_UNCERTAIN";
+    /** KAN-571: the reconciler re-executed the operation (same operationId) after the previous signature's blockhash expired unseen. */
+    public static final String EV_RETRIED = "EXECUTION_RETRIED";
     public static final String EV_CONFIRMATION_PENDING = "EXECUTION_CONFIRMATION_PENDING";
     public static final String EV_DUPLICATE_SUPPRESSED = "EXECUTION_DUPLICATE_SUPPRESSED";
     public static final String EV_EXECUTED = "EXECUTED";
@@ -161,6 +168,27 @@ public class ExecutionService {
         return Mono.just(wallet);
     }
 
+    /**
+     * KAN-571: the reconciler's idempotent retry. Preconditions the caller proved against the
+     * chain: the row is in flight ({@code EXECUTING}/{@code SUBMITTED}) with a signature that was
+     * never seen and whose blockhash has expired, so the previous bytes can never be included.
+     * The operation keeps its {@code operationId}; the first commit ({@code SIGNED} with the new
+     * signature) is guarded by the version the caller read, so a live request or a second
+     * reconciler cannot retry the same row twice.
+     */
+    public Mono<ActionProposal> retry(ActionProposal p, String actor) {
+        if (!p.status().inFlight() || p.execution() == null || !p.execution().hasSignature() || p.operationId() == null) {
+            return Mono.error(new ControlPlaneExceptions.Conflict("Proposal " + p.id() + " is not an in-flight signed execution; nothing to retry"));
+        }
+        return wallets.require(p.ownerUserId(), p.walletId())
+                .flatMap(wallet -> requireClusterAllowed(p, wallet))
+                .flatMap(wallet -> {
+                    log.warn("execution_retry proposalId={} operationId={} retry={} previousSignature={}", p.id(), p.operationId(),
+                            p.execution().retries() + 1, p.execution().signature());
+                    return run(p, wallet, actor, true);
+                });
+    }
+
     private Mono<ActionProposal> suppressDuplicate(ActionProposal p, String actor) {
         metrics.duplicateTradeSuppressed();
         log.info("execution_duplicate_suppressed proposalId={} operationId={} status={}", p.id(), p.operationId(), p.status());
@@ -188,6 +216,11 @@ public class ExecutionService {
     private record Step(ActionProposal proposal, Signed signed) {}
 
     private Mono<ActionProposal> run(ActionProposal executing, Wallet wallet, String actor) {
+        return run(executing, wallet, actor, false);
+    }
+
+    /** {@code retry}: the row already carries a superseded signature (KAN-571); the SIGNED commit records the retry. */
+    private Mono<ActionProposal> run(ActionProposal executing, Wallet wallet, String actor, boolean retry) {
         long lamports = executing.transaction().lamports();
         String asset = ProposalService.assetOf(executing.plan());
         // Which step of the pipeline we are in, so a failure is counted where it happened
@@ -216,7 +249,7 @@ public class ExecutionService {
                 .flatMap(a -> signer.sign(executing.id(), a.tx().unsignedTransactionBase64(), wallet.address(), wallet.cluster(), a.attestation().attestation())
                         .map(resp -> verifySigned(a.tx(), resp, wallet, a.attestation())))
                 // 5. Persist the signature BEFORE broadcasting: from here on a crash is reconcilable.
-                .flatMap(signed -> persistSigned(executing, signed, wallet, actor).map(s -> new Step(s, signed)))
+                .flatMap(signed -> persistSigned(executing, signed, wallet, actor, retry).map(s -> new Step(s, signed)))
                 // Anything up to here failed before the chain could have seen the transaction: safe to FAILED.
                 .onErrorResume(ex -> fail(executing, actor, ex, stage.get(), asset).map(p -> new Step(p, null)))
                 .flatMap(step -> step.signed() == null ? Mono.just(step.proposal()) : broadcast(step.proposal(), step.signed(), wallet, actor, asset));
@@ -242,12 +275,27 @@ public class ExecutionService {
         return new Signed(tx, resp.signedTransactionBase64(), resp.signer(), Base58.encode(signature), attestation);
     }
 
-    private Mono<ActionProposal> persistSigned(ActionProposal executing, Signed signed, Wallet wallet, String actor) {
+    private Mono<ActionProposal> persistSigned(ActionProposal executing, Signed signed, Wallet wallet, String actor, boolean retry) {
         Instant now = clock.instant();
-        ExecutionRecord rec = new ExecutionRecord(ExecutionRecord.SIGNED, signed.signature(), wallet.cluster().explorerTxUrl(signed.signature()),
-                signed.signer(), null, null, null, null, signed.tx().recentBlockhash(), signed.tx().lastValidBlockHeight(), 0, null);
+        String explorer = wallet.cluster().explorerTxUrl(signed.signature());
+        ExecutionRecord prev = executing.execution();
+        ExecutionRecord rec = retry
+                ? prev.retriedWith(signed.signature(), explorer, signed.signer(), signed.tx().recentBlockhash(), signed.tx().lastValidBlockHeight())
+                : new ExecutionRecord(ExecutionRecord.SIGNED, signed.signature(), explorer,
+                        signed.signer(), null, null, null, null, signed.tx().recentBlockhash(), signed.tx().lastValidBlockHeight(), 0, null);
         ValidatorClient.Response att = signed.attestation();
-        return proposals.commit(ProposalTransition.from(executing, executing.withExecution(rec, now))
+        ActionProposal next = executing.withExecution(rec, now);
+        if (retry && executing.status() == ProposalStatus.SUBMITTED) {
+            next = next.withStatus(ProposalStatus.EXECUTING, now); // back in the signed-not-broadcast state, under the same operation
+        }
+        ProposalTransition transition = ProposalTransition.from(executing, next);
+        if (retry) {
+            transition = transition.audit(audit.event(executing.ownerUserId(), executing.walletId(), executing.id(), EV_RETRIED, actor,
+                    ProposalService.payload("operationId", executing.operationId(), "retry", rec.retries(), "previousSignature", prev.signature(),
+                            "previousBlockhash", prev.recentBlockhash(), "previousLastValidBlockHeight", prev.lastValidBlockHeight(),
+                            "signature", signed.signature(), "reason", "blockhash expired; signature never seen on chain")));
+        }
+        return proposals.commit(transition
                 .audit(audit.event(executing.ownerUserId(), executing.walletId(), executing.id(), EV_VALIDATED, actor,
                                 ProposalService.payload("validator", att.attestation().validator(), "decision", att.decision(), "escalation", att.escalation(),
                                         "policyHash", att.policyHash(), "verdictHash", att.verdictHash(), "inputHash", att.inputHash(),

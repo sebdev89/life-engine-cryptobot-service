@@ -37,4 +37,13 @@ public interface OutboxRepository {
     Flux<OutboxEvent> findByAggregate(UUID aggregateId);
 
     Mono<Long> countByStatus(OutboxEvent.Status status);
+
+    Mono<OutboxEvent> findById(UUID id);
+
+    /**
+     * KAN-571 / KAN-501: a human gives a {@code FAILED} event back to the publisher — {@code PENDING},
+     * attempts reset, due now. Only a FAILED event moves; empty otherwise (already requeued, or never
+     * failed), so a replayed requeue is a no-op the caller reports as 409.
+     */
+    Mono<OutboxEvent> requeue(UUID id, Instant now);
 }

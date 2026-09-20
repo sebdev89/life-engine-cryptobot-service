@@ -45,6 +45,10 @@ import java.util.concurrent.atomic.AtomicLong;
  *   outbox.pending                → outbox_pending          (gauge)       PENDING outbox rows, refreshed every publisher tick
  *   outbox.failed                 → outbox_failed           (gauge)       retries exhausted (each one has a dead letter)
  *   dlq.size                      → dlq_size                (gauge)       unresolved dead letters — > 0 is the alert
+ *   --- KAN-571 (reconciliación + recovery visibles; KAN-501 DLQ resolve/requeue) ---
+ *   cryptobot.reconciliation      → cryptobot_reconciliation_total{outcome}  matched | corrected | retried | dead_lettered | skipped (one per row looked at)
+ *   cryptobot.dead.letter         → cryptobot_dead_letter_total{reason}      ambiguous | retries_exhausted | inconsistent | outbox (created) — and resolved | requeued (closed)
+ *   cryptobot.dead.letter.open    → cryptobot_dead_letter_open (gauge)       = dlq_size under the product's name; falls when a letter is resolved or requeued
  *   --- KAN-440 (authority layer: the deterministic verdict, what the funnel's "blocked" is made of) ---
  *   policy.verdicts               → policy_verdicts_total{decision,escalation}  allow | deny | escalate × none | require_second_agent | require_human_signature
  *   policy.predicate.failed       → policy_predicate_failed_total{predicate}    one increment per failed predicate of a DENY (a verdict may count several)
@@ -85,6 +89,9 @@ public class CryptobotMetrics {
     static final String OUTBOX_PENDING = "outbox.pending";
     static final String OUTBOX_FAILED = "outbox.failed";
     static final String DLQ_SIZE = "dlq.size";
+    static final String RECONCILIATION = "cryptobot.reconciliation";
+    static final String DEAD_LETTER = "cryptobot.dead.letter";
+    static final String DEAD_LETTER_OPEN = "cryptobot.dead.letter.open";
     static final String POLICY_VERDICTS = "policy.verdicts";
     static final String POLICY_PREDICATE_FAILED = "policy.predicate.failed";
     static final String SOLANA_RPC_ERRORS = "solana.rpc.errors";
@@ -233,8 +240,24 @@ public class CryptobotMetrics {
         outboxFailed.set(size);
     }
 
+    /** Unresolved dead letters: feeds both {@code dlq_size} (KAN-403 dashboards) and {@code cryptobot_dead_letter_open} (KAN-571). */
     public void dlqSize(long size) {
-        dlqSize.set(size);
+        dlqSize.set(Math.max(0, size));
+    }
+
+    // ---- KAN-571: reconciliation + recovery, visible ------------------------------------------
+
+    /** One reconciled row: {@code matched | corrected | retried | dead_lettered | skipped}. */
+    public void reconciliation(String outcome) {
+        counter(RECONCILIATION, "outcome", low(outcome)).increment();
+    }
+
+    /**
+     * One dead letter created ({@code ambiguous | retries_exhausted | inconsistent | outbox}) or
+     * closed ({@code resolved | requeued}). Bounded: never the free-text reason.
+     */
+    public void deadLetter(String reason) {
+        counter(DEAD_LETTER, "reason", low(reason)).increment();
     }
 
     // ---- KAN-391: Decision Receipts / determinismo --------------------------------------------
@@ -298,6 +321,14 @@ public class CryptobotMetrics {
                 .description("Trade outbox entries that exhausted retries (KAN-403)").register(registry);
         Gauge.builder(DLQ_SIZE, dlqSize, AtomicLong::doubleValue)
                 .description("Dead-letter queue depth (KAN-403)").register(registry);
+        Gauge.builder(DEAD_LETTER_OPEN, dlqSize, AtomicLong::doubleValue)
+                .description("Unresolved dead letters (KAN-571); resolve or requeue them via /api/cryptobot/dead-letters").register(registry);
+        for (String o : new String[] {"matched", "corrected", "retried", "dead_lettered", "skipped"}) {
+            counter(RECONCILIATION, "outcome", o);
+        }
+        for (String r : new String[] {"ambiguous", "retries_exhausted", "inconsistent", "outbox", "resolved", "requeued"}) {
+            counter(DEAD_LETTER, "reason", r);
+        }
         counter(TRADE_RECONCILED, "result", "matched");
         counter(TRADE_RECONCILED, "result", "corrected");
         counter(RECONCILIATION_MISMATCH);

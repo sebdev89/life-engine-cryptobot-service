@@ -213,8 +213,20 @@ cryptobot:
       interval: ${CRYPTOBOT_RECONCILIATION_INTERVAL:30s}
       # An in-flight row younger than this is assumed to belong to a live request and is left alone.
       grace: ${CRYPTOBOT_RECONCILIATION_GRACE:2m}
-      max-attempts: 20
+      max-attempts: ${CRYPTOBOT_RECONCILIATION_MAX_ATTEMPTS:20}
       batch-size: 100
+      # KAN-571: a signature the chain never saw whose blockhash expired can never land — it is
+      # re-executed under the SAME operationId (fresh blockhash, new signature) up to this many
+      # times; then the trade is dead-lettered (retries_exhausted) for a human. 0 ⇒ never retried.
+      max-retries: ${CRYPTOBOT_RECONCILIATION_MAX_RETRIES:2}
+  # ---- KAN-571: fault injection for the DEMO stack only (docker-compose.demo.yml). enabled=false ⇒ no
+  # chaos bean, no /api/cryptobot/demo endpoint, the production SolanaRpcClient is the only one.
+  chaos:
+    enabled: ${CRYPTOBOT_CHAOS_ENABLED:false}
+    # Mode armed at startup: uncertain | rpc-down | confirm-timeout (empty = nothing). Arm at runtime with
+    # PUT /api/cryptobot/demo/chaos {"broadcast":"rpc-down","shots":-1}; shots -1 = until disarmed.
+    broadcast: ${CRYPTOBOT_CHAOS_BROADCAST:}
+    shots: ${CRYPTOBOT_CHAOS_SHOTS:1}
   # ---- Business metrics (KAN-425): /actuator/prometheus, names in observability/CryptobotMetrics ----
   metrics:
     # Extra values allowed in the `asset` label, on top of policy.allowed-assets and monitoring.symbols.

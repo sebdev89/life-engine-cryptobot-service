@@ -244,6 +244,22 @@ public final class InMemoryControlPlaneRepositories {
             public Mono<Long> countByStatus(OutboxEvent.Status status) {
                 return Mono.just(OUTBOX.values().stream().filter(e -> e.status() == status).count());
             }
+
+            @Override
+            public Mono<OutboxEvent> findById(UUID id) {
+                return Mono.justOrEmpty(OUTBOX.get(id));
+            }
+
+            @Override
+            public Mono<OutboxEvent> requeue(UUID id, java.time.Instant now) {
+                OutboxEvent e = OUTBOX.get(id);
+                if (e == null || e.status() != OutboxEvent.Status.FAILED) {
+                    return Mono.empty();
+                }
+                OutboxEvent again = e.requeued(now);
+                OUTBOX.put(id, again);
+                return Mono.just(again);
+            }
         };
     }
 
@@ -263,6 +279,40 @@ public final class InMemoryControlPlaneRepositories {
             @Override
             public Mono<Long> countUnresolved() {
                 return Mono.just(DEAD_LETTERS.stream().filter(d -> d.resolvedAt() == null).count());
+            }
+
+            @Override
+            public Mono<DeadLetter> findById(UUID id) {
+                return Mono.justOrEmpty(DEAD_LETTERS.stream().filter(d -> d.id().equals(id)).findFirst());
+            }
+
+            @Override
+            public Flux<DeadLetter> findAll(Boolean resolved, DeadLetter.Source source, UUID proposalId, int limit, int offset) {
+                return Flux.fromIterable(new ArrayList<>(DEAD_LETTERS))
+                        .filter(d -> resolved == null || resolved == (d.resolvedAt() != null))
+                        .filter(d -> source == null || d.source() == source)
+                        .filter(d -> proposalId == null || proposalId.equals(d.proposalId()))
+                        .sort(Comparator.comparing(DeadLetter::createdAt).reversed())
+                        .skip(Math.max(0, offset))
+                        .take(Math.max(1, limit));
+            }
+
+            @Override
+            public Mono<DeadLetter> resolve(UUID id, java.time.Instant at, String by, String note, DeadLetter.Outcome outcome) {
+                synchronized (DEAD_LETTERS) {
+                    for (int i = 0; i < DEAD_LETTERS.size(); i++) {
+                        DeadLetter d = DEAD_LETTERS.get(i);
+                        if (d.id().equals(id)) {
+                            if (d.resolvedAt() != null) {
+                                return Mono.empty();
+                            }
+                            DeadLetter done = d.resolved(at, by, note, outcome);
+                            DEAD_LETTERS.set(i, done);
+                            return Mono.just(done);
+                        }
+                    }
+                }
+                return Mono.empty();
             }
         };
     }

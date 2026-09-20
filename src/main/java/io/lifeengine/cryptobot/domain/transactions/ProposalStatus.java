@@ -40,7 +40,9 @@ public enum ProposalStatus {
             case AWAITING_APPROVAL -> Set.of(APPROVED, REJECTED, EXPIRED).contains(next);
             case APPROVED -> Set.of(EXECUTING, EXPIRED, REJECTED).contains(next);
             case EXECUTING -> Set.of(SUBMITTED, EXECUTED, FAILED).contains(next);
-            case SUBMITTED -> Set.of(EXECUTED, FAILED).contains(next);
+            // KAN-571: SUBMITTED → EXECUTING is the reconciler's idempotent retry — only once the
+            // chain can no longer include the first signature (blockhash expired, never seen).
+            case SUBMITTED -> Set.of(EXECUTING, EXECUTED, FAILED).contains(next);
             default -> false;
         };
     }

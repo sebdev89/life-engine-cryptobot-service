@@ -13,7 +13,7 @@ public record ReliabilityProperties(Outbox outbox, Reconciliation reconciliation
 
     public ReliabilityProperties {
         outbox = outbox == null ? new Outbox(true, null, 0, 0, null, null) : outbox;
-        reconciliation = reconciliation == null ? new Reconciliation(true, null, null, 0, 0) : reconciliation;
+        reconciliation = reconciliation == null ? new Reconciliation(true, null, null, 0, 0, null) : reconciliation;
     }
 
     /**
@@ -40,13 +40,20 @@ public record ReliabilityProperties(Outbox outbox, Reconciliation reconciliation
      * @param grace an in-flight row younger than this is assumed to be handled by a live request and is skipped
      * @param maxAttempts sweeps without a verdict before the trade is dead-lettered as ambiguous
      * @param batchSize rows per sweep
+     * @param maxRetries KAN-571: how many times a signature the chain never saw, whose blockhash
+     *     expired, is re-executed idempotently (same operationId, fresh blockhash, new signature)
+     *     before the trade is dead-lettered as {@code retries_exhausted}. {@code null} ⇒ 2;
+     *     {@code 0} ⇒ never retried (dead letter on the first expiry)
      */
-    public record Reconciliation(boolean enabled, Duration interval, Duration grace, int maxAttempts, int batchSize) {
+    public record Reconciliation(boolean enabled, Duration interval, Duration grace, int maxAttempts, int batchSize, Integer maxRetries) {
         public Reconciliation {
             interval = interval == null ? Duration.ofSeconds(30) : interval;
             grace = grace == null ? Duration.ofMinutes(2) : grace;
             maxAttempts = maxAttempts <= 0 ? 20 : maxAttempts;
             batchSize = batchSize <= 0 ? 100 : batchSize;
+            maxRetries = maxRetries == null || maxRetries < 0 ? 2 : maxRetries;
         }
+        // No second constructor here: a record with two constructors is not constructor-bound by Spring
+        // Boot and every value silently falls back to the defaults above (found by the demo run).
     }
 }
