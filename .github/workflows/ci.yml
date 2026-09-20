@@ -47,6 +47,11 @@ jobs:
       - name: Run validator tests (KAN-438 — isolated module, own pom)
         run: ./mvnw -B -ntp -f validator/pom.xml test
 
+      # KAN-575 — the demo scripts (run.sh / e2e-devnet.sh): argument validation, --dry-run plan,
+      # gitignore of the secret files, shellcheck when the runner has it. Offline: no compose is started.
+      - name: Demo scripts (scripts/demo/tests/test-run.sh)
+        run: scripts/demo/tests/test-run.sh
+
       - name: Upload Surefire reports (on failure)
         if: failure()
         uses: actions/upload-artifact@v4
