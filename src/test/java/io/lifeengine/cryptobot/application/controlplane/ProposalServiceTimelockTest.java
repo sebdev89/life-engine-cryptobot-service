@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
 
 import io.lifeengine.cryptobot.adapters.solana.SolanaCluster;
+import io.lifeengine.cryptobot.application.oracle.PriceOracleService;
 import io.lifeengine.cryptobot.application.receipt.ReceiptService;
 import io.lifeengine.cryptobot.application.receipt.TenantSalts;
 import io.lifeengine.cryptobot.domain.policy.PolicyDecision;
@@ -62,7 +63,7 @@ class ProposalServiceTimelockTest {
         Receipts receiptOf = new Receipts(new TenantSalts("test-salt-secret".getBytes(StandardCharsets.UTF_8)),
                 null, new com.fasterxml.jackson.databind.ObjectMapper());
         service = new ProposalService(repo, mock(PortfolioService.class), mock(RebalancePlanner.class), mock(RiskEngine.class),
-                mock(SimulationService.class), policy, mock(SignerClient.class), mock(ValidatorClient.class), audit, metrics, receipts, receiptOf,
+                mock(SimulationService.class), policy, mock(SignerClient.class), mock(ValidatorClient.class), mock(PriceOracleService.class), audit, metrics, receipts, receiptOf,
                 Clock.fixed(NOW, ZoneOffset.UTC));
     }
 
@@ -73,7 +74,7 @@ class ProposalServiceTimelockTest {
         PolicyVerdict verdict = new PolicyVerdict(decision, decision == PolicyVerdict.Decision.ALLOW ? PolicyVerdict.Escalation.NONE : PolicyVerdict.Escalation.REQUIRE_SECOND_AGENT,
                 decision == PolicyVerdict.Decision.ALLOW ? PolicyVerdict.AutonomyTier.AUTONOMOUS : PolicyVerdict.AutonomyTier.SECOND_AGENT,
                 List.of(), List.of(PolicyPredicate.values()), "test-policy-v1", policy.rules().hash(), "sha256:" + "1".repeat(64));
-        PolicyDecision d = new PolicyDecision(true, true, List.of(), List.of(), List.of(), NOW, verdict, new PolicyInput(null, null));
+        PolicyDecision d = new PolicyDecision(true, true, List.of(), List.of(), List.of(), NOW, verdict, new PolicyInput(null, null), Fixtures.oracle("100", NOW));
         return repo.insert(new ActionProposal(UUID.randomUUID(), wallet.id(), wallet.ownerUserId(), wallet.address(), "devnet",
                 ProposalStatus.AWAITING_APPROVAL, "REBALANCE", "t", null, "op", null, plan, null, null, d, null, null, null, null, null, null,
                 expiresAt, NOW, NOW, null, 0)).block();

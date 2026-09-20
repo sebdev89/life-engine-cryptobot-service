@@ -7,6 +7,7 @@ import io.lifeengine.cryptobot.adapters.marketdata.MarketDataProperties;
 import io.lifeengine.cryptobot.adapters.marketdata.TokenRegistry;
 import io.lifeengine.cryptobot.adapters.solana.SolanaCluster;
 import io.lifeengine.cryptobot.application.controlplane.PolicyEngine.WalletState;
+import io.lifeengine.cryptobot.domain.oracle.OracleReading;
 import io.lifeengine.cryptobot.domain.policy.PolicyDecision;
 import io.lifeengine.cryptobot.domain.policy.PolicyInput;
 import io.lifeengine.cryptobot.domain.policy.PolicyPredicate;
@@ -53,9 +54,9 @@ class PolicyEngineTest {
                 8_000, 100, 50, Duration.ofMinutes(15), List.of("REBALANCE"));
     }
 
-    /** Prices as of now, nothing executed: the state every legacy test assumed. */
+    /** Prices as of now, nothing executed, the oracle agreeing with the snapshot: the state every legacy test assumed. */
     private static WalletState fresh() {
-        return WalletState.fresh(NOW);
+        return WalletState.fresh(NOW, Fixtures.oracle());
     }
 
     private ActionProposal proposal(Wallet wallet, BigDecimal targetSolPct, boolean withTx, boolean simOk) {
@@ -126,11 +127,11 @@ class PolicyEngineTest {
     @Test
     void cooldownBlocksBackToBackExecutions() {
         Wallet w = Fixtures.wallet(SolanaCluster.DEVNET);
-        WalletState justTraded = new WalletState(Optional.of(NOW.minusSeconds(10)), BigDecimal.ZERO, NOW);
+        WalletState justTraded = new WalletState(Optional.of(NOW.minusSeconds(10)), BigDecimal.ZERO, NOW, Fixtures.oracle());
         PolicyDecision d = engine(defaults()).evaluate(proposal(w, new BigDecimal("50"), true, true), w, justTraded, Optional.of(w.address()));
         assertThat(d.allowed()).isFalse();
         assertThat(d.violations()).extracting(PolicyDecision.Violation::rule).containsExactly(PolicyEngine.RULE_COOLDOWN);
-        WalletState twoMinutesAgo = new WalletState(Optional.of(NOW.minusSeconds(120)), BigDecimal.ZERO, NOW);
+        WalletState twoMinutesAgo = new WalletState(Optional.of(NOW.minusSeconds(120)), BigDecimal.ZERO, NOW, Fixtures.oracle());
         PolicyDecision later = engine(defaults()).evaluate(proposal(w, new BigDecimal("50"), true, true), w, twoMinutesAgo, Optional.of(w.address()));
         assertThat(later.allowed()).isTrue();
     }
@@ -199,7 +200,7 @@ class PolicyEngineTest {
         Wallet w = Fixtures.wallet(SolanaCluster.DEVNET);
         PolicyEngine engine = engine(defaults());
         ActionProposal p = proposal(w, new BigDecimal("50"), true, true);
-        PolicyInput in = engine.policyInput(p, w, new WalletState(Optional.empty(), new BigDecimal("12.345"), NOW.minusSeconds(90)), NOW);
+        PolicyInput in = engine.policyInput(p, w, new WalletState(Optional.empty(), new BigDecimal("12.345"), NOW.minusSeconds(90), Fixtures.oracle("100", NOW.minusSeconds(20))), NOW);
         assertThat(in.intent().agentId()).isEqualTo("tester");
         assertThat(in.intent().strategyId()).isEqualTo("REBALANCE");
         assertThat(in.intent().policyVersion()).isEqualTo("test-policy-v1");
@@ -218,7 +219,7 @@ class PolicyEngineTest {
     @Test
     void dailyLimitDeniesAndBlocksTheProposal() {
         Wallet w = Fixtures.wallet(SolanaCluster.DEVNET);
-        WalletState heavyDay = new WalletState(Optional.of(NOW.minusSeconds(3600)), new BigDecimal("2400"), NOW);
+        WalletState heavyDay = new WalletState(Optional.of(NOW.minusSeconds(3600)), new BigDecimal("2400"), NOW, Fixtures.oracle());
         PolicyDecision d = engine(defaults()).evaluate(proposal(w, new BigDecimal("50"), true, true), w, heavyDay, Optional.of(w.address()));
         assertThat(d.allowed()).isFalse();
         assertThat(d.authorization().decision()).isEqualTo(PolicyVerdict.Decision.DENY);
@@ -230,15 +231,21 @@ class PolicyEngineTest {
     @Test
     void staleOracleDeniesFailClosed() {
         Wallet w = Fixtures.wallet(SolanaCluster.DEVNET);
-        WalletState stale = new WalletState(Optional.empty(), BigDecimal.ZERO, NOW.minus(Duration.ofMinutes(16)));
+        WalletState stale = new WalletState(Optional.empty(), BigDecimal.ZERO, NOW.minus(Duration.ofMinutes(16)), Fixtures.oracle());
         PolicyDecision d = engine(defaults()).evaluate(proposal(w, new BigDecimal("50"), true, true), w, stale, Optional.of(w.address()));
         assertThat(d.allowed()).isFalse();
         assertThat(d.authorization().failedPredicates()).containsExactly(PolicyPredicate.ORACLE_FRESH);
 
-        WalletState unknownAge = new WalletState(Optional.empty(), BigDecimal.ZERO, null);
+        WalletState unknownAge = new WalletState(Optional.empty(), BigDecimal.ZERO, null, Fixtures.oracle());
         PolicyDecision u = engine(defaults()).evaluate(proposal(w, new BigDecimal("50"), true, true), w, unknownAge, Optional.of(w.address()));
         assertThat(u.allowed()).isFalse();
         assertThat(u.authorization().failedPredicates()).containsExactly(PolicyPredicate.ORACLE_FRESH);
+
+        // KAN-439: a consensus whose oldest observation is older than max-oracle-age is just as stale as an old snapshot
+        WalletState oldConsensus = new WalletState(Optional.empty(), BigDecimal.ZERO, NOW, Fixtures.oracle("100", NOW.minus(Duration.ofMinutes(16))));
+        PolicyDecision oc = engine(defaults()).evaluate(proposal(w, new BigDecimal("50"), true, true), w, oldConsensus, Optional.of(w.address()));
+        assertThat(oc.allowed()).isFalse();
+        assertThat(oc.authorization().failedPredicates()).containsExactly(PolicyPredicate.ORACLE_FRESH);
     }
 
     @Test
@@ -277,12 +284,17 @@ class PolicyEngineTest {
                 8_000, 100, 50, Duration.ofMinutes(15), List.of("REBALANCE"));
         assertThat(engine(defaults(), v2).executionPreconditions(approved)).singleElement().asString().contains("Policy changed since evaluation");
 
+        // A pre-KAN-436 row has neither a verdict nor (pre-KAN-439) an oracle reading: both are named, both refuse.
         ActionProposal legacy = approved.withPolicy(new PolicyDecision(true, true, List.of(), List.of(), List.of(), NOW, null), NOW);
-        assertThat(v1.executionPreconditions(legacy)).singleElement().asString().contains("No policy verdict");
+        assertThat(v1.executionPreconditions(legacy)).hasSize(2)
+                .anySatisfy(m -> assertThat(m).contains("No policy verdict"))
+                .anySatisfy(m -> assertThat(m).contains("No oracle reading"));
 
-        // KAN-438: a verdict without its recorded (I, S) cannot be re-derived by the validator.
+        // KAN-438: a verdict without its recorded (I, S) cannot be re-derived by the validator; without a reading (KAN-439) it does not execute either.
         ActionProposal noInput = approved.withPolicy(new PolicyDecision(true, true, List.of(), List.of(), List.of(), NOW, decided.authorization()), NOW);
-        assertThat(v1.executionPreconditions(noInput)).singleElement().asString().contains("No recorded (I, S)");
+        assertThat(v1.executionPreconditions(noInput)).hasSize(2)
+                .anySatisfy(m -> assertThat(m).contains("No recorded (I, S)"))
+                .anySatisfy(m -> assertThat(m).contains("No oracle reading"));
     }
 
     // ---- KAN-438: independent validator + timelock (paper §19, §20) ---------------------------
@@ -348,5 +360,87 @@ class PolicyEngineTest {
         ActionProposal legacy = approved.withApproval(new ApprovalRecord(ApprovalRecord.Decision.APPROVED, "op", NOW.minus(Duration.ofMinutes(10)), null), NOW);
         assertThat(engine.executableAt(legacy)).isEqualTo(NOW.plus(Duration.ofMinutes(20)));
         assertThat(engine.executionPreconditions(legacy)).singleElement().asString().contains("1200s remaining");
+    }
+
+    // ---- KAN-439: CorrectRules + CorruptState ⇏ SafeExecution (paper §22) --------------------------
+
+    @Test
+    void noOracleReadingDeniesFailClosed() {
+        Wallet w = Fixtures.wallet(SolanaCluster.DEVNET);
+        WalletState blind = new WalletState(Optional.empty(), BigDecimal.ZERO, NOW, null);
+        PolicyDecision d = engine(defaults()).evaluate(proposal(w, new BigDecimal("50"), true, true), w, blind, Optional.of(w.address()));
+        assertThat(d.allowed()).isFalse();
+        assertThat(d.rulesApplied()).contains(PolicyEngine.RULE_ORACLE);
+        assertThat(d.violations()).extracting(PolicyDecision.Violation::rule).containsExactly(PolicyEngine.RULE_ORACLE, PolicyEngine.RULE_AUTHORIZATION);
+        assertThat(d.violations().get(0).message()).contains("No oracle reading");
+        assertThat(d.authorization().failedPredicates()).containsExactly(PolicyPredicate.ORACLE_FRESH); // unknown age, unknown state
+        assertThat(d.oracle()).isNull();
+    }
+
+    @Test
+    void planBuiltOnACorruptSnapshotIsRefusedByTheWorld() {
+        // The snapshot priced SOL at $100 and the plan sells 2 SOL for $200. The oracle — three sources agreeing — says
+        // SOL is $1000: the snapshot was wrong by 10×, and a deterministic engine trusting it would authorise selling at 10 % of value.
+        Wallet w = Fixtures.wallet(SolanaCluster.DEVNET);
+        WalletState world = WalletState.fresh(NOW, Fixtures.oracle("1000", NOW));
+        PolicyDecision d = engine(defaults()).evaluate(proposal(w, new BigDecimal("50"), true, true), w, world, Optional.of(w.address()));
+        assertThat(d.allowed()).isFalse();
+        assertThat(d.violations()).extracting(PolicyDecision.Violation::rule).containsExactly(PolicyEngine.RULE_ORACLE);
+        assertThat(d.violations().get(0).message()).contains("Plan priced SOL at $100").contains("oracle median is $1000").contains("9000 bps apart");
+        // the predicates themselves hold (the state is fresh and within limits): only the integrity rule knows the state is corrupt
+        assertThat(d.authorization().denied()).isFalse();
+        // within the drift bound the plan stands: SOL at $108 (741 bps) is the market moving, not a corrupt snapshot
+        PolicyDecision fine = engine(defaults()).evaluate(proposal(w, new BigDecimal("50"), true, true), w, WalletState.fresh(NOW, Fixtures.oracle("108", NOW)), Optional.of(w.address()));
+        assertThat(fine.allowed()).isTrue();
+    }
+
+    @Test
+    void sourcesThatDisagreeLeaveTheStateUnknownAndDeny() {
+        Wallet w = Fixtures.wallet(SolanaCluster.DEVNET);
+        // Jupiter says $100, Pyth says $10: no consensus for SOL; USDC is fine
+        OracleReading split = new OracleReading(NOW, Fixtures.ORACLE_LIMITS, List.of(
+                Fixtures.consensus("SOL", TokenRegistry.NATIVE_SOL_MINT, "100", "10", NOW),
+                Fixtures.consensus("USDC", TokenRegistry.USDC_MINT, "1", "1", NOW)));
+        assertThat(split.accepted()).isFalse();
+        PolicyDecision d = engine(defaults()).evaluate(proposal(w, new BigDecimal("50"), true, true), w, WalletState.fresh(NOW, split), Optional.of(w.address()));
+        assertThat(d.allowed()).isFalse();
+        assertThat(d.violations()).extracting(PolicyDecision.Violation::rule).containsExactly(PolicyEngine.RULE_ORACLE, PolicyEngine.RULE_AUTHORIZATION);
+        assertThat(d.violations().get(0).message()).contains("SOL: no consensus [DEVIATION_EXCEEDED]");
+        assertThat(d.authorization().failedPredicates()).containsExactly(PolicyPredicate.ORACLE_FRESH);
+        // an asset the plan needs that the reading does not cover is unknown too
+        OracleReading solOnly = new OracleReading(NOW, Fixtures.ORACLE_LIMITS, List.of(Fixtures.consensus("SOL", TokenRegistry.NATIVE_SOL_MINT, "100", "100", NOW)));
+        PolicyDecision missing = engine(defaults()).evaluate(proposal(w, new BigDecimal("50"), true, true), w, WalletState.fresh(NOW, solOnly), Optional.of(w.address()));
+        assertThat(missing.violations()).extracting(PolicyDecision.Violation::message).anyMatch(m -> m.equals("USDC: not in the oracle reading"));
+    }
+
+    @Test
+    void decisionCarriesTheReadingAsItsStateReference() {
+        Wallet w = Fixtures.wallet(SolanaCluster.DEVNET);
+        OracleReading reading = Fixtures.oracle();
+        PolicyDecision d = engine(defaults()).evaluate(proposal(w, new BigDecimal("50"), true, true), w, WalletState.fresh(NOW, reading), Optional.of(w.address()));
+        assertThat(d.allowed()).isTrue();
+        assertThat(d.oracle()).isEqualTo(reading);
+        assertThat(d.oracle().quotesHash()).startsWith("sha256:");
+        assertThat(d.oracle().limitsHash()).isEqualTo(Fixtures.ORACLE_LIMITS.hash());
+        assertThat(d.oracle().of("SOL").orElseThrow().sources()).containsExactly("jupiter", "pyth");
+    }
+
+    @Test
+    void executionRequiresAReadingAndRechecksItAgainstTheWorld() {
+        Wallet w = Fixtures.wallet(SolanaCluster.DEVNET);
+        PolicyEngine engine = engine(defaults());
+        ActionProposal p = proposal(w, new BigDecimal("50"), true, true);
+        PolicyDecision decided = engine.evaluate(p, w, fresh(), Optional.of(w.address()));
+        // approved with an already-elapsed timelock (KAN-438): the oracle is the only thing under test here
+        ActionProposal approved = p.withPolicy(decided, NOW).withStatus(ProposalStatus.AWAITING_APPROVAL, NOW)
+                .withApproval(new ApprovalRecord(ApprovalRecord.Decision.APPROVED, "op", NOW, null, NOW), NOW).withStatus(ProposalStatus.APPROVED, NOW);
+        assertThat(engine.executionPreconditions(approved)).isEmpty();
+        // a row decided before the oracle existed does not execute
+        ActionProposal blind = approved.withPolicy(new PolicyDecision(true, true, List.of(), List.of(), List.of(), NOW, decided.authorization(), decided.input()), NOW);
+        assertThat(engine.executionPreconditions(blind)).singleElement().asString().contains("No oracle reading");
+        // the fresh reading at execution time: the same checks, on the world as it is now
+        assertThat(engine.oracleProblems(approved, Fixtures.oracle("108", NOW))).isEmpty();
+        assertThat(engine.oracleProblems(approved, Fixtures.oracle("115", NOW))).singleElement().asString().contains("1305 bps apart");
+        assertThat(engine.oracleProblems(approved, null)).singleElement().asString().contains("No oracle reading");
     }
 }

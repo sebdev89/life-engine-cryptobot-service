@@ -53,6 +53,8 @@ class ControlPlaneFlowTest {
 
     private static MockWebServer rpc;
     private static MockWebServer runtime;
+    // KAN-439: one fake feed serving the three source shapes (Jupiter, Pyth Hermes, CoinGecko), all agreeing on SOL $100 / USDC $1.
+    private static MockWebServer prices;
     private static final ObjectMapper JSON = new ObjectMapper();
 
     @Autowired private WebTestClient web;
@@ -72,12 +74,16 @@ class ControlPlaneFlowTest {
         runtime = new MockWebServer();
         runtime.setDispatcher(new RuntimeDispatcher());
         runtime.start();
+        prices = new MockWebServer();
+        prices.setDispatcher(new PriceFeedDispatcher());
+        prices.start();
     }
 
     @AfterAll
     static void stopMocks() throws Exception {
         rpc.shutdown();
         runtime.shutdown();
+        prices.shutdown();
     }
 
     @DynamicPropertySource
@@ -85,6 +91,13 @@ class ControlPlaneFlowTest {
         r.add("cryptobot.solana.rpc.devnet-url", () -> "http://localhost:" + rpc.getPort());
         r.add("cryptobot.solana.rpc.mainnet-url", () -> "http://localhost:" + rpc.getPort());
         r.add("cryptobot.runtime.base-url", () -> "http://localhost:" + runtime.getPort());
+        // KAN-439: the three independent sources, all against the fake feed — quorum 2, they agree, no breaker.
+        r.add("cryptobot.marketdata.jupiter-enabled", () -> "true");
+        r.add("cryptobot.marketdata.jupiter-base-url", () -> "http://localhost:" + prices.getPort());
+        r.add("cryptobot.marketdata.pyth.enabled", () -> "true");
+        r.add("cryptobot.marketdata.pyth.base-url", () -> "http://localhost:" + prices.getPort());
+        r.add("cryptobot.marketdata.coingecko.enabled", () -> "true");
+        r.add("cryptobot.marketdata.coingecko.base-url", () -> "http://localhost:" + prices.getPort());
     }
 
     @BeforeEach
@@ -123,6 +136,8 @@ class ControlPlaneFlowTest {
                 .exchange().expectStatus().isCreated().expectBody().returnResult().getResponseBody());
         String walletId = created.path("wallet").path("id").asText();
         assertThat(created.path("snapshot").path("totalUsd").decimalValue()).isEqualByComparingTo("1000");
+        // KAN-439: valued by the multi-source consensus, not by the static fallback.
+        assertThat(created.path("snapshot").path("priceSource").asText()).startsWith("oracle:").contains("jupiter").contains("pyth").contains("coingecko");
         assertThat(created.path("risk").path("overall").asText()).isEqualTo("HIGH");
         assertThat(created.path("risk").path("findings").get(0).path("code").asText()).isEqualTo("CONCENTRATION");
         assertThat(created.path("risk").path("findings").get(0).path("asset").asText()).isEqualTo("SOL");
@@ -227,6 +242,21 @@ class ControlPlaneFlowTest {
         assertThat(verdict.path("policyVersion").asText()).isEqualTo("test-policy-v1");
         assertThat(verdict.path("policyHash").asText()).matches("sha256:[0-9a-f]{64}");
         assertThat(verdict.path("inputHash").asText()).matches("sha256:[0-9a-f]{64}");
+        // KAN-439: the decision carries the reading it was priced with — SOL and USDC, each a 3-source consensus at $100 / $1.
+        JsonNode oracle = p.path("policy").path("oracle");
+        assertThat(p.path("policy").path("rulesApplied").toString()).contains("ORACLE_INTEGRITY");
+        assertThat(oracle.path("assets")).hasSize(2);
+        JsonNode sol = oracle.path("assets").get(0);
+        assertThat(sol.path("asset").asText()).isEqualTo("SOL");
+        assertThat(sol.path("priceUsd").decimalValue()).isEqualByComparingTo("100");
+        assertThat(sol.path("used")).hasSize(3);
+        assertThat(sol.path("rejected")).isEmpty();
+        assertThat(sol.path("refusals")).isEmpty();
+        assertThat(sol.path("quotesHash").asText()).matches("sha256:[0-9a-f]{64}");
+        assertThat(oracle.path("assets").get(1).path("asset").asText()).isEqualTo("USDC");
+        assertThat(oracle.path("limits").path("minSources").asInt()).isEqualTo(2);
+        // No secret and no key in what the oracle recorded: sources, mints, prices, timestamps.
+        assertThat(sol.path("used").get(0).fieldNames()).toIterable().containsExactlyInAnyOrder("source", "asset", "mint", "priceUsd", "observedAt");
         // KAN-391: the proposal left STRATEGY (L1, derives from the snapshot and the analysis), RISK_DECISION (validates the
         // strategy, L1) and SIMULATION (derives from the strategy). No EXECUTION yet: nothing was approved.
         JsonNode proposalReceipts = JSON.readTree(web.get().uri("/api/cryptobot/proposals/" + proposalId + "/receipts").header(HttpHeaders.AUTHORIZATION, token)
@@ -319,6 +349,11 @@ class ControlPlaneFlowTest {
         assertThat(policyEvent.path("policyHash").asText()).isEqualTo(verdict.path("policyHash").asText());
         assertThat(policyEvent.path("inputHash").asText()).isEqualTo(verdict.path("inputHash").asText());
         assertThat(policyEvent.path("verdictHash").asText()).matches("sha256:[0-9a-f]{64}");
+        // KAN-439: …and the state reference — which quotes, under which limits, and that they agreed.
+        assertThat(policyEvent.path("oracleAccepted").asBoolean()).isTrue();
+        assertThat(policyEvent.path("oracleQuotesHash").asText()).matches("sha256:[0-9a-f]{64}");
+        assertThat(policyEvent.path("oracleLimitsHash").asText()).matches("sha256:[0-9a-f]{64}");
+        assertThat(policyEvent.path("oracleProblems")).isEmpty();
 
         // 7b. KAN-403: the durable event stream was written with the state (trade.requested, trade.approved),
         // PENDING until the publisher's tick, then PUBLISHED — visible to the owner, invisible to anyone else.
@@ -392,6 +427,7 @@ class ControlPlaneFlowTest {
                 .contains("deterministic_inference_total{")
                 .contains("deterministic_mismatch_total{")
                 .contains("trade_failed_total{")
+                .contains("oracle_execution_refused_total{")
                 .contains("service=\"cryptobot-service\"");
     }
 
@@ -466,6 +502,40 @@ class ControlPlaneFlowTest {
             } catch (Exception e) {
                 return new MockResponse().setResponseCode(500);
             }
+        }
+    }
+
+    /**
+     * KAN-439: the fake price feed. Three shapes, one price — Jupiter {@code /price/v3}, Pyth Hermes
+     * {@code /v2/updates/price/latest} (mantissa/expo, published "now") and CoinGecko {@code /api/v3/simple/price}.
+     * SOL $100, USDC $1: what every legacy snapshot of this test was priced at.
+     */
+    static final class PriceFeedDispatcher extends Dispatcher {
+        static final String SOL_MINT = io.lifeengine.cryptobot.adapters.marketdata.TokenRegistry.NATIVE_SOL_MINT;
+        static final String USDC_MINT = io.lifeengine.cryptobot.adapters.marketdata.TokenRegistry.USDC_MINT;
+        static final String SOL_FEED = "ef0d8b6fda2ceba41da15d4095d1da392a0d2f8ed0c6c7bc0f4cfac8c280b56d";
+        static final String USDC_FEED = "eaa020c61cc479712813461ce153894a96a6c00b21ed0cfc2798d1f9a9e9c94a";
+
+        @Override
+        public MockResponse dispatch(RecordedRequest request) {
+            String path = request.getPath() == null ? "" : request.getPath();
+            long now = Instant.now().getEpochSecond();
+            if (path.startsWith("/price/v3")) {
+                return json("{\"" + SOL_MINT + "\":{\"usdPrice\":100,\"priceChange24h\":0.5},\"" + USDC_MINT + "\":{\"usdPrice\":1}}");
+            }
+            if (path.startsWith("/v2/updates/price/latest")) {
+                return json("{\"binary\":{\"encoding\":\"hex\",\"data\":[]},\"parsed\":["
+                        + "{\"id\":\"" + SOL_FEED + "\",\"price\":{\"price\":\"10000000000\",\"conf\":\"1000000\",\"expo\":-8,\"publish_time\":" + now + "}},"
+                        + "{\"id\":\"" + USDC_FEED + "\",\"price\":{\"price\":\"100000000\",\"conf\":\"1000\",\"expo\":-8,\"publish_time\":" + now + "}}]}");
+            }
+            if (path.startsWith("/api/v3/simple/price")) {
+                return json("{\"solana\":{\"usd\":100,\"last_updated_at\":" + now + "},\"usd-coin\":{\"usd\":1,\"last_updated_at\":" + now + "}}");
+            }
+            return new MockResponse().setResponseCode(404);
+        }
+
+        private static MockResponse json(String body) {
+            return new MockResponse().setHeader("Content-Type", "application/json").setBody(body);
         }
     }
 

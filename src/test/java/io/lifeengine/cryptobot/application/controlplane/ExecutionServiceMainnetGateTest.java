@@ -15,6 +15,7 @@ import io.lifeengine.cryptobot.adapters.solana.ExecutionProperties;
 import io.lifeengine.cryptobot.adapters.solana.MainnetDisabledException;
 import io.lifeengine.cryptobot.adapters.solana.SolanaCluster;
 import io.lifeengine.cryptobot.adapters.solana.SolanaRpcClient;
+import io.lifeengine.cryptobot.application.oracle.PriceOracleService;
 import io.lifeengine.cryptobot.application.receipt.ReceiptService;
 import io.lifeengine.cryptobot.application.receipt.TenantSalts;
 import io.lifeengine.cryptobot.domain.policy.PolicyDecision;
@@ -69,6 +70,8 @@ class ExecutionServiceMainnetGateTest {
     private final SignerClient signer = mock(SignerClient.class);
     private final ValidatorClient validator = mock(ValidatorClient.class);
     private final SolanaRpcClient rpc = mock(SolanaRpcClient.class);
+    // KAN-439: the world agrees with the plan (SOL $100); the only gate under test is the mainnet flag.
+    private final PriceOracleService oracle = mock(PriceOracleService.class);
     private final AuditService audit = new AuditService(InMemoryControlPlaneRepositories.audit());
     private final ExecutionReceipts executionReceipts = new ExecutionReceipts(
             new ReceiptService(InMemoryControlPlaneRepositories.receipts(), ReceiptSigningKey.generate("test-key"), metrics),
@@ -81,6 +84,7 @@ class ExecutionServiceMainnetGateTest {
         when(proposals.require(any(), any())).thenAnswer(inv -> repo.findByIdAndOwner(inv.getArgument(1), inv.getArgument(0))
                 .switchIfEmpty(Mono.error(new ControlPlaneExceptions.NotFound("Proposal"))));
         when(proposals.commit(any())).thenAnswer(inv -> repo.commit(inv.<ProposalTransition>getArgument(0)));
+        when(oracle.read(any())).thenReturn(Mono.just(Fixtures.oracle("100", NOW)));
     }
 
     /** The real engine, with the cluster the operator claims execution is allowed on. */
@@ -93,7 +97,7 @@ class ExecutionServiceMainnetGateTest {
     }
 
     private ExecutionService service(PolicyEngine policy, boolean allowMainnet) {
-        return new ExecutionService(proposals, wallets, simulation, policy, signer, validator, rpc, audit, metrics, executionReceipts,
+        return new ExecutionService(proposals, wallets, simulation, policy, signer, validator, rpc, oracle, audit, metrics, executionReceipts,
                 new ExecutionProperties(allowMainnet));
     }
 
@@ -112,7 +116,7 @@ class ExecutionServiceMainnetGateTest {
         ActionProposal simulated = new ActionProposal(UUID.randomUUID(), wallet.id(), wallet.ownerUserId(), wallet.address(), wallet.cluster().id(),
                 ProposalStatus.SIMULATED, "REBALANCE", "t", null, "tester", new RebalanceIntent(Map.of("SOL", new BigDecimal("50")), "USDC"), plan,
                 null, null, null, sim, tx, null, null, null, null, NOW.plusSeconds(1800), NOW, NOW, null, 0);
-        PolicyDecision decision = policy.evaluate(simulated, wallet, PolicyEngine.WalletState.fresh(NOW), Optional.of(wallet.address()));
+        PolicyDecision decision = policy.evaluate(simulated, wallet, PolicyEngine.WalletState.fresh(NOW, Fixtures.oracle("100", NOW)), Optional.of(wallet.address()));
         ApprovalRecord approval = new ApprovalRecord(ApprovalRecord.Decision.APPROVED, "op", NOW.minusSeconds(60), null, NOW.minusSeconds(60));
         ActionProposal approved = new ActionProposal(simulated.id(), wallet.id(), wallet.ownerUserId(), wallet.address(), wallet.cluster().id(),
                 ProposalStatus.APPROVED, "REBALANCE", "t", null, "tester", simulated.intent(), plan, null, null, decision, sim, tx, approval, null, null, null,
