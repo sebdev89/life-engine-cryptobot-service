@@ -4,6 +4,7 @@
 #   scripts/demo/wallet-devnet.sh                                   # keys + .env.demo + airdrop (once)
 #   docker compose -f docker-compose.demo.yml --env-file .env.demo up -d --build
 #   scripts/demo/e2e-devnet.sh                                      # the flow by API + out/evidence-<ts>.md
+#   scripts/demo/e2e-devnet.sh --chaos rpc-down                     # KAN-571: injected failure → reconciliation → DLQ → requeue → retry
 #
 # Plan B when devnet's faucet/RPC is not cooperating: the same stack against a local validator
 # (`--profile local-validator`, RPC http://solana-local:8899; unlimited airdrop). The pipeline is
@@ -114,10 +115,18 @@ services:
       CRYPTOBOT_VALIDATOR_TOKEN: ${CRYPTOBOT_VALIDATOR_TOKEN:?}
       # Demo-only: a short timelock so an ESCALATE verdict is visible (409 + wait) without 30 minutes.
       CRYPTOBOT_TIMELOCK_ESCALATED: ${CRYPTOBOT_TIMELOCK_ESCALATED:-20s}
-      # Reconciliation runs for real (startup + every 30 s); a short grace so an interrupted confirm is closed soon.
+      # Reconciliation runs for real (startup + periodic); demo knobs so recovery is visible in minutes, not hours:
+      # sweep every 10 s, a 20 s grace, 3 attempts without a verdict ⇒ dead letter, 2 idempotent retries (KAN-571).
       CRYPTOBOT_RECONCILIATION_ENABLED: "true"
-      CRYPTOBOT_RECONCILIATION_GRACE: ${CRYPTOBOT_RECONCILIATION_GRACE:-45s}
+      CRYPTOBOT_RECONCILIATION_INTERVAL: ${CRYPTOBOT_RECONCILIATION_INTERVAL:-10s}
+      CRYPTOBOT_RECONCILIATION_GRACE: ${CRYPTOBOT_RECONCILIATION_GRACE:-20s}
+      CRYPTOBOT_RECONCILIATION_MAX_ATTEMPTS: ${CRYPTOBOT_RECONCILIATION_MAX_ATTEMPTS:-3}
+      CRYPTOBOT_RECONCILIATION_MAX_RETRIES: ${CRYPTOBOT_RECONCILIATION_MAX_RETRIES:-2}
       CRYPTOBOT_OUTBOX_ENABLED: "true"
+      # KAN-571 — fault injection, DEMO ONLY (never set in UAT/PROD): PUT /api/cryptobot/demo/chaos {"broadcast":"rpc-down"}.
+      # The service logs `chaos_enabled — DEMO ONLY` at startup. Nothing is armed until the script (or you) arms it.
+      CRYPTOBOT_CHAOS_ENABLED: "true"
+      CRYPTOBOT_CHAOS_BROADCAST: ${CRYPTOBOT_CHAOS_BROADCAST:-}
       # Decision receipts signed with a stable key across restarts (generated into .env.demo).
       CRYPTOBOT_RECEIPT_KEY_ID: ${CRYPTOBOT_RECEIPT_KEY_ID:-demo}
       CRYPTOBOT_RECEIPT_SIGNING_KEY: ${CRYPTOBOT_RECEIPT_SIGNING_KEY:-}

@@ -103,6 +103,24 @@ public class OutboxEventR2dbcStore implements OutboxRepository {
                 .defaultIfEmpty(0L);
     }
 
+    @Override
+    public Mono<OutboxEvent> findById(UUID id) {
+        return db.sql("SELECT " + COLS + " FROM outbox_event WHERE id = :id")
+                .bind("id", id)
+                .map((row, meta) -> map(row))
+                .one();
+    }
+
+    @Override
+    public Mono<OutboxEvent> requeue(UUID id, Instant now) {
+        return db.sql("UPDATE outbox_event SET status = 'PENDING', attempts = 0, next_attempt_at = :now, last_error = NULL WHERE id = :id AND status = 'FAILED'")
+                .bind("now", now)
+                .bind("id", id)
+                .fetch().rowsUpdated()
+                .filter(n -> n > 0)
+                .flatMap(n -> findById(id));
+    }
+
     private static String truncate(String s) {
         return s == null ? null : s.length() > 2000 ? s.substring(0, 2000) : s;
     }

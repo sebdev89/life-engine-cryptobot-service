@@ -36,6 +36,30 @@ timelock 409, `operationId`, **transaction signature**, slot and confirmation as
 them, the explorer link, the validator's attestation, the audit trail, the outbox events, the
 `EXECUTION` receipt hash with its `verify` result, and the mainnet 409.
 
+## Recovery, visible (KAN-571 / HK-3): `--chaos <mode>`
+
+The demo compose enables **fault injection** (`CRYPTOBOT_CHAOS_ENABLED=true`, demo only — UAT/PROD
+never set it, and without it the endpoint and the faulty client do not exist). The script arms a
+fault right before the broadcast and then watches the system recover:
+
+```bash
+scripts/demo/e2e-devnet.sh --local-validator --chaos rpc-down          # the full loop, ≈ 3 min
+scripts/demo/e2e-devnet.sh --local-validator --chaos uncertain
+scripts/demo/e2e-devnet.sh --local-validator --chaos confirm-timeout
+scripts/demo/e2e-devnet.sh --local-validator --it                      # E2EDevnetIT incl. the rpc-down test
+```
+
+| mode | what breaks | what the evidence shows |
+|---|---|---|
+| `uncertain` | `sendTransaction` is performed, the RPC answer is lost | `EXECUTION_BROADCAST_UNCERTAIN`, row `EXECUTING`+`SIGNED` with the signature persisted **before** the broadcast → the reconciler finds it confirmed → `RECONCILED` → `EXECUTED`, same signature, no retry |
+| `confirm-timeout` | broadcast ok, the confirmation poll fails | `SUBMITTED` → reconciler → `EXECUTED` |
+| `rpc-down` | nothing is sent; status/height calls fail until disarmed | uncertain row → no verdict × 3 attempts → **dead letter** `ambiguous` (`GET /api/cryptobot/dead-letters`, `cryptobot_dead_letter_open=1`) → RPC back → `POST /dead-letters/{id}/requeue` (one-shot: replay = 409) → blockhash expired unseen → **idempotent retry**: `EXECUTION_RETRIED`, same `operationId`, **new signature** → `EXECUTED`. Then the chain is asked directly: signature #1 `never-seen`, signature #2 `confirmed`, vault transfers **+1** |
+
+Every line lands in `out/evidence-<ts>.md`. Knobs (demo only): `CRYPTOBOT_RECONCILIATION_INTERVAL`
+(10s), `_GRACE` (20s), `_MAX_ATTEMPTS` (3), `_MAX_RETRIES` (2). The chaos endpoint:
+`GET|PUT|DELETE /api/cryptobot/demo/chaos` (`RUNTIME_ADMIN`), body `{"broadcast":"rpc-down","shots":-1}`.
+Runbook for the human side: `docs/runbooks/dead-letter.md`.
+
 ## When devnet does not cooperate (faucet dry, RPC slow): plan B
 
 Same stack, same bytes, against a local `solana-test-validator` (Anza image) with unlimited airdrop:
@@ -57,7 +81,7 @@ devnet for the recording. The devnet RPC airdrop allows a few SOL per day per IP
 | `.env.demo` (gitignored) | generated secrets: `JWT_SECRET`, signer/validator tokens, DB password, receipt signing key, the public keys, the key file paths, `VALIDATOR_POLICY_HASH` pin, demo knobs |
 | `~/.cryptobot-demo/*.json` (0600) | the wallet the signer controls, the rebalance vault (destination), the validator's attestation key. Mounted read-only; the containers run as your uid to read them |
 | `scripts/demo/wallet-devnet.sh` | generates keys (`solana-keygen` if installed, else python `cryptography`/openssl) and `.env.demo`; airdrops |
-| `scripts/demo/e2e-devnet.sh` | the flow by curl + evidence; `--it` runs `E2EDevnetIT` |
+| `scripts/demo/e2e-devnet.sh` | the flow by curl + evidence; `--chaos <mode>` injects a failure and shows the recovery (KAN-571); `--it` runs `E2EDevnetIT` |
 | `scripts/demo/lib.sh` | helpers: JSON-RPC, base58 pubkey of a keypair, HS256 token, default `H_R` |
 | `src/test/java/io/lifeengine/cryptobot/e2e/E2EDevnetIT.java` | the same flow as assertions; `./mvnw -Pe2e-devnet verify` with the stack up |
 
@@ -66,7 +90,8 @@ devnet for the recording. The devnet RPC airdrop allows a few SOL per day per IP
 | Variable | Default | Why |
 |---|---|---|
 | `CRYPTOBOT_TIMELOCK_ESCALATED` | `20s` | so an ESCALATE verdict shows the timelock (409 + wait) without the 30 min of a real environment |
-| `CRYPTOBOT_RECONCILIATION_GRACE` | `45s` | an interrupted confirmation is closed by the reconciler soon after |
+| `CRYPTOBOT_RECONCILIATION_INTERVAL` / `_GRACE` / `_MAX_ATTEMPTS` / `_MAX_RETRIES` | `10s` / `20s` / `3` / `2` | so the whole recovery loop (no verdict → DLQ → requeue → retry) fits in ≈ 3 min; production is 30s / 2m / 20 / 2 |
+| `CRYPTOBOT_CHAOS_ENABLED` | `true` (compose) | KAN-571 fault injection; **never** in UAT/PROD |
 | `CRYPTOBOT_DEMO_PORT` | `8091` | host port of the service |
 | `CRYPTOBOT_SOLANA_DEVNET_RPC` | `https://api.devnet.solana.com` | any devnet RPC; `--local-validator` overrides it |
 | `--sell-sol N` (script) / `CRYPTOBOT_E2E_SELL_SOL` (IT) | `1` | size of the SELL leg, clamped to 21–40 % of the SOL held so every rule holds: `R_v` `ASSET_CONCENTRATION` (SOL ≤ 80 % after), ≤ $500, ≤ 50 % of the portfolio, ≤ 2 SOL per tx. Keep the wallet between 0.5 and 9 SOL |

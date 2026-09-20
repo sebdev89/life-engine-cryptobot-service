@@ -116,6 +116,34 @@ final class ExecutionHarness {
         return io.lifeengine.cryptobot.adapters.solana.Base58.encode(sig);
     }
 
+    /**
+     * KAN-571: the signer signs whatever message it is handed (so a retry on a fresh blockhash gets
+     * a different signature), and {@code prepareTransfer} hands out {@code tx} first and then
+     * {@code tx2} (another blockhash ⇒ other bytes). Returns the signature of {@code tx2}'s message.
+     */
+    final PreparedTransaction tx2 = new PreparedTransaction("devnet", null, Fixtures.VAULT, 2_000_000_000L, "blockhash-2", 2000,
+            Base64.getEncoder().encodeToString("fake-solana-message-retry".getBytes(StandardCharsets.UTF_8)),
+            Base64.getEncoder().encodeToString("fake-solana-message-retry".getBytes(StandardCharsets.UTF_8)), "transfer 2 SOL");
+
+    String signerSignsAnyMessage() {
+        when(signer.sign(eq(approved.id()), anyString(), eq(wallet.address()), eq(SolanaCluster.DEVNET), any()))
+                .thenAnswer(inv -> {
+                    byte[] message = Base64.getDecoder().decode(inv.<String>getArgument(1));
+                    byte[] sig = keypair.sign(message);
+                    byte[] wire = new byte[1 + 64 + message.length];
+                    wire[0] = 1;
+                    System.arraycopy(sig, 0, wire, 1, 64);
+                    System.arraycopy(message, 0, wire, 65, message.length);
+                    return Mono.just(new SignerClient.SignResponse(Base64.getEncoder().encodeToString(wire), keypair.publicKeyBase58(), null));
+                });
+        when(simulation.prepareTransfer(eq(wallet), anyLong())).thenReturn(Mono.just(tx)).thenReturn(Mono.just(tx2));
+        return io.lifeengine.cryptobot.adapters.solana.Base58.encode(keypair.sign(Base64.getDecoder().decode(tx2.messageBase64())));
+    }
+
+    String signatureOf(PreparedTransaction t) {
+        return io.lifeengine.cryptobot.adapters.solana.Base58.encode(keypair.sign(Base64.getDecoder().decode(t.messageBase64())));
+    }
+
     /** What a happy validator answers: ESCALATE (human signature tier), an attestation for the message. */
     static ValidatorClient.Response attestation() {
         return new ValidatorClient.Response("ESCALATE", "REQUIRE_HUMAN_SIGNATURE", "HUMAN_SIGNATURE", List.of(), List.of(),
