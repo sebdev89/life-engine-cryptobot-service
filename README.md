@@ -136,6 +136,7 @@ All endpoints take `Authorization: Bearer <Life Engine JWT>`. Everything is scop
 | `GET /api/cryptobot/receipts/{hash}` · `POST …/verify` · `GET /api/cryptobot/proposals/{id}/receipts` · `GET /api/cryptobot/wallets/{id}/receipts` · `GET /api/cryptobot/receipts/signing-key` | a receipt with its edges · recompute hash + body + signature + parents and, for an L1 `RISK_DECISION`, **re-run the engine** on the stored input and compare `outputHash` (`reproduced`, `reproduction.reason`, KAN-392) · the receipts of a proposal (oldest first) / a wallet (newest first) · the public key and the three formulas to verify offline (KAN-391) |
 | `POST /api/cryptobot/anchors[?wait=true]` (admin) · `GET /api/cryptobot/anchors` · `GET …/anchors/{root}` · `POST …/anchors/{root}/verify` | settle in-flight batches, retry failed ones, open one for the receipts waiting (`wait` polls for finality) · recent batches with their explorer link · one batch with the caller's own receipts in it · recompute root + fold every proof + parse the memo + read the transaction back from devnet (KAN-394). `POST …/receipts/{hash}/verify` now also returns `anchor{anchored,status,tx,slot,root,proof,proofValid,explorerUrl}` |
 | `GET /api/cryptobot/quotes/{asset}?ars=<monto>&network=<red>` · `?side=SELL&amount=<unidades>` | ARS quotes across Argentine exchanges, ranked "recibís X" (KAN-355) |
+| `POST /api/cryptobot/glossary/events` `{events:[{term?,action,hit?}]}` | glossary usage from the UI, batched (≤ 100) → Prometheus counters; `202 {accepted,rejected}` (KAN-353) |
 
 ### ARS quotes across exchanges (KAN-355)
 
@@ -173,6 +174,38 @@ never as zero. Metrics: `cryptobot_quotes_fetch_total{exchange,ok}` and
 `cryptobot_quotes_fetch_latency_seconds{exchange}`.
 
 Manual validation against the oracle (dev only, needs network): `scripts/validate-quotes-oracle.sh`.
+
+### Glossary usage, measured (KAN-353)
+
+The 864-term glossary of `cryptobot-ui` (KAN-325) reports what people **open**, **search** and
+**copy**. The UI batches the events and POSTs them here; `GlossaryEventsService` validates each row
+(action ∈ `open|search|copy`; term = 1–64 chars of letters, digits and the punctuation glossary
+terms use) and feeds two counters in `CryptobotMetrics`:
+
+| Metric | Labels | Meaning |
+|---|---|---|
+| `cryptobot_glossary_term_total` | `term`, `action` | one per interaction with a term; ≈ 864 × 3 series, the `term` label is capped at `MAX_GLOSSARY_TERMS` = 1200 distinct values (beyond: `other`) |
+| `cryptobot_glossary_search_total` | `hit` = `true\|false` | one per settled search; `false` is "what people look for and the glossary lacks" |
+
+No user, tenant, session or query text is accepted, stored or labelled — usage is measured per
+term, not per person. The service does not carry the term list (it lives in the UI), so a term
+is bounded by shape + cap, not by an allow-list; a malformed row is dropped and counted in
+`rejected`, never a 4xx for the batch. The UI never talks to Prometheus or Grafana; Runtime is
+not involved.
+
+Grafana: `docs/observability/grafana/life-engine-cryptobot-glosario.json` (uid
+`le-cryptobot-glosario`: top 20 opened terms, searches without result, use per day, cardinality
+guard). Copying it into `deploy/observability/grafana/dashboards/` is INFRA's (the deploy repo is a
+gate). The `service` label differs per environment — `cryptobot` in compose (Docker SD relabel),
+`cryptobot-service` in k8s (the binary's common tag) — so its queries use
+`service=~"cryptobot|cryptobot-service"`.
+
+```bash
+curl -s -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"events":[{"term":"PDA","action":"open"},{"action":"search","hit":false}]}' \
+  http://localhost:8091/api/cryptobot/glossary/events          # → 202 {"accepted":2,"rejected":0}
+curl -s http://localhost:8091/actuator/prometheus | grep cryptobot_glossary
+```
 
 ## Security model
 

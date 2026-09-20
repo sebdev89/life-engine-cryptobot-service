@@ -11,6 +11,7 @@ import java.util.Collection;
 import java.util.LinkedHashSet;
 import java.util.Locale;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
 
 /**
@@ -61,6 +62,9 @@ import java.util.concurrent.atomic.AtomicLong;
  *   anchored.receipts             → anchored_receipts_total               receipts stamped by a FINALIZED batch
  *   anchor.pending                → anchor_pending          (gauge)       receipts without a finalized anchor (Endgame §24)
  *   anchor.finality.latency       → anchor_finality_latency_seconds       broadcast → finalized, per batch
+ *   --- KAN-353 (glossary usage: fed by GlossaryEventsService from the UI's batched events) ---
+ *   cryptobot.glossary.term       → cryptobot_glossary_term_total{term,action}  open | search | copy — one series per (term, action)
+ *   cryptobot.glossary.search     → cryptobot_glossary_search_total{hit}        true | false (a search with no result is the product signal)
  * </pre>
  *
  * <h2>Labels</h2>
@@ -69,11 +73,20 @@ import java.util.concurrent.atomic.AtomicLong;
  * {@link BuildIdentityConfig} as common tags. {@code asset} is only ever a value from the
  * configured allow-list, otherwise {@code other}: the market-review symbol is user input and would
  * otherwise be an unbounded series. Never a wallet, a proposal id, a signature or a message.
+ *
+ * <p>{@code term} (KAN-353) is the glossary term as the UI names it — the service does not carry a
+ * copy of the 864-entry list, so it cannot allow-list it. Instead the number of distinct terms is
+ * capped at {@link #MAX_GLOSSARY_TERMS}: past the cap every new term is reported as {@code other}.
+ * The caller ({@code GlossaryEventsService}) has already validated shape and length. Never a user,
+ * a tenant or a session: usage of the glossary is measured per term, not per person.
  */
 public class CryptobotMetrics {
 
     public static final String ASSET_OTHER = "other";
     public static final String ASSET_NONE = "none";
+    public static final String TERM_OTHER = "other";
+    /** Distinct {@code term} label values kept (864 in the glossary today, room to grow); beyond it: {@code other}. */
+    public static final int MAX_GLOSSARY_TERMS = 1200;
 
     static final String MARKET_ANALYSIS = "market.analysis";
     static final String RISK_ANALYSIS = "risk.analysis";
@@ -104,6 +117,8 @@ public class CryptobotMetrics {
     static final String ANCHORED_RECEIPTS = "anchored.receipts";
     static final String ANCHOR_PENDING = "anchor.pending";
     static final String ANCHOR_FINALITY_LATENCY = "anchor.finality.latency";
+    static final String GLOSSARY_TERM = "cryptobot.glossary.term";
+    static final String GLOSSARY_SEARCH = "cryptobot.glossary.search";
 
     /** Stages of {@code ExecutionService.run}; the one reached when it failed is the label. */
     public enum FailureStage {
@@ -129,6 +144,9 @@ public class CryptobotMetrics {
     private final AtomicLong outboxFailed = new AtomicLong();
     private final AtomicLong dlqSize = new AtomicLong();
     private final AtomicLong anchorPending = new AtomicLong();
+
+    // KAN-353: the distinct glossary terms seen so far, so the `term` label stays bounded.
+    private final Set<String> glossaryTerms = ConcurrentHashMap.newKeySet();
 
     public CryptobotMetrics(MeterRegistry registry, Collection<String> knownAssets) {
         this.registry = registry;
@@ -308,6 +326,38 @@ public class CryptobotMetrics {
                 .record(elapsed);
     }
 
+    // ---- KAN-353: glossary usage (the UI batches, GlossaryEventsService validates) --------------
+
+    /**
+     * One glossary interaction on a term: {@code action} is {@code open | search | copy} (already
+     * validated by the caller). The term is kept verbatim while fewer than
+     * {@link #MAX_GLOSSARY_TERMS} distinct values were seen; after that it is {@code other}.
+     */
+    public void glossaryTerm(String term, String action) {
+        counter(GLOSSARY_TERM, "term", glossaryLabel(term), "action", low(action)).increment();
+    }
+
+    /** One search in the glossary: {@code hit=false} means the query matched nothing (a missing term, a product signal). */
+    public void glossarySearch(boolean hit) {
+        counter(GLOSSARY_SEARCH, "hit", Boolean.toString(hit)).increment();
+    }
+
+    /** Verbatim while under the cap, {@code other} beyond it; a term already seen keeps its series forever. */
+    String glossaryLabel(String term) {
+        if (term == null || term.isBlank()) {
+            return TERM_OTHER;
+        }
+        String t = term.trim();
+        if (glossaryTerms.contains(t)) {
+            return t;
+        }
+        if (glossaryTerms.size() >= MAX_GLOSSARY_TERMS) {
+            return TERM_OTHER;
+        }
+        glossaryTerms.add(t);
+        return t;
+    }
+
     // ---- plumbing -----------------------------------------------------------------------------
 
     /**
@@ -366,6 +416,9 @@ public class CryptobotMetrics {
         counter(POLICY_VERDICTS, "decision", "deny", "escalation", "none");
         counter(POLICY_VERDICTS, "decision", "escalate", "escalation", "require_second_agent");
         counter(POLICY_VERDICTS, "decision", "escalate", "escalation", "require_human_signature");
+        // KAN-353: the "búsquedas sin resultado" panel reads 0, not "No data", before the first search.
+        counter(GLOSSARY_SEARCH, "hit", "true");
+        counter(GLOSSARY_SEARCH, "hit", "false");
     }
 
     private Counter counter(String name, String... tags) {
