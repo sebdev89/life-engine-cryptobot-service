@@ -108,6 +108,16 @@ open http://localhost:4204
 
 Devnet SOL for the demo wallet: https://faucet.solana.com (the RPC airdrop is rate-limited).
 
+### The demo, end to end, for real (KAN-570)
+
+`docker-compose.demo.yml` is the self-contained version — own Postgres, no Auth/Runtime — wired
+for **real execution on devnet**: `scripts/demo/wallet-devnet.sh` (keys + `.env.demo` + airdrop,
+once) then `scripts/demo/e2e-devnet.sh` runs intent → policy → approval → timelock → validator →
+signer → `sendTransaction` → confirmed → receipt by API and leaves `out/evidence-<ts>.md` with
+the transaction signature, the explorer link and the receipt hash; `--it` runs the same flow as
+`E2EDevnetIT` (`./mvnw -Pe2e-devnet verify`); `--local-validator` rehearses against a local
+`solana-test-validator` when the faucet is dry. Details: `scripts/demo/README.md`.
+
 ## API
 
 All endpoints take `Authorization: Bearer <Life Engine JWT>`. Everything is scoped by the token's
@@ -390,10 +400,11 @@ trust this database. No program of our own (that is phase 2): one SPL Memo per b
 ## Tests
 
 ```bash
-./mvnw test                     # 393 tests (1 skipped: the golden writer): independent validator client + fail-closed execution + timelock/cancel + default-policy parity (KAN-438), adapters (recorded responses), engines, state machine, HTTP flow with fake RPC + Runtime, ARS quotes (fixtures, no network), idempotency + crash/reconciliation + outbox (KAN-403), intent schema + canonicalization vectors (KAN-435), deterministic policy: decision table + golden vectors + 2-implementation agreement (KAN-436), adversarial benchmark 10 000 intents + invariants I1–I7 + chaos (KAN-440), PDA derivation + program client vs SDK vectors (KAN-437), receipt vectors + DAG invariants + verify + the 7-kind DAG over the HTTP flow (KAN-391), risk engine: canonical input/output, action table, tie-breaks, 200-hash golden, L1 re-execution with every reason code (KAN-392), Merkle vectors + memo format + anchoring batch (submit / finalized / re-anchor / abandon / verify) + the anchor flow over HTTP with a signing fake (KAN-394)
+./mvnw test                     # 427 tests (1 skipped: the golden writer): independent validator client + fail-closed execution + timelock/cancel + default-policy parity (KAN-438), adapters (recorded responses), engines, state machine, HTTP flow with fake RPC + Runtime, ARS quotes (fixtures, no network), idempotency + crash/reconciliation + outbox (KAN-403), intent schema + canonicalization vectors (KAN-435), deterministic policy: decision table + golden vectors + 2-implementation agreement (KAN-436), adversarial benchmark 10 000 intents + invariants I1–I7 + chaos (KAN-440), PDA derivation + program client vs SDK vectors (KAN-437), receipt vectors + DAG invariants + verify + the 7-kind DAG over the HTTP flow (KAN-391), risk engine: canonical input/output, action table, tie-breaks, 200-hash golden, L1 re-execution with every reason code (KAN-392), Merkle vectors + memo format + anchoring batch (submit / finalized / re-anchor / abandon / verify) + the anchor flow over HTTP with a signing fake (KAN-394)
 ./mvnw -f signer/pom.xml test   # 21 tests: signing policy (every refusal reason, transfer and anchor memo), token, signature verification, attestation gate (KAN-438)
 ./mvnw -f validator/pom.xml test  # 25 tests: independent table vs golden vectors, agreement/disagreement/hash pin, attestation, HTTP (KAN-438)
 (cd programs/intent-authority && cargo test)   # 29 tests: on-chain rules, bank simulator, shared vectors (KAN-437)
+./mvnw -Pe2e-devnet verify      # E2EDevnetIT (2): the real pipeline against the demo stack + devnet (KAN-570); needs scripts/demo/ up
 cd ../cryptobot-ui && npx ng test
 ```
 

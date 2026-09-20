@@ -19,6 +19,8 @@ services:
       VALIDATOR_POLICY_SECOND_AGENT_UP_TO_CENTS: ${VALIDATOR_POLICY_SECOND_AGENT_UP_TO_CENTS:-25000}
     volumes:
       - ${VALIDATOR_KEYPAIR_HOST_PATH}:/run/secrets/validator-keypair:ro
+    # KAN-570: the key file is 0600 on the host; run as its owner so the container can read it.
+    user: "${DEMO_UID:-1000}"
     networks: [cryptobot]
 
   cryptobot-signer:
@@ -36,6 +38,7 @@ services:
       SIGNER_REQUIRE_ATTESTATION: "true"
     volumes:
       - ${SIGNER_KEYPAIR_HOST_PATH}:/run/secrets/signer-keypair:ro
+    user: "${DEMO_UID:-1000}"
     networks: [cryptobot]
     # No published port: only cryptobot-service can reach the signer.
 

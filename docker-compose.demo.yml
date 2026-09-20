@@ -1,0 +1,155 @@
+# KAN-570 — the CryptoBot demo stack, self-contained: its own Postgres, the independent validator,
+# the isolated signer and the service, wired for REAL execution on Solana devnet.
+#
+#   scripts/demo/wallet-devnet.sh                                   # keys + .env.demo + airdrop (once)
+#   docker compose -f docker-compose.demo.yml --env-file .env.demo up -d --build
+#   scripts/demo/e2e-devnet.sh                                      # the flow by API + out/evidence-<ts>.md
+#
+# Plan B when devnet's faucet/RPC is not cooperating: the same stack against a local validator
+# (`--profile local-validator`, RPC http://solana-local:8899; unlimited airdrop). The pipeline is
+# byte-for-byte the same; only the RPC URL changes and the explorer link does not resolve.
+#
+# What is deliberately NOT here: Life Engine Auth and Runtime. The JWT is HS256 with the demo's
+# own JWT_SECRET (the scripts mint the token); the LLM advisor (runtime PR #33) is optional and
+# not on the E2E path. Nothing here points at le-*/le-uat-*; the project name and network are
+# its own. Secrets come from .env.demo (gitignored) and the key files are mounted read-only.
+name: cryptobot-demo
+
+services:
+  demo-postgres:
+    image: postgres:16-alpine
+    container_name: cryptobot-demo-postgres
+    environment:
+      POSTGRES_DB: life_engine_cryptobot
+      POSTGRES_USER: ${CRYPTOBOT_DB_USER:-cryptobot}
+      POSTGRES_PASSWORD: ${CRYPTOBOT_DB_PASSWORD:?run scripts/demo/wallet-devnet.sh first}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${CRYPTOBOT_DB_USER:-cryptobot} -d life_engine_cryptobot"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    networks: [cryptobot-demo]
+
+  # KAN-438 (paper §20): a process that is not the agent. Own copy of R_v pinned by H_R, own
+  # attestation key (moves nothing). No published port: only cryptobot-service reaches it.
+  cryptobot-validator:
+    build: ./validator
+    container_name: cryptobot-demo-validator
+    environment:
+      VALIDATOR_PORT: "8097"
+      VALIDATOR_KEYPAIR_PATH: /run/secrets/validator-keypair
+      VALIDATOR_TOKEN: ${VALIDATOR_TOKEN:?}
+      VALIDATOR_POLICY_HASH: ${VALIDATOR_POLICY_HASH:-}
+      VALIDATOR_ENABLED: "true"
+    volumes:
+      - ${VALIDATOR_KEYPAIR_HOST_PATH:?}:/run/secrets/validator-keypair:ro
+    # The key files are 0600 on the host: the container runs as the host user that owns them
+    # (DEMO_UID from .env.demo), not as the image's own uid. Nothing else in the image needs a uid.
+    user: "${DEMO_UID:-1000}"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8097/actuator/health >/dev/null"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+      start_period: 30s
+    networks: [cryptobot-demo]
+
+  # The only container with the wallet key. Byte-level caps, devnet only, attestation required.
+  cryptobot-signer:
+    build: ./signer
+    container_name: cryptobot-demo-signer
+    environment:
+      SIGNER_PORT: "8096"
+      SIGNER_KEYPAIR_PATH: /run/secrets/signer-keypair
+      SIGNER_TOKEN: ${SIGNER_TOKEN:?}
+      SIGNER_ALLOWED_DESTINATIONS: ${SIGNER_ALLOWED_DESTINATIONS:?}
+      SIGNER_MAX_LAMPORTS: ${SIGNER_MAX_LAMPORTS:-2000000000}
+      SIGNER_CLUSTER: devnet
+      SIGNER_VALIDATOR_PUBLIC_KEY: ${SIGNER_VALIDATOR_PUBLIC_KEY:?}
+      SIGNER_REQUIRE_ATTESTATION: "true"
+      SIGNER_ALLOW_MAINNET: "false"
+      SIGNER_ENABLED: "true"
+    volumes:
+      - ${SIGNER_KEYPAIR_HOST_PATH:?}:/run/secrets/signer-keypair:ro
+    user: "${DEMO_UID:-1000}"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8096/actuator/health >/dev/null"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+      start_period: 30s
+    networks: [cryptobot-demo]
+
+  cryptobot-service:
+    build: .
+    container_name: cryptobot-demo-service
+    depends_on:
+      demo-postgres:
+        condition: service_healthy
+      cryptobot-validator:
+        condition: service_healthy
+      cryptobot-signer:
+        condition: service_healthy
+    environment:
+      CRYPTOBOT_SERVICE_PORT: "8091"
+      SPRING_PROFILES_ACTIVE: local
+      APP_ENV: demo
+      JWT_SECRET: ${JWT_SECRET:?}
+      CRYPTOBOT_JDBC_URL: jdbc:postgresql://demo-postgres:5432/life_engine_cryptobot
+      CRYPTOBOT_R2DBC_URL: r2dbc:postgresql://demo-postgres:5432/life_engine_cryptobot
+      CRYPTOBOT_DB_USER: ${CRYPTOBOT_DB_USER:-cryptobot}
+      CRYPTOBOT_DB_PASSWORD: ${CRYPTOBOT_DB_PASSWORD:?}
+      # Solana: devnet by default; the local-validator profile overrides the URL (same cluster label).
+      CRYPTOBOT_SOLANA_DEVNET_RPC: ${CRYPTOBOT_SOLANA_DEVNET_RPC:-https://api.devnet.solana.com}
+      CRYPTOBOT_SNAPSHOT_PROVIDER: deterministic-local
+      # ---- the execution path, for real ----
+      CRYPTOBOT_EXECUTION_ENABLED: "true"
+      CRYPTOBOT_ALLOW_MAINNET: "false"
+      CRYPTOBOT_REBALANCE_VAULT: ${CRYPTOBOT_REBALANCE_VAULT:?}
+      CRYPTOBOT_SIGNER_ENABLED: "true"
+      CRYPTOBOT_SIGNER_BASE_URL: http://cryptobot-signer:8096
+      CRYPTOBOT_SIGNER_TOKEN: ${CRYPTOBOT_SIGNER_TOKEN:?}
+      CRYPTOBOT_VALIDATOR_ENABLED: "true"
+      CRYPTOBOT_VALIDATOR_BASE_URL: http://cryptobot-validator:8097
+      CRYPTOBOT_VALIDATOR_TOKEN: ${CRYPTOBOT_VALIDATOR_TOKEN:?}
+      # Demo-only: a short timelock so an ESCALATE verdict is visible (409 + wait) without 30 minutes.
+      CRYPTOBOT_TIMELOCK_ESCALATED: ${CRYPTOBOT_TIMELOCK_ESCALATED:-20s}
+      # Reconciliation runs for real (startup + every 30 s); a short grace so an interrupted confirm is closed soon.
+      CRYPTOBOT_RECONCILIATION_ENABLED: "true"
+      CRYPTOBOT_RECONCILIATION_GRACE: ${CRYPTOBOT_RECONCILIATION_GRACE:-45s}
+      CRYPTOBOT_OUTBOX_ENABLED: "true"
+      # Decision receipts signed with a stable key across restarts (generated into .env.demo).
+      CRYPTOBOT_RECEIPT_KEY_ID: ${CRYPTOBOT_RECEIPT_KEY_ID:-demo}
+      CRYPTOBOT_RECEIPT_SIGNING_KEY: ${CRYPTOBOT_RECEIPT_SIGNING_KEY:-}
+      CRYPTOBOT_RECEIPT_SALT_SECRET: ${CRYPTOBOT_RECEIPT_SALT_SECRET:-}
+      # Optional LLM advisor (runtime PR #33). Not on the E2E path.
+      CRYPTOBOT_RUNTIME_BASE_URL: ${CRYPTOBOT_RUNTIME_BASE_URL:-http://host.docker.internal:8090}
+      CRYPTOBOT_ADVISOR_LOCALE: ${CRYPTOBOT_ADVISOR_LOCALE:-es}
+      CRYPTOBOT_HTTP_CORS_ALLOWED_ORIGINS: http://localhost:${UI_PORT:-4204},http://127.0.0.1:${UI_PORT:-4204}
+    ports:
+      - "127.0.0.1:${CRYPTOBOT_DEMO_PORT:-8091}:8091"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    networks: [cryptobot-demo]
+
+  # Plan B (KAN-570 §risks): a local Solana validator with unlimited airdrop. Start with
+  #   docker compose -f docker-compose.demo.yml --env-file .env.demo --profile local-validator up -d
+  # and CRYPTOBOT_SOLANA_DEVNET_RPC=http://solana-local:8899 in .env.demo (the scripts use the
+  # published port 127.0.0.1:${SOLANA_LOCAL_PORT:-8999} from the host).
+  solana-local:
+    image: anzaxyz/agave:v2.2.14
+    container_name: cryptobot-demo-solana
+    profiles: [local-validator]
+    entrypoint: ["solana-test-validator", "--rpc-port", "8899", "--bind-address", "0.0.0.0", "--ledger", "/tmp/ledger", "--reset", "--quiet"]
+    ports:
+      - "127.0.0.1:${SOLANA_LOCAL_PORT:-8999}:8899"
+    healthcheck:
+      test: ["CMD-SHELL", "solana cluster-version --url http://127.0.0.1:8899 >/dev/null"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 20s
+    networks: [cryptobot-demo]
+
+networks:
+  cryptobot-demo: {}

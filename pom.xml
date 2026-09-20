@@ -190,4 +190,47 @@
             </plugin>
         </plugins>
     </build>
+
+    <profiles>
+        <!--
+          KAN-570 — the real E2E against the demo stack (docker-compose.demo.yml) and a Solana RPC.
+          Off by default: it needs Docker, a funded devnet wallet (or the local validator) and
+          .env.demo. Surefire never picks *IT up; Failsafe does, only here:
+            ./mvnw -Pe2e-devnet verify          (after scripts/demo/e2e-devnet.sh, or with the stack up)
+        -->
+        <profile>
+            <id>e2e-devnet</id>
+            <build>
+                <plugins>
+                    <!-- Only the E2E under this profile: the unit suite has its own `./mvnw verify`. -->
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-surefire-plugin</artifactId>
+                        <configuration>
+                            <skip>true</skip>
+                        </configuration>
+                    </plugin>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-failsafe-plugin</artifactId>
+                        <version>3.5.2</version>
+                        <configuration>
+                            <includes>
+                                <include>**/e2e/*IT.java</include>
+                            </includes>
+                            <trimStackTrace>false</trimStackTrace>
+                        </configuration>
+                        <executions>
+                            <execution>
+                                <goals>
+                                    <goal>integration-test</goal>
+                                    <goal>verify</goal>
+                                </goals>
+                            </execution>
+                        </executions>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+    </profiles>
 </project>
