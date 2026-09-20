@@ -8,6 +8,15 @@ RUN mvn -B -q -ntp -DskipTests package
 
 # alpine, like the service image: the compose healthchecks use wget (KAN-570).
 FROM eclipse-temurin:21-jre-alpine
+# Identidad de build (KAN-579, misma forma que el Dockerfile del servicio): el contexto copia
+# sólo src/ (sin .git), así que CI pasa el commit real como build-args y queda en el entorno
+# para /actuator/info y para los logs (commitSha). Son hechos de git, nunca secretos.
+ARG GIT_COMMIT=""
+ARG GIT_BRANCH=""
+ARG GIT_COMMIT_TIME=""
+ENV GIT_COMMIT=${GIT_COMMIT} \
+    GIT_BRANCH=${GIT_BRANCH} \
+    GIT_COMMIT_TIME=${GIT_COMMIT_TIME}
 RUN addgroup -S signer && adduser -S -u 10002 signer -G signer
 WORKDIR /app
 COPY --from=build /src/target/cryptobot-signer-*.jar app.jar
