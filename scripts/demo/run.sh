@@ -191,7 +191,7 @@ secrets_check() {
   done < "$ENV_FILE"
   if git -C "$PROJECT" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
     git -C "$PROJECT" check-ignore -q "$ENV_FILE" || { printf '\033[1;31m[demo]\033[0m %s is NOT gitignored\n' "$ENV_FILE" >&2; hits=$((hits + 1)); }
-    git -C "$PROJECT" check-ignore -q "$OUT" || { printf '\033[1;31m[demo]\033[0m %s is NOT gitignored\n' "$OUT" >&2; hits=$((hits + 1)); }
+    git -C "$PROJECT" check-ignore -q "$REPORT" || { printf '\033[1;31m[demo]\033[0m %s is NOT gitignored\n' "$REPORT" >&2; hits=$((hits + 1)); }
   fi
   log "secrets check: ${n} secret values searched in the report and the log, ${hits} hits; env file and out/ gitignored"
   (( hits == 0 ))

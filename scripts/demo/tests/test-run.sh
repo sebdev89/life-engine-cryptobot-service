@@ -58,7 +58,8 @@ check "missing env file" 1 "${DEMO}/e2e-devnet.sh" --env-file "${TMP}/missing.en
 
 echo "secrets stay out of git"
 if git -C "$PROJECT" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
-  for f in .env.demo .env.demo-uat out; do
+  # `out/` (directory rule) only matches an existing directory by its bare name: ask for a path inside it.
+  for f in .env.demo .env.demo-uat out/demo-report-x.md; do
     git -C "$PROJECT" check-ignore -q "$f" && ok "${f} is gitignored" || bad "${f} is NOT gitignored"
   done
   git -C "$PROJECT" ls-files --error-unmatch .env.demo-uat.example >/dev/null 2>&1 && ok ".env.demo-uat.example is tracked" || bad ".env.demo-uat.example is not tracked"
