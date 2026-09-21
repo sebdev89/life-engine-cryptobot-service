@@ -22,6 +22,9 @@ import io.lifeengine.cryptobot.infrastructure.persistence.controlplane.ActionPro
 import io.lifeengine.cryptobot.integration.signer.SignerClient;
 import io.lifeengine.cryptobot.integration.validator.ValidatorClient;
 import io.lifeengine.cryptobot.observability.CryptobotMetrics;
+import io.lifeengine.cryptobot.observability.ErrorCode;
+import io.lifeengine.cryptobot.observability.LogContext;
+import io.lifeengine.cryptobot.observability.LogFields;
 import java.math.BigDecimal;
 import java.time.Clock;
 import java.time.Duration;
@@ -147,6 +150,12 @@ public class ProposalService {
             metrics.strategyCreated("proposed", assetOf(plan));
             io.lifeengine.cryptobot.domain.portfolio.PortfolioSnapshot projected = planner.project(view.snapshot(), plan);
             RiskReport riskAfter = riskEngine.evaluate(projected, null);
+            if (riskAfter.overall() == io.lifeengine.cryptobot.domain.risk.RiskSeverity.HIGH) {
+                // KAN-573: riesgo alto del portfolio resultante — no bloquea por sí solo (la policy decide), pero se busca en Loki.
+                log.warn("proposal_risk_high wallet={} score={} findings={}", wallet.id(), riskAfter.score(),
+                        riskAfter.findings().stream().map(f -> f.code()).toList(),
+                        LogFields.event("risk_evaluated"), LogFields.status("high"), ErrorCode.RISK_HIGH.kv());
+            }
             Instant now = clock.instant();
             String title = "Rebalance: " + String.join(", ", intent.targetWeights().keySet()) + " → " + intent.targetWeights().values();
             ActionProposal p = new ActionProposal(UUID.randomUUID(), wallet.id(), wallet.ownerUserId(), wallet.address(), wallet.cluster().id(),
@@ -181,7 +190,9 @@ public class ProposalService {
                                     .flatMap(strategyHash -> simulate(saved, wallet, view.snapshot(), strategyHash));
                         })
                         .flatMap(sim -> evaluatePolicy(sim.proposal(), wallet, view.snapshot().capturedAt(), sim.strategyReceipt(), sim.simulationReceipt()));
-            });
+            })
+            // KAN-573: de acá al veredicto de policy, cada línea dice de qué propuesta (y de qué corrida del Runtime) habla.
+            .contextWrite(ctx -> LogContext.write(LogContext.write(ctx, LogContext.PROPOSAL_ID, p.id()), LogContext.RUNTIME_RUN_ID, runtimeRunId));
         });
     }
 
@@ -243,7 +254,14 @@ public class ProposalService {
             log.info("proposal_policy proposalId={} allowed={} executable={} violations={} executionViolations={} decision={} escalation={} tier={} policyHash={} oracleAccepted={} oracleQuotesHash={}",
                     p.id(), decision.allowed(), decision.executable(), decision.violations().size(), decision.executionViolations().size(),
                     verdict.decision(), verdict.escalation(), verdict.tier(), verdict.policyHash(),
-                    oracleReading != null && oracleReading.accepted(), oracleReading == null ? null : oracleReading.quotesHash());
+                    oracleReading != null && oracleReading.accepted(), oracleReading == null ? null : oracleReading.quotesHash(),
+                    LogFields.event("policy_evaluated"), LogFields.status(next.name().toLowerCase(java.util.Locale.ROOT)));
+            if (!decision.allowed()) {
+                // KAN-573: el rechazo de policy es la primera parada del demo path; una línea con errorCode y las reglas que dijeron no.
+                log.warn("proposal_blocked_by_policy proposalId={} rules={} decision={} failedPredicates={}", p.id(),
+                        decision.violations().stream().map(PolicyDecision.Violation::rule).toList(), verdict.decision(), verdict.failedPredicates(),
+                        LogFields.event("policy_blocked"), LogFields.status("blocked"), ErrorCode.POLICY_BLOCKED.kv());
+            }
             // Funnel step 1: the trade was requested — it either reached the human or policy stopped it.
             metrics.tradeRequested(next.name(), assetOf(p.plan()));
             // Authority layer (KAN-440): which verdict, and — on DENY — which predicates said no.

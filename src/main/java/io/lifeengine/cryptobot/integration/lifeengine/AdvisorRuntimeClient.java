@@ -1,5 +1,7 @@
 package io.lifeengine.cryptobot.integration.lifeengine;
 
+import io.lifeengine.cryptobot.observability.LogContext;
+import io.lifeengine.cryptobot.observability.LogFields;
 import io.lifeengine.cryptobot.infrastructure.runtime.RuntimeClient;
 import io.lifeengine.cryptobot.infrastructure.runtime.RuntimeRunDetail;
 import io.lifeengine.cryptobot.infrastructure.runtime.RuntimeStartRunPayload;
@@ -62,7 +64,10 @@ public class AdvisorRuntimeClient {
                                 .filter(NotYetTerminal.class::isInstance)
                                 .onRetryExhaustedThrow((spec, signal) -> new java.util.concurrent.TimeoutException(
                                         "Runtime run " + runId + " did not finish within " + props.timeout())))
-                .doOnSuccess(c -> log.info("advisor_run_terminal runId={} status={}", runId, c.detail().status()));
+                .doOnSuccess(c -> log.info("advisor_run_terminal runId={} status={}", runId, c.detail().status(),
+                        LogFields.event("advisor_run"), LogFields.status(String.valueOf(c.detail().status()))))
+                // KAN-573: la corrida del Runtime en el MDC de toda la espera (LogContext.RUNTIME_RUN_ID).
+                .contextWrite(ctx -> LogContext.write(ctx, LogContext.RUNTIME_RUN_ID, runId));
     }
 
     private long maxAttempts() {

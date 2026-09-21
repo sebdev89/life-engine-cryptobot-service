@@ -4,6 +4,8 @@ import io.lifeengine.cryptobot.application.controlplane.ControlPlaneExceptions;
 import io.lifeengine.cryptobot.domain.RuntimeUnreachableException;
 import io.lifeengine.cryptobot.adapters.solana.MainnetDisabledException;
 import io.lifeengine.cryptobot.adapters.solana.SolanaRpcException;
+import io.lifeengine.cryptobot.observability.ErrorCode;
+import io.lifeengine.cryptobot.observability.LogFields;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
@@ -35,30 +37,36 @@ public class ControlPlaneExceptionHandler {
     /** KAN-493: mainnet is fail-closed; nothing was signed, sent or persisted. */
     @ExceptionHandler(MainnetDisabledException.class)
     public ResponseEntity<ControlPlaneDtos.ApiError> mainnetDisabled(MainnetDisabledException ex) {
-        log.warn("control_plane_mainnet_disabled cluster={} error={}", ex.cluster().id(), ex.getMessage());
+        log.warn("control_plane_mainnet_disabled cluster={} error={}", ex.cluster().id(), ex.getMessage(),
+                LogFields.event("api_error"), LogFields.status(409), ErrorCode.MAINNET_DISABLED.kv());
         return ResponseEntity.status(HttpStatus.CONFLICT).body(new ControlPlaneDtos.ApiError(ex.code(), ex.getMessage()));
     }
 
     @ExceptionHandler(ControlPlaneExceptions.PolicyBlocked.class)
     public ResponseEntity<ControlPlaneDtos.ApiError> policy(ControlPlaneExceptions.PolicyBlocked ex) {
+        log.warn("control_plane_policy_blocked violations={}", ex.violations(),
+                LogFields.event("api_error"), LogFields.status(422), ErrorCode.POLICY_BLOCKED.kv());
         return ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY).body(new ControlPlaneDtos.ApiError("POLICY_BLOCKED", ex.getMessage(), ex.violations()));
     }
 
     @ExceptionHandler({ControlPlaneExceptions.UpstreamUnavailable.class, RuntimeUnreachableException.class})
     public ResponseEntity<ControlPlaneDtos.ApiError> upstream(RuntimeException ex) {
-        log.warn("control_plane_upstream_failed error={}", ex.toString());
+        log.warn("control_plane_upstream_failed error={}", ex.toString(),
+                LogFields.event("api_error"), LogFields.status(502), ErrorCode.RUNTIME_UNREACHABLE.kv());
         return ResponseEntity.status(HttpStatus.BAD_GATEWAY).body(new ControlPlaneDtos.ApiError("UPSTREAM_UNAVAILABLE", ex.getMessage()));
     }
 
     @ExceptionHandler(SolanaRpcException.class)
     public ResponseEntity<ControlPlaneDtos.ApiError> rpc(SolanaRpcException ex) {
-        log.warn("control_plane_rpc_failed method={} code={} error={}", ex.method(), ex.code(), ex.getMessage());
+        log.warn("control_plane_rpc_failed method={} code={} error={}", ex.method(), ex.code(), ex.getMessage(),
+                LogFields.event("api_error"), LogFields.status(502), ErrorCode.SOLANA_RPC.kv());
         return ResponseEntity.status(HttpStatus.BAD_GATEWAY).body(new ControlPlaneDtos.ApiError("SOLANA_RPC_UNAVAILABLE", ex.getMessage()));
     }
 
     @ExceptionHandler(IllegalStateException.class)
     public ResponseEntity<ControlPlaneDtos.ApiError> state(IllegalStateException ex) {
-        log.warn("control_plane_illegal_state error={}", ex.toString());
+        log.warn("control_plane_illegal_state error={}", ex.toString(),
+                LogFields.event("api_error"), LogFields.status(409), ErrorCode.EXECUTION_PRECONDITION.kv());
         return ResponseEntity.status(HttpStatus.CONFLICT).body(new ControlPlaneDtos.ApiError("ILLEGAL_STATE", ex.getMessage()));
     }
 }

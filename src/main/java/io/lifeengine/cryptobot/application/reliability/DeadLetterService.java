@@ -12,6 +12,8 @@ import io.lifeengine.cryptobot.infrastructure.persistence.controlplane.ActionPro
 import io.lifeengine.cryptobot.infrastructure.persistence.controlplane.DeadLetterRepository;
 import io.lifeengine.cryptobot.infrastructure.persistence.controlplane.OutboxRepository;
 import io.lifeengine.cryptobot.observability.CryptobotMetrics;
+import io.lifeengine.cryptobot.observability.ErrorCode;
+import io.lifeengine.cryptobot.observability.LogFields;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.UUID;
@@ -135,7 +137,8 @@ public class DeadLetterService {
                                 // 3. Reconcile now: confirmed ⇒ closed; expired unseen ⇒ idempotent retry; no verdict ⇒ the sweep continues.
                                 .flatMap(closed -> reconciliation.reconcile(fresh)
                                         .onErrorResume(ex -> {
-                                            log.warn("dead_letter_requeue_reconcile_failed deadLetterId={} proposalId={} error={}", letter.id(), p.id(), ex.toString());
+                                            log.warn("dead_letter_requeue_reconcile_failed deadLetterId={} proposalId={} error={}", letter.id(), p.id(), ex.toString(),
+                                                    LogFields.event("dead_letter_requeue"), LogFields.status("failed"), ErrorCode.DLQ_REQUEUE_FAILED.kv());
                                             return Mono.just(ReconciliationService.Result.SKIPPED);
                                         })
                                         .flatMap(result -> proposals.findByIdAndOwner(p.id(), p.ownerUserId()).defaultIfEmpty(fresh)
@@ -177,7 +180,9 @@ public class DeadLetterService {
                 .doOnNext(closed -> {
                     metrics.deadLetter(outcome.name());
                     log.info("dead_letter_{} deadLetterId={} source={} proposalId={} by={}", outcome.name().toLowerCase(java.util.Locale.ROOT), closed.id(), closed.source(),
-                            closed.proposalId(), actor);
+                            closed.proposalId(), actor,
+                            LogFields.event("dead_letter_" + outcome.name().toLowerCase(java.util.Locale.ROOT)), LogFields.status("closed"),
+                            LogFields.proposalId(closed.proposalId()));
                 })
                 .flatMap(closed -> deadLetters.countUnresolved().doOnNext(metrics::dlqSize).thenReturn(closed));
     }

@@ -49,6 +49,31 @@
             <groupId>io.micrometer</groupId>
             <artifactId>micrometer-registry-prometheus</artifactId>
         </dependency>
+        <!--
+          KAN-573 / KAN-426: logs JSON con campos comunes (service, env, version, commitSha, traceId, spanId,
+          requestId, correlationId, tenantId, proposalId, operationId, runtimeRunId, errorCode…). Mismo
+          patrón que ATP/Dev Agent. 8.0 es la línea para logback 1.5 (Spring Boot 3.4).
+        -->
+        <dependency>
+            <groupId>net.logstash.logback</groupId>
+            <artifactId>logstash-logback-encoder</artifactId>
+            <version>8.0</version>
+        </dependency>
+        <!-- traceId/spanId en el MDC (y en cada línea JSON). La exportación OTLP se enciende por entorno con
+             MANAGEMENT_OTLP_TRACING_EXPORT_ENABLED=true + OTEL_EXPORTER_OTLP_ENDPOINT; apagada, el tracer sólo genera ids. -->
+        <dependency>
+            <groupId>io.micrometer</groupId>
+            <artifactId>micrometer-tracing-bridge-otel</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>io.opentelemetry</groupId>
+            <artifactId>opentelemetry-exporter-otlp</artifactId>
+        </dependency>
+        <!-- Propagación del Reactor Context al MDC (LogContext + spring.reactor.context-propagation=auto). -->
+        <dependency>
+            <groupId>io.micrometer</groupId>
+            <artifactId>context-propagation</artifactId>
+        </dependency>
         <dependency>
             <groupId>io.jsonwebtoken</groupId>
             <artifactId>jjwt-api</artifactId>

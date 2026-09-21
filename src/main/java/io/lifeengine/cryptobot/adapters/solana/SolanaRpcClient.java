@@ -3,6 +3,8 @@ package io.lifeengine.cryptobot.adapters.solana;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.lifeengine.cryptobot.observability.CryptobotMetrics;
+import io.lifeengine.cryptobot.observability.ErrorCode;
+import io.lifeengine.cryptobot.observability.LogFields;
 import java.math.BigDecimal;
 import java.math.BigInteger;
 import java.time.Instant;
@@ -317,7 +319,8 @@ public class SolanaRpcClient {
                         ex -> new SolanaRpcException(method, -1, "Solana RPC call failed: " + ex.getMessage(), null, ex))
                 .doOnError(ex -> {
                     metrics.solanaRpcError(method, cluster.id(), errorKind(ex));
-                    log.warn("solana_rpc_failed cluster={} method={} error={}", cluster.id(), method, ex.getMessage());
+                    log.warn("solana_rpc_failed cluster={} method={} error={}", cluster.id(), method, ex.getMessage(),
+                            LogFields.event("solana_rpc"), LogFields.status(errorKind(ex)), ErrorCode.SOLANA_RPC.kv());
                 });
     }
 

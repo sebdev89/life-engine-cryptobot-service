@@ -1,5 +1,6 @@
 package io.lifeengine.cryptobot.validator;
 
+import io.lifeengine.cryptobot.validator.observability.LogFields;
 import io.lifeengine.cryptobot.validator.crypto.Base58;
 import io.lifeengine.cryptobot.validator.policy.CanonicalJson;
 import io.lifeengine.cryptobot.validator.policy.IndependentPolicyTable;
@@ -156,7 +157,8 @@ public class ValidationService {
         String signature = Base58.encode(keys.sign(canonical.getBytes(StandardCharsets.UTF_8)));
 
         log.info("validator_decision proposalId={} cluster={} decision={} escalation={} tier={} failed={} refusals={} policyHash={} verdictHash={} messageHash={}",
-                proposalId, cluster, decision, escalation, verdict.tier(), verdict.failedPredicates(), refusals, policy.hash(), verdict.hash(), messageHash);
+                proposalId, cluster, decision, escalation, verdict.tier(), verdict.failedPredicates(), refusals, policy.hash(), verdict.hash(), messageHash,
+                LogFields.event("validation_decided"), LogFields.status(decision.name().toLowerCase(java.util.Locale.ROOT)));
         return new Response(
                 decision.name(),
                 escalation.name(),
