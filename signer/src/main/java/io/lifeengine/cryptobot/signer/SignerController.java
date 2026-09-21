@@ -3,6 +3,8 @@ package io.lifeengine.cryptobot.signer;
 import io.lifeengine.cryptobot.signer.observability.ErrorCode;
 import io.lifeengine.cryptobot.signer.observability.LogContext;
 import io.lifeengine.cryptobot.signer.observability.LogFields;
+import io.lifeengine.cryptobot.signer.observability.SignerMetrics;
+import io.micrometer.core.instrument.Timer;
 import io.lifeengine.cryptobot.signer.solana.Base58;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
@@ -44,12 +46,14 @@ public class SignerController {
     private final SignerKeyStore keys;
     private final SigningPolicy policy;
     private final AttestationVerifier attestations;
+    private final SignerMetrics metrics;
 
-    public SignerController(SignerProperties props, SignerKeyStore keys, SigningPolicy policy, AttestationVerifier attestations) {
+    public SignerController(SignerProperties props, SignerKeyStore keys, SigningPolicy policy, AttestationVerifier attestations, SignerMetrics metrics) {
         this.props = props;
         this.keys = keys;
         this.policy = policy;
         this.attestations = attestations;
+        this.metrics = metrics == null ? SignerMetrics.noop() : metrics;
     }
 
     @GetMapping("/identity")
@@ -73,12 +77,25 @@ public class SignerController {
         if (!authorized(token)) {
             return badToken("sign");
         }
+        // KAN-582: the signer's own series — signed vs refused-by-rule — and the time it took, so the
+        // dashboard's "firmados" reads a real counter instead of a derived value.
+        Timer.Sample sample = metrics.start();
+        try {
+            return signTransfer(req);
+        } finally {
+            metrics.stop(SignerMetrics.KIND_TRANSFER, sample);
+        }
+    }
+
+    private ResponseEntity<?> signTransfer(SignRequest req) {
         if (req == null || req.unsignedTransactionBase64() == null || req.unsignedTransactionBase64().isBlank()) {
+            metrics.refused(SignerMetrics.KIND_TRANSFER, "missing_transaction");
             log.warn("signer_bad_request reason=missing_transaction", LogFields.event("sign_refused"), LogFields.status(400), ErrorCode.HTTP_400.kv());
             return ResponseEntity.badRequest().body(Map.of("reason", "missing_transaction"));
         }
         SigningPolicy.Verdict v = policy.evaluate(req.unsignedTransactionBase64(), req.expectedFeePayer(), req.cluster());
         if (!v.allowed()) {
+            metrics.refused(SignerMetrics.KIND_TRANSFER, v.reason());
             log.warn("signer_refused proposalId={} cluster={} reason={}", req.proposalId(), req.cluster(), v.reason(),
                     LogFields.event("sign_refused"), LogFields.status("refused"), ErrorCode.SIGN_REFUSED.kv());
             return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("reason", v.reason()));
@@ -88,11 +105,13 @@ public class SignerController {
         // the independent validator — for this proposal, these exact bytes, for this cluster, and not as a DENY.
         AttestationVerifier.Verdict a = attestations.verify(req.attestation(), req.proposalId(), message, req.cluster());
         if (!a.ok()) {
+            metrics.refused(SignerMetrics.KIND_TRANSFER, a.reason());
             log.warn("signer_refused proposalId={} reason={}", req.proposalId(), a.reason(),
                     LogFields.event("sign_refused"), LogFields.status("refused"), ErrorCode.ATTESTATION_REFUSED.kv());
             return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("reason", a.reason()));
         }
         SignResponse signed = sign(message, a.validator(), a.verdictHash());
+        metrics.signed(SignerMetrics.KIND_TRANSFER);
         log.info("signer_signed proposalId={} lamports={} destination={} signature={} validator={} decision={} verdictHash={}",
                 req.proposalId(), v.lamports(), v.destination(), signed.signature(), a.validator(), a.decision(), a.verdictHash(),
                 LogFields.event("signed"), LogFields.status("signed"));
@@ -110,19 +129,27 @@ public class SignerController {
         if (!authorized(token)) {
             return Mono.just(badToken("sign-anchor"));
         }
-        if (req == null || req.unsignedTransactionBase64() == null || req.unsignedTransactionBase64().isBlank()) {
-            return Mono.just(ResponseEntity.badRequest().body(Map.of("reason", "missing_transaction")));
+        Timer.Sample sample = metrics.start();
+        try {
+            if (req == null || req.unsignedTransactionBase64() == null || req.unsignedTransactionBase64().isBlank()) {
+                metrics.refused(SignerMetrics.KIND_ANCHOR, "missing_transaction");
+                return Mono.just(ResponseEntity.badRequest().body(Map.of("reason", "missing_transaction")));
+            }
+            SigningPolicy.Verdict v = policy.evaluateAnchor(req.unsignedTransactionBase64(), req.expectedFeePayer(), req.root(), req.receiptCount());
+            if (!v.allowed()) {
+                metrics.refused(SignerMetrics.KIND_ANCHOR, v.reason());
+                log.warn("signer_anchor_refused root={} reason={}", req.root(), v.reason(),
+                        LogFields.event("anchor_refused"), LogFields.status("refused"), ErrorCode.ANCHOR_REFUSED.kv());
+                return Mono.just(ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("reason", v.reason())));
+            }
+            SignResponse signed = sign(v.decoded().message(), null, null);
+            metrics.signed(SignerMetrics.KIND_ANCHOR);
+            log.info("signer_anchor_signed root={} receipts={} signature={}", req.root(), req.receiptCount(), signed.signature(),
+                    LogFields.event("anchor_signed"), LogFields.status("signed"));
+            return Mono.just(ResponseEntity.ok(signed));
+        } finally {
+            metrics.stop(SignerMetrics.KIND_ANCHOR, sample);
         }
-        SigningPolicy.Verdict v = policy.evaluateAnchor(req.unsignedTransactionBase64(), req.expectedFeePayer(), req.root(), req.receiptCount());
-        if (!v.allowed()) {
-            log.warn("signer_anchor_refused root={} reason={}", req.root(), v.reason(),
-                    LogFields.event("anchor_refused"), LogFields.status("refused"), ErrorCode.ANCHOR_REFUSED.kv());
-            return Mono.just(ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("reason", v.reason())));
-        }
-        SignResponse signed = sign(v.decoded().message(), null, null);
-        log.info("signer_anchor_signed root={} receipts={} signature={}", req.root(), req.receiptCount(), signed.signature(),
-                LogFields.event("anchor_signed"), LogFields.status("signed"));
-        return Mono.just(ResponseEntity.ok(signed));
     }
 
     /** 401 con su línea: el token de servicio es la única puerta y un rechazo tiene que verse en Loki (CB-SIGNER-003). */
