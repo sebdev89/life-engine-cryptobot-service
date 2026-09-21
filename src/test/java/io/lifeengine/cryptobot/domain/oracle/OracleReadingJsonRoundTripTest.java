@@ -32,8 +32,8 @@ class OracleReadingJsonRoundTripTest {
         OracleConsensus refused = PriceOracle.consensus("USDC", "EPjF", List.of(
                 new PriceObservation("jupiter-price-v3", "USDC", "EPjF", new BigDecimal("1.0001"), NOW)), null, NOW, LIMITS);
         OracleReading reading = new OracleReading(NOW, LIMITS, List.of(accepted, refused));
-        PolicyDecision decision = new PolicyDecision(false, false, List.of(new PolicyDecision.Violation("ORACLE_INTEGRITY", "USDC: no consensus")),
-                List.of(), List.of("ORACLE_INTEGRITY"), NOW, null, null, reading);
+        PolicyDecision decision = new PolicyDecision(false, false, List.of(new PolicyDecision.Violation("PRICE_QUORUM", "USDC: no consensus")),
+                List.of(), List.of("PRICE_QUORUM"), NOW, null, null, reading);
 
         String json = mapper.writeValueAsString(decision);
         PolicyDecision back = mapper.readValue(json, PolicyDecision.class);

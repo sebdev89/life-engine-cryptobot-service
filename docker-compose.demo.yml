@@ -129,6 +129,9 @@ services:
       # The service logs `chaos_enabled — DEMO ONLY` at startup. Nothing is armed until the script (or you) arms it.
       CRYPTOBOT_CHAOS_ENABLED: "true"
       CRYPTOBOT_CHAOS_BROADCAST: ${CRYPTOBOT_CHAOS_BROADCAST:-}
+      # KAN-572 — the adversarial price of act 2, DEMO ONLY: PUT /api/cryptobot/demo/price {"asset":"SOL","source":"pyth-hermes","factor":0.1}.
+      # Armed at startup only if you set it (e.g. SOL:pyth-hermes:factor=0.1); run.sh arms and disarms it itself.
+      CRYPTOBOT_DEMO_PRICE_OVERRIDE: ${CRYPTOBOT_DEMO_PRICE_OVERRIDE:-}
       # Decision receipts signed with a stable key across restarts (generated into .env.demo).
       CRYPTOBOT_RECEIPT_KEY_ID: ${CRYPTOBOT_RECEIPT_KEY_ID:-demo}
       CRYPTOBOT_RECEIPT_SIGNING_KEY: ${CRYPTOBOT_RECEIPT_SIGNING_KEY:-}

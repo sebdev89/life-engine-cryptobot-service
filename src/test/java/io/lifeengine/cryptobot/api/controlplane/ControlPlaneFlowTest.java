@@ -98,6 +98,8 @@ class ControlPlaneFlowTest {
         r.add("cryptobot.marketdata.pyth.base-url", () -> "http://localhost:" + prices.getPort());
         r.add("cryptobot.marketdata.coingecko.enabled", () -> "true");
         r.add("cryptobot.marketdata.coingecko.base-url", () -> "http://localhost:" + prices.getPort());
+        // KAN-572: the demo's adversarial price (PUT /api/cryptobot/demo/price) exists only with chaos enabled, as in the demo stack.
+        r.add("cryptobot.chaos.enabled", () -> "true");
     }
 
     @BeforeEach
@@ -244,7 +246,7 @@ class ControlPlaneFlowTest {
         assertThat(verdict.path("inputHash").asText()).matches("sha256:[0-9a-f]{64}");
         // KAN-439: the decision carries the reading it was priced with — SOL and USDC, each a 3-source consensus at $100 / $1.
         JsonNode oracle = p.path("policy").path("oracle");
-        assertThat(p.path("policy").path("rulesApplied").toString()).contains("ORACLE_INTEGRITY");
+        assertThat(p.path("policy").path("rulesApplied").toString()).contains("PRICE_QUORUM").contains("PRICE_DEVIATION").contains("PRICE_DRIFT");
         assertThat(oracle.path("assets")).hasSize(2);
         JsonNode sol = oracle.path("assets").get(0);
         assertThat(sol.path("asset").asText()).isEqualTo("SOL");
@@ -263,7 +265,19 @@ class ControlPlaneFlowTest {
                 .exchange().expectStatus().isOk().expectBody().returnResult().getResponseBody());
         List<String> kinds = new java.util.ArrayList<>();
         proposalReceipts.forEach(r -> kinds.add(r.path("body").path("kind").asText()));
-        assertThat(kinds).containsExactly("STRATEGY", "RISK_DECISION", "SIMULATION");
+        // KAN-572: …and the Decision Receipt — a second RISK_DECISION, by the policy engine, over the simulated proposal.
+        assertThat(kinds).containsExactly("STRATEGY", "RISK_DECISION", "SIMULATION", "RISK_DECISION");
+        JsonNode decisionReceipt = proposalReceipts.get(3);
+        assertThat(decisionReceipt.path("body").path("engine").path("id").asText()).isEqualTo("policy-engine");
+        assertThat(decisionReceipt.path("body").path("engine").path("version").asText()).isEqualTo("test-policy-v1");
+        assertThat(decisionReceipt.path("body").path("engine").path("weightsHash").asText()).isEqualTo(verdict.path("policyHash").asText());
+        assertThat(decisionReceipt.path("body").path("output").path("schema").asText()).isEqualTo("policy-verdict/1");
+        assertThat(decisionReceipt.path("body").path("inputs").toString()).contains("POLICY_INPUT").contains("ORACLE_READING");
+        assertThat(decisionReceipt.path("body").path("params").path("status").asText()).isEqualTo("AWAITING_APPROVAL");
+        assertThat(decisionReceipt.path("body").path("params").path("decision").asText()).isEqualTo(verdict.path("decision").asText());
+        assertThat(decisionReceipt.path("body").path("params").path("blockedBy").asText()).isEmpty();
+        assertThat(decisionReceipt.path("body").path("params").path("rulesApplied").asText()).contains("COOLDOWN").contains("PRICE_DEVIATION").contains("SIGNER_DESTINATION_ALLOWLISTED");
+        assertThat(decisionReceipt.path("body").path("params").path("oracle.SOL").asText()).startsWith("median $100 from ");
         JsonNode strategy = proposalReceipts.get(0);
         assertThat(strategy.path("body").path("reproducibility").asText()).isEqualTo("L1_REPRODUCIBLE");
         assertThat(strategy.path("body").path("engine").path("id").asText()).isEqualTo("rebalance-planner");
@@ -469,6 +483,114 @@ class ControlPlaneFlowTest {
                 .exchange().expectStatus().isEqualTo(409);
     }
 
+    /**
+     * KAN-572 (HK-4): the second adversarial intent of the demo — nothing wrong with the trade, everything wrong with the
+     * price. One source is made to say −90 % ({@code PUT /demo/price}); the real oracle refuses the consensus
+     * ({@code DEVIATION_EXCEEDED}); the policy blocks with {@code PRICE_DEVIATION} and a message a human reads; the
+     * Decision Receipt names the rule, verifies live (hash, signature, L1 re-execution of the verdict) and sits in the
+     * lineage under the STRATEGY it validates. Then the source is made stale instead: {@code PRICE_STALE}.
+     */
+    @Test
+    void adversarialPriceIsBlockedWithAVerifiableDecisionReceipt() throws Exception {
+        String token = bearer(UUID.randomUUID(), true);
+        JsonNode created = JSON.readTree(web.post().uri("/api/cryptobot/wallets").header(HttpHeaders.AUTHORIZATION, token)
+                .contentType(MediaType.APPLICATION_JSON).bodyValue("{\"address\":\"" + ADDRESS + "\",\"cluster\":\"devnet\"}")
+                .exchange().expectStatus().isCreated().expectBody().returnResult().getResponseBody());
+        String walletId = created.path("wallet").path("id").asText();
+
+        // 1. one source (Pyth) says SOL is worth a tenth: sources disagree beyond max_deviation_bps
+        JsonNode armed = JSON.readTree(web.put().uri("/api/cryptobot/demo/price").header(HttpHeaders.AUTHORIZATION, token)
+                .contentType(MediaType.APPLICATION_JSON).bodyValue("{\"asset\":\"SOL\",\"source\":\"pyth-hermes\",\"factor\":0.1}")
+                .exchange().expectStatus().isOk().expectBody().returnResult().getResponseBody());
+        assertThat(armed.path("armed").asBoolean()).isTrue();
+        try {
+            JsonNode proposed = JSON.readTree(web.post().uri("/api/cryptobot/wallets/" + walletId + "/proposals").header(HttpHeaders.AUTHORIZATION, token)
+                    .contentType(MediaType.APPLICATION_JSON).bodyValue("{\"targetWeights\":{\"SOL\":50}}")
+                    .exchange().expectStatus().isCreated().expectBody().returnResult().getResponseBody());
+            JsonNode p = proposed.path("proposal");
+            assertThat(p.path("status").asText()).isEqualTo("BLOCKED_BY_POLICY");
+            // two violations: the price rule, and — with no accepted price there is no oracle age — the verdict's ORACLE_FRESH (Unknown ⇒ Deny)
+            JsonNode violations = p.path("policy").path("violations");
+            assertThat(violations).hasSize(2);
+            assertThat(violations.get(0).path("rule").asText()).isEqualTo("PRICE_DEVIATION");
+            assertThat(violations.get(0).path("message").asText()).contains("SOL: sources disagree").contains("pyth-hermes=$10").contains("median $100").contains("limit 100 bps");
+            assertThat(violations.get(1).path("rule").asText()).isEqualTo("AUTHORIZATION");
+            assertThat(violations.get(1).path("message").asText()).contains("ORACLE_FRESH");
+            // the reading itself is on the proposal: what each source said, and that Pyth's quote was injected (its price, not its timestamp)
+            JsonNode sol = p.path("policy").path("oracle").path("assets").get(0);
+            assertThat(sol.path("refusals").toString()).contains("DEVIATION_EXCEEDED");
+            assertThat(sol.path("used")).hasSize(3);
+            // the same in the audit trail: the event says which rule and the oracle problems
+            JsonNode events = JSON.readTree(web.get().uri("/api/cryptobot/proposals/" + p.path("id").asText() + "/audit").header(HttpHeaders.AUTHORIZATION, token)
+                    .exchange().expectStatus().isOk().expectBody().returnResult().getResponseBody());
+            JsonNode policyEvent = null;
+            for (JsonNode e : events) {
+                if ("POLICY_EVALUATED".equals(e.path("eventType").asText())) {
+                    policyEvent = e.path("payload");
+                }
+            }
+            assertThat(policyEvent).isNotNull();
+            assertThat(policyEvent.path("violations").toString()).contains("PRICE_DEVIATION: SOL: sources disagree");
+            assertThat(policyEvent.path("oracleAccepted").asBoolean()).isFalse();
+
+            // 2. the Decision Receipt: kind RISK_DECISION by policy-engine, blocked, the rule and the message in its signed params
+            JsonNode receipts = JSON.readTree(web.get().uri("/api/cryptobot/proposals/" + p.path("id").asText() + "/receipts").header(HttpHeaders.AUTHORIZATION, token)
+                    .exchange().expectStatus().isOk().expectBody().returnResult().getResponseBody());
+            List<String> kinds = new java.util.ArrayList<>();
+            receipts.forEach(r -> kinds.add(r.path("body").path("kind").asText()));
+            assertThat(kinds).containsExactly("STRATEGY", "RISK_DECISION", "SIMULATION", "RISK_DECISION");
+            JsonNode decision = receipts.get(3);
+            JsonNode params = decision.path("body").path("params");
+            assertThat(decision.path("body").path("agentId").asText()).isEqualTo("policy-engine@test-policy-v1");
+            assertThat(params.path("status").asText()).isEqualTo("BLOCKED_BY_POLICY");
+            assertThat(params.path("allowed").asBoolean()).isFalse();
+            assertThat(params.path("blockedBy").asText()).isEqualTo("PRICE_DEVIATION,AUTHORIZATION");
+            assertThat(params.path("failedPredicates").asText()).isEqualTo("ORACLE_FRESH");
+            assertThat(params.path("rule.PRICE_DEVIATION").asText()).startsWith("BLOCKED: SOL: sources disagree");
+            assertThat(params.path("oracle.accepted").asBoolean()).isFalse();
+            assertThat(params.path("oracle.SOL").asText()).startsWith("REFUSED [DEVIATION_EXCEEDED]");
+            assertThat(decision.path("body").path("reproducibility").asText()).isEqualTo("L1_REPRODUCIBLE");
+            assertThat(decision.path("body").path("parents")).hasSize(2); // STRATEGY (validates) and SIMULATION
+            // 3. verified live: hash + signature + the policy engine re-run on the stored (I, S) gives the same verdict hash
+            JsonNode verified = JSON.readTree(web.post().uri("/api/cryptobot/receipts/" + decision.path("receiptHash").asText() + "/verify")
+                    .header(HttpHeaders.AUTHORIZATION, token).exchange().expectStatus().isOk().expectBody().returnResult().getResponseBody());
+            assertThat(verified.path("valid").asBoolean()).isTrue();
+            assertThat(verified.path("signatureValid").asBoolean()).isTrue();
+            assertThat(verified.path("reproduced").asBoolean()).isTrue();
+            assertThat(verified.path("reproduction").path("engineId").asText()).isEqualTo("policy-engine");
+            assertThat(verified.path("reproduction").path("reason").asText()).isEqualTo("REPRODUCED");
+            assertThat(verified.path("reproduction").path("actualOutputHash").asText()).isEqualTo(decision.path("body").path("output").path("hash").asText());
+            // 4. …and in the lineage (KAN-393): the decision descends from the STRATEGY, which the lineage lists with its parents
+            JsonNode lineage = JSON.readTree(web.get().uri("/api/cryptobot/proposals/" + p.path("id").asText() + "/lineage").header(HttpHeaders.AUTHORIZATION, token)
+                    .exchange().expectStatus().isOk().expectBody().returnResult().getResponseBody());
+            assertThat(lineage.toString()).contains(decision.path("receiptHash").asText());
+            JsonNode edges = JSON.readTree(web.get().uri("/api/cryptobot/receipts/" + decision.path("receiptHash").asText()).header(HttpHeaders.AUTHORIZATION, token)
+                    .exchange().expectStatus().isOk().expectBody().returnResult().getResponseBody());
+            assertThat(edges.path("parents").toString()).contains("VALIDATES").contains(receipts.get(0).path("receiptHash").asText());
+            // blocked is blocked: approve and execute are 409
+            web.post().uri("/api/cryptobot/proposals/" + p.path("id").asText() + "/approve").header(HttpHeaders.AUTHORIZATION, token)
+                    .exchange().expectStatus().isEqualTo(409);
+
+            // 5. every source is 15 minutes old: the quorum is lost to staleness
+            web.put().uri("/api/cryptobot/demo/price").header(HttpHeaders.AUTHORIZATION, token)
+                    .contentType(MediaType.APPLICATION_JSON).bodyValue("{\"asset\":\"SOL\",\"source\":\"*\",\"ageSeconds\":900}")
+                    .exchange().expectStatus().isOk();
+            JsonNode stale = JSON.readTree(web.post().uri("/api/cryptobot/wallets/" + walletId + "/proposals").header(HttpHeaders.AUTHORIZATION, token)
+                    .contentType(MediaType.APPLICATION_JSON).bodyValue("{\"targetWeights\":{\"SOL\":50}}")
+                    .exchange().expectStatus().isCreated().expectBody().returnResult().getResponseBody()).path("proposal");
+            assertThat(stale.path("status").asText()).isEqualTo("BLOCKED_BY_POLICY");
+            assertThat(stale.path("policy").path("violations").get(0).path("rule").asText()).isEqualTo("PRICE_STALE");
+            assertThat(stale.path("policy").path("violations").get(0).path("message").asText()).contains("0 fresh source(s), quorum is 2").contains("observed 900s ago");
+        } finally {
+            web.delete().uri("/api/cryptobot/demo/price").header(HttpHeaders.AUTHORIZATION, token).exchange().expectStatus().isOk();
+        }
+        // 6. disarmed: the same intent goes through to the human
+        JsonNode fine = JSON.readTree(web.post().uri("/api/cryptobot/wallets/" + walletId + "/proposals").header(HttpHeaders.AUTHORIZATION, token)
+                .contentType(MediaType.APPLICATION_JSON).bodyValue("{\"targetWeights\":{\"SOL\":50}}")
+                .exchange().expectStatus().isCreated().expectBody().returnResult().getResponseBody()).path("proposal");
+        assertThat(fine.path("status").asText()).isEqualTo("AWAITING_APPROVAL");
+    }
+
     // ---- fakes -----------------------------------------------------------------------------
 
     static final class SolanaDispatcher extends Dispatcher {
@@ -568,11 +690,16 @@ class ControlPlaneFlowTest {
     }
 
     private static String bearer(UUID userId) {
+        return bearer(userId, false);
+    }
+
+    /** {@code admin}: also {@code RUNTIME_ADMIN}, what {@code /api/cryptobot/demo/**} (chaos, price) requires. */
+    private static String bearer(UUID userId, boolean admin) {
         SecretKey key = Keys.hmacShaKeyFor("test-jwt-secret-at-least-32-bytes-long!!".getBytes(StandardCharsets.UTF_8));
         return "Bearer " + Jwts.builder()
                 .subject(userId.toString())
-                .claim("email", "operator@test.local")
-                .claim("authorities", List.of("RUNTIME_OPERATOR"))
+                .claim("email", admin ? "admin@test.local" : "operator@test.local")
+                .claim("authorities", admin ? List.of("RUNTIME_OPERATOR", "RUNTIME_ADMIN") : List.of("RUNTIME_OPERATOR"))
                 .issuedAt(java.util.Date.from(Instant.now()))
                 .expiration(java.util.Date.from(Instant.now().plusSeconds(300)))
                 .signWith(key)

@@ -141,7 +141,7 @@ public class ExecutionService {
             // KAN-439: the envelope's data-integrity assumptions are re-checked against a fresh reading right
             // before anything is signed — quorum, deviation, the breaker, and the plan's price vs. the world now.
             return oracle.read(ProposalService.assetsOf(p.plan())).flatMap(reading -> {
-                List<String> oracleProblems = policy.oracleProblems(p, reading);
+                List<String> oracleProblems = policy.priceViolations(p, reading).stream().map(v -> v.rule() + ": " + v.message()).toList();
                 if (!oracleProblems.isEmpty()) {
                     metrics.oracleExecutionRefused();
                     log.warn("execution_oracle_refused proposalId={} problems={} quotesHash={}", p.id(), oracleProblems, reading.quotesHash());

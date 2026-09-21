@@ -73,10 +73,15 @@ public final class BenchmarkRun {
         if (c.manipulatedAsset() != null) {
             layer.oracle().secondary(c.manipulatedAsset(), c.manipulatedCents());
         }
+        // KAN-572: the source-level attacks — every source stale, or a single source answering.
+        layer.oracle().staleSources(c.klass() == Klass.STALE_PRICE_SOURCES);
+        layer.oracle().singleSource(c.klass() == Klass.SINGLE_PRICE_SOURCE);
         try {
             return layer.submit(c.json(), c.signature());
         } finally {
             layer.oracle().ageSeconds(age);
+            layer.oracle().staleSources(false);
+            layer.oracle().singleSource(false);
             if (c.manipulatedAsset() != null) {
                 layer.oracle().restoreSecondary(c.manipulatedAsset());
             }
@@ -125,7 +130,7 @@ public final class BenchmarkRun {
                 case SCHEMA -> "SCHEMA";
                 case POLICY -> "POLICY_UNAVAILABLE";
                 case GATE, EXECUTION -> r.o().verdict() == null ? r.o().result().name()
-                        : r.o().verdict().denied() ? "DENY " + r.o().verdict().failedPredicates() : r.o().result().name();
+                        : r.o().verdict().denied() ? r.o().reason() : r.o().result().name();
                 default -> r.o().stage().name();
             };
             out.computeIfAbsent(r.c().klass(), k -> new TreeMap<>()).merge(reason, 1L, Long::sum);

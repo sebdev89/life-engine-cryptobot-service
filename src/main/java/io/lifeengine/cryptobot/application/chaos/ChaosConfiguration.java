@@ -38,6 +38,17 @@ public class ChaosConfiguration {
         return chaos;
     }
 
+    /** KAN-572: the demo's adversarial price. Consulted by {@code PriceOracleService} only when this bean exists. */
+    @Bean
+    PriceChaos priceChaos(ChaosProperties props) {
+        PriceChaos chaos = new PriceChaos();
+        for (PriceChaos.Override o : PriceChaos.Override.parse(props.priceOverride())) {
+            chaos.arm(o);
+        }
+        log.warn("price_chaos_enabled — DEMO ONLY: PUT /api/cryptobot/demo/price tampers with what the oracle's sources said; armed={}", chaos.overrides());
+        return chaos;
+    }
+
     @Bean
     @Primary
     SolanaRpcClient chaosSolanaRpcClient(WebClient.Builder builder, SolanaRpcProperties properties, ObjectMapper objectMapper, CryptobotMetrics metrics,

@@ -116,7 +116,8 @@ class ExecutionServiceMainnetGateTest {
         ActionProposal simulated = new ActionProposal(UUID.randomUUID(), wallet.id(), wallet.ownerUserId(), wallet.address(), wallet.cluster().id(),
                 ProposalStatus.SIMULATED, "REBALANCE", "t", null, "tester", new RebalanceIntent(Map.of("SOL", new BigDecimal("50")), "USDC"), plan,
                 null, null, null, sim, tx, null, null, null, null, NOW.plusSeconds(1800), NOW, NOW, null, 0);
-        PolicyDecision decision = policy.evaluate(simulated, wallet, PolicyEngine.WalletState.fresh(NOW, Fixtures.oracle("100", NOW)), Optional.of(wallet.address()));
+        PolicyDecision decision = policy.evaluate(simulated, wallet, PolicyEngine.WalletState.fresh(NOW, Fixtures.oracle("100", NOW)), // KAN-572: the signer misconfigured to the same cluster as the wallet, so only the mainnet flag remains
+                Optional.of(new io.lifeengine.cryptobot.integration.signer.SignerClient.Identity(wallet.address(), wallet.cluster().id(), 2_000_000_000L, List.of(Fixtures.VAULT))));
         ApprovalRecord approval = new ApprovalRecord(ApprovalRecord.Decision.APPROVED, "op", NOW.minusSeconds(60), null, NOW.minusSeconds(60));
         ActionProposal approved = new ActionProposal(simulated.id(), wallet.id(), wallet.ownerUserId(), wallet.address(), wallet.cluster().id(),
                 ProposalStatus.APPROVED, "REBALANCE", "t", null, "tester", simulated.intent(), plan, null, null, decision, sim, tx, approval, null, null, null,

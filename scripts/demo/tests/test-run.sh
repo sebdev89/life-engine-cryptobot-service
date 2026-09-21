@@ -33,7 +33,7 @@ CRYPTOBOT_REBALANCE_VAULT=FrBNyfCUpmJXFCgdZyJyKLiqHzb9xRAVUiqiXtGm6BmX
 CRYPTOBOT_DEMO_PORT=18091
 EOF
 check "dry run exits 0" 0 "${DEMO}/run.sh" --dry-run --rpc local --env-file "${TMP}/demo.env" --out "${TMP}/out"
-for want in 'act 1 execute' 'act 2 risk' 'act 3 recovery' 'act 4 evidence' '--local-validator' 'http://127.0.0.1:18091' 'dry run'; do
+for want in 'act 1 execute' 'act 2 risk' 'PRICE_DEVIATION' 'act 3 recovery' 'act 4 evidence' '--local-validator' 'http://127.0.0.1:18091' 'dry run'; do
   printf '%s' "$OUT" | grep -q -F -- "$want" && ok "plan mentions '${want}'" || bad "plan lacks '${want}'"
 done
 [[ -z "$(ls "${TMP}/out"/demo-report-*.md 2>/dev/null)" ]] && ok "dry run writes no report" || bad "dry run wrote a report"

@@ -46,9 +46,14 @@ final class Fixtures {
     }
 
     static OracleConsensus consensus(String symbol, String mint, String jupiterPrice, String pythPrice, Instant at) {
+        return consensus(symbol, mint, jupiterPrice, pythPrice, at, at);
+    }
+
+    /** Observed at {@code observedAt}, evaluated at {@code now}: the two differ when the observations are stale. */
+    static OracleConsensus consensus(String symbol, String mint, String jupiterPrice, String pythPrice, Instant observedAt, Instant now) {
         return PriceOracle.consensus(symbol, mint, List.of(
-                new PriceObservation("jupiter", symbol, mint, new BigDecimal(jupiterPrice), at),
-                new PriceObservation("pyth", symbol, mint, new BigDecimal(pythPrice), at)), null, at, ORACLE_LIMITS);
+                new PriceObservation("jupiter", symbol, mint, new BigDecimal(jupiterPrice), observedAt),
+                new PriceObservation("pyth", symbol, mint, new BigDecimal(pythPrice), observedAt)), null, now, ORACLE_LIMITS);
     }
 
     /** SOL 7 @ $100 = 700, USDC 300 → SOL 70% / USDC 30%. */

@@ -180,7 +180,7 @@ public class ProposalService {
                                             .thenReturn(strategy.receiptHash()))
                                     .flatMap(strategyHash -> simulate(saved, wallet, view.snapshot(), strategyHash));
                         })
-                        .flatMap(sim -> evaluatePolicy(sim, wallet, view.snapshot().capturedAt()));
+                        .flatMap(sim -> evaluatePolicy(sim.proposal(), wallet, view.snapshot().capturedAt(), sim.strategyReceipt(), sim.simulationReceipt()));
             });
         });
     }
@@ -190,7 +190,10 @@ public class ProposalService {
         static final AnalysisLink NONE = new AnalysisLink(null, ReceiptEdge.Role.DERIVES_FROM);
     }
 
-    private Mono<ActionProposal> simulate(ActionProposal p, Wallet wallet, io.lifeengine.cryptobot.domain.portfolio.PortfolioSnapshot snapshot, String strategyReceipt) {
+    /** A simulated proposal and the receipts it descends from — what the Decision Receipt (KAN-572) points at. */
+    private record Simulated(ActionProposal proposal, String strategyReceipt, String simulationReceipt) {}
+
+    private Mono<Simulated> simulate(ActionProposal p, Wallet wallet, io.lifeengine.cryptobot.domain.portfolio.PortfolioSnapshot snapshot, String strategyReceipt) {
         Instant started = clock.instant();
         return simulation.simulate(wallet, snapshot, p.plan())
                 .flatMap(sim -> {
@@ -203,7 +206,7 @@ public class ProposalService {
                                             "expectedOut", sim.outcome().economic() == null ? null : sim.outcome().economic().expectedBuyAmount(),
                                             "lamports", sim.transaction() == null ? null : sim.transaction().lamports()))))
                             .flatMap(simulated -> receipts.issue(receiptOf.simulation(simulated, sim.outcome(), sim.transaction(), strategyReceipt, started))
-                                    .thenReturn(simulated));
+                                    .map(r -> new Simulated(simulated, strategyReceipt, r.receiptHash())));
                 });
     }
 
@@ -213,7 +216,7 @@ public class ProposalService {
      * from the most recent proposals — and, since KAN-439, from a fresh multi-source reading of
      * every asset the plan touches: the prices {@code S} is allowed to contain, and the oracle age.
      */
-    private Mono<ActionProposal> evaluatePolicy(ActionProposal p, Wallet wallet, Instant pricesAsOf) {
+    private Mono<ActionProposal> evaluatePolicy(ActionProposal p, Wallet wallet, Instant pricesAsOf, String strategyReceipt, String simulationReceipt) {
         Instant now = clock.instant();
         Mono<OracleReading> reading = oracle.read(assetsOf(p.plan()));
         Mono<PolicyEngine.WalletState> state = proposals.findByWallet(wallet.id(), 20)
@@ -232,7 +235,7 @@ public class ProposalService {
         return Mono.zip(state, signer.identity(), validator.identity()).flatMap(t -> {
             // KAN-438: the independent validator must be up and on the same H_R, or this is a paper trade.
             PolicyDecision decision = policy.requireValidator(
-                    policy.evaluate(p, wallet, t.getT1(), t.getT2().map(SignerClient.Identity::publicKey)), t.getT3());
+                    policy.evaluate(p, wallet, t.getT1(), t.getT2()), t.getT3());
             PolicyVerdict verdict = decision.authorization();
             ProposalStatus next = decision.allowed() ? ProposalStatus.AWAITING_APPROVAL : ProposalStatus.BLOCKED_BY_POLICY;
             ActionProposal updated = p.withPolicy(decision, now).withStatus(next, now);
@@ -267,7 +270,14 @@ public class ProposalService {
                 transition = transition.publish(tradeEvent(updated, TradeEvents.REQUESTED, now,
                         payload("plan", p.plan().summary(), "turnoverUsd", p.plan().turnoverUsd(), "executable", decision.executable(), "expiresAt", updated.expiresAt())));
             }
-            return proposals.commit(transition);
+            // KAN-572: the Decision Receipt — allowed or blocked, every verdict leaves a signed, L1-verifiable receipt in the DAG.
+            return proposals.commit(transition)
+                    .flatMap(decided -> receiptOf.policyDecision(wallet, decided, strategyReceipt, simulationReceipt)
+                            .map(draft -> receipts.issue(draft)
+                                    .doOnNext(r -> log.info("decision_receipt proposalId={} status={} hash={} blockedBy={}", decided.id(), decided.status(),
+                                            r.receiptHash(), decision.violations().stream().map(PolicyDecision.Violation::rule).toList()))
+                                    .thenReturn(decided))
+                            .orElse(Mono.just(decided)));
         });
     }
 

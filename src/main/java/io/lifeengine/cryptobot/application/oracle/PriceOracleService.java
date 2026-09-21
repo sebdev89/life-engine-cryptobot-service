@@ -4,6 +4,7 @@ import io.lifeengine.cryptobot.adapters.marketdata.MarketDataProperties;
 import io.lifeengine.cryptobot.adapters.marketdata.PriceProvider;
 import io.lifeengine.cryptobot.adapters.marketdata.PriceSource;
 import io.lifeengine.cryptobot.adapters.marketdata.TokenRegistry;
+import io.lifeengine.cryptobot.application.chaos.PriceChaos;
 import io.lifeengine.cryptobot.domain.oracle.OracleConsensus;
 import io.lifeengine.cryptobot.domain.oracle.OracleLimits;
 import io.lifeengine.cryptobot.domain.oracle.OracleReading;
@@ -69,21 +70,30 @@ public class PriceOracleService implements PriceProvider {
     private final OracleLimits limits;
     private final MeterRegistry meters;
     private final java.time.Clock clock;
+    /** KAN-572: the demo's price tampering; {@code null} outside the demo stack (no bean, nothing consulted). */
+    private final PriceChaos chaos;
     private final Map<String, OracleConsensus> lastAccepted = new ConcurrentHashMap<>();
 
     @Autowired
-    public PriceOracleService(List<PriceSource> sources, TokenRegistry registry, MarketDataProperties properties, MeterRegistry meters) {
-        this(sources, registry, properties, meters, java.time.Clock.systemUTC());
+    public PriceOracleService(List<PriceSource> sources, TokenRegistry registry, MarketDataProperties properties, MeterRegistry meters,
+            Optional<PriceChaos> chaos) {
+        this(sources, registry, properties, meters, java.time.Clock.systemUTC(), chaos.orElse(null));
     }
 
     public PriceOracleService(List<PriceSource> sources, TokenRegistry registry, MarketDataProperties properties, MeterRegistry meters,
             java.time.Clock clock) {
+        this(sources, registry, properties, meters, clock, null);
+    }
+
+    public PriceOracleService(List<PriceSource> sources, TokenRegistry registry, MarketDataProperties properties, MeterRegistry meters,
+            java.time.Clock clock, PriceChaos chaos) {
         this.sources = List.copyOf(sources);
         this.registry = registry;
         this.properties = properties;
         this.limits = properties.oracle().limits(); // throws ⇒ the service does not start without valid limits
         this.meters = meters;
         this.clock = clock;
+        this.chaos = chaos;
     }
 
     /** The integrity assumptions in force in this process. */
@@ -167,6 +177,16 @@ public class PriceOracleService implements PriceProvider {
                     for (Map.Entry<String, String> e : asked.entrySet()) {
                         String symbol = e.getValue();
                         List<PriceObservation> mine = all.stream().filter(o -> o.asset().equals(symbol)).toList();
+                        if (chaos != null && chaos.armed()) {
+                            // KAN-572, demo only: the adversarial price is injected into what the sources said, and logged.
+                            List<PriceObservation> tampered = chaos.apply(symbol, e.getKey(), mine, sourceIds(), now);
+                            if (tampered != mine) {
+                                log.warn("oracle_price_injected — DEMO ONLY asset={} real={} injected={}", symbol,
+                                        mine.stream().map(o -> o.source() + "=" + o.priceUsd()).toList(),
+                                        tampered.stream().map(o -> o.source() + "=" + o.priceUsd() + "@" + o.observedAt()).toList());
+                                mine = tampered;
+                            }
+                        }
                         assets.add(consensus(symbol, e.getKey(), mine, now));
                     }
                     unknownSymbols.forEach(s -> assets.add(consensus(s, null, List.of(), now)));

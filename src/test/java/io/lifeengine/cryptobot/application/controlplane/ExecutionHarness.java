@@ -96,7 +96,7 @@ final class ExecutionHarness {
         when(proposals.commit(any())).thenAnswer(inv -> repo.commit(inv.<ProposalTransition>getArgument(0)));
         when(wallets.require(eq(wallet.ownerUserId()), eq(wallet.id()))).thenReturn(Mono.just(wallet));
         when(policy.executionPreconditions(any())).thenReturn(List.of());
-        when(policy.oracleProblems(any(), any())).thenReturn(List.of());
+        when(policy.priceViolations(any(), any())).thenReturn(List.of());
         when(oracle.read(any())).thenReturn(Mono.just(Fixtures.oracle("100", now)));
         when(simulation.prepareTransfer(eq(wallet), anyLong())).thenReturn(Mono.just(tx));
         when(rpc.simulateTransaction(eq(SolanaCluster.DEVNET), anyString(), eq(false)))

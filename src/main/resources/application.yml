@@ -262,6 +262,9 @@ cryptobot:
     # PUT /api/cryptobot/demo/chaos {"broadcast":"rpc-down","shots":-1}; shots -1 = until disarmed.
     broadcast: ${CRYPTOBOT_CHAOS_BROADCAST:}
     shots: ${CRYPTOBOT_CHAOS_SHOTS:1}
+    # KAN-572: adversarial price armed at startup, e.g. "SOL:pyth-hermes:factor=0.1" (one source −90 % ⇒ PRICE_DEVIATION),
+    # "SOL:*:age=900" (every source 15 min old ⇒ PRICE_STALE). Runtime: PUT /api/cryptobot/demo/price.
+    price-override: ${CRYPTOBOT_DEMO_PRICE_OVERRIDE:}
   # ---- Business metrics (KAN-425): /actuator/prometheus, names in observability/CryptobotMetrics ----
   metrics:
     # Extra values allowed in the `asset` label, on top of policy.allowed-assets and monitoring.symbols.

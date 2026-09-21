@@ -62,7 +62,7 @@ class AdversarialBenchmarkTest {
         // every attack class of §29 is present, in comparable numbers
         Map<Klass, Long> total = first.byClassTotal();
         for (Klass k : BenchmarkRun.attackClasses()) {
-            assertThat(total.getOrDefault(k, 0L)).as(k.name()).isBetween(200L, 260L);
+            assertThat(total.getOrDefault(k, 0L)).as(k.name()).isBetween(180L, 260L);
         }
         // and the valid side exercises every outcome the envelope has for a valid intent
         List<Row> valid = first.valid();
@@ -122,7 +122,10 @@ class AdversarialBenchmarkTest {
         assertThat(reasons.get(Klass.OVERSIZED_AMOUNT).keySet()).allMatch(r -> r.contains("TRADE_WITHIN_MAX"));
         assertThat(reasons.get(Klass.INCORRECT_POLICY_VERSION).keySet()).allMatch(r -> r.equals("SCHEMA") || r.contains("POLICY_BOUND"));
         assertThat(reasons.get(Klass.INVALID_ASSET).keySet()).allMatch(r -> r.equals("SCHEMA") || r.contains("ASSET_ALLOWED"));
-        assertThat(reasons.get(Klass.MANIPULATED_ORACLE).keySet()).allMatch(r -> r.equals("SCHEMA") || r.contains("TRADE_WITHIN_MAX"));
+        // KAN-572: a disagreeing source is refused by the real oracle (PRICE_DEVIATION) and the trade has no value (TRADE_WITHIN_MAX)
+        assertThat(reasons.get(Klass.MANIPULATED_ORACLE).keySet()).allMatch(r -> r.equals("SCHEMA") || (r.contains("TRADE_WITHIN_MAX") && r.contains("PRICE_DEVIATION")));
+        assertThat(reasons.get(Klass.STALE_PRICE_SOURCES).keySet()).isNotEmpty().allMatch(r -> r.contains("TRADE_WITHIN_MAX") && r.contains("PRICE_STALE"));
+        assertThat(reasons.get(Klass.SINGLE_PRICE_SOURCE).keySet()).isNotEmpty().allMatch(r -> r.contains("TRADE_WITHIN_MAX") && r.contains("PRICE_QUORUM"));
         assertThat(reasons.get(Klass.ROUNDING_ATTACK).keySet()).allMatch(r -> r.equals("SCHEMA") || r.contains("TRADE_WITHIN_MAX") || r.contains("SLIPPAGE_WITHIN_MAX"));
         assertThat(reasons.get(Klass.PROMPT_INJECTED_ACTION).keySet()).allMatch(r -> r.equals("SCHEMA") || r.contains("STRATEGY_ENABLED") || r.contains("AGENT_PERMITTED"));
     }

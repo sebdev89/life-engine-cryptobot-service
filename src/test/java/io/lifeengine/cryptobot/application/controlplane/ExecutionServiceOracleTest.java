@@ -12,6 +12,7 @@ import static org.mockito.Mockito.when;
 import io.lifeengine.cryptobot.adapters.solana.SolanaCluster;
 import io.lifeengine.cryptobot.adapters.solana.SolanaRpcClient;
 import io.lifeengine.cryptobot.domain.oracle.OracleReading;
+import io.lifeengine.cryptobot.domain.policy.PolicyDecision;
 import io.lifeengine.cryptobot.domain.receipt.IntelligenceReceipt;
 import io.lifeengine.cryptobot.domain.receipt.ReceiptInput;
 import io.lifeengine.cryptobot.domain.transactions.ActionProposal;
@@ -35,11 +36,13 @@ class ExecutionServiceOracleTest {
     void refusedReadingBlocksExecutionBeforeAnythingStarts() {
         OracleReading world = Fixtures.oracle("1000", h.now);
         when(h.oracle.read(any())).thenReturn(Mono.just(world));
-        when(h.policy.oracleProblems(any(), eq(world))).thenReturn(List.of("Plan priced SOL at $100 but the oracle median is $1000 (9000 bps apart, limit 1000)"));
+        when(h.policy.priceViolations(any(), eq(world))).thenReturn(List.of(new PolicyDecision.Violation(PolicyEngine.RULE_PRICE_DRIFT,
+                "Plan priced SOL at $100 but the oracle median is $1000 (9000 bps apart, limit 1000)")));
 
         assertThatThrownBy(() -> h.service.execute(h.wallet.ownerUserId(), h.approved.id(), "op").block())
                 .isInstanceOf(ControlPlaneExceptions.Conflict.class)
                 .hasMessageContaining("Oracle refused execution")
+                .hasMessageContaining("PRICE_DRIFT: Plan priced SOL")
                 .hasMessageContaining("9000 bps apart");
 
         verify(h.oracle).read(eq(List.of("SOL", "USDC")));
