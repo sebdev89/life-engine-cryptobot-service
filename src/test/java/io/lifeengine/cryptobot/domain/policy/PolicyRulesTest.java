@@ -6,9 +6,9 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 
-class PolicyRulesTest {
+public class PolicyRulesTest {
 
-    static PolicyRules paper() {
+    public static PolicyRules paper() {
         return new PolicyRules("paper-v1", List.of("USDC", "SOL"), List.of("momentum-v3", "REBALANCE"),
                 5_000_000L, 10_000_000L, 6_000, 50, 60L, 100_000L, 1_000_000L);
     }

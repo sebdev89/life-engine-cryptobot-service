@@ -69,6 +69,86 @@ public record PolicyInput(IntentFacts intent, StateFacts state) {
         return CanonicalJson.canonicalize(canonicalMap());
     }
 
+    /**
+     * Inverse of {@link #canonicalMap()} (KAN-572): the {@code (I, S)} a Decision Receipt stored
+     * next to itself, read back so {@code verify} can re-run the engine. An absent key is an unknown
+     * fact, exactly as it was when the verdict was computed; a value of the wrong shape is invalid.
+     */
+    @SuppressWarnings("unchecked")
+    public static PolicyInput fromMap(Map<String, Object> m) {
+        if (m == null) {
+            throw new IllegalArgumentException("policy input: missing");
+        }
+        if (!PolicyRules.SCHEMA_VERSION.equals(String.valueOf(m.get("schema_version")))) {
+            throw new IllegalArgumentException("policy input: unsupported schema_version " + m.get("schema_version"));
+        }
+        Map<String, Object> i = (Map<String, Object>) m.getOrDefault("intent", Map.of());
+        Map<String, Object> s = (Map<String, Object>) m.getOrDefault("state", Map.of());
+        IntentFacts intent = new IntentFacts(
+                text(i, "agent_id"),
+                text(i, "strategy_id"),
+                text(i, "policy_version"),
+                text(i, "asset"),
+                integer(i, "trade_value_cents"),
+                intOrNull(i, "max_slippage_bps"),
+                integer(i, "valid_until_slot"));
+        StateFacts state = new StateFacts(
+                integer(s, "daily_exposure_cents"),
+                intOrNull(s, "asset_exposure_after_bps"),
+                integer(s, "oracle_age_seconds"),
+                bool(s, "agent_permitted"),
+                bool(s, "nonce_unused"),
+                integer(s, "current_slot"));
+        return new PolicyInput(intent, state);
+    }
+
+    private static String text(Map<String, Object> m, String key) {
+        Object v = m.get(key);
+        if (v == null) {
+            return null;
+        }
+        if (!(v instanceof String s)) {
+            throw new IllegalArgumentException("policy input: " + key + " must be a string");
+        }
+        return s;
+    }
+
+    private static Long integer(Map<String, Object> m, String key) {
+        Object v = m.get(key);
+        if (v == null) {
+            return null;
+        }
+        if (v instanceof Integer || v instanceof Long || v instanceof Short || v instanceof Byte) {
+            return ((Number) v).longValue();
+        }
+        if (v instanceof java.math.BigInteger b) {
+            return b.longValueExact();
+        }
+        throw new IllegalArgumentException("policy input: " + key + " must be an integer");
+    }
+
+    private static Integer intOrNull(Map<String, Object> m, String key) {
+        Long v = integer(m, key);
+        if (v == null) {
+            return null;
+        }
+        if (v < Integer.MIN_VALUE || v > Integer.MAX_VALUE) {
+            throw new IllegalArgumentException("policy input: " + key + " out of range");
+        }
+        return v.intValue();
+    }
+
+    private static Boolean bool(Map<String, Object> m, String key) {
+        Object v = m.get(key);
+        if (v == null) {
+            return null;
+        }
+        if (!(v instanceof Boolean b)) {
+            throw new IllegalArgumentException("policy input: " + key + " must be a boolean");
+        }
+        return b;
+    }
+
     /** {@code SHA-256(canonicalJson())}: identifies exactly which facts the verdict was about. */
     public String hash() {
         return CanonicalJson.sha256(canonicalJson());

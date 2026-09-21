@@ -14,7 +14,11 @@
 #               → Solana → SUBMITTED → confirmed on chain → EXECUTED → replay = same tx → outbox
 #               → EXECUTION receipt verified → a mainnet intent in the same run → 409     (e2e-devnet.sh)
 #   2 risk      an adversarial intent (dump 95 % of the position) → BLOCKED_BY_POLICY with the rules
-#               that failed, approve → 409, execute → 409; then the cooldown the wallet is under
+#               that failed, approve → 409, execute → 409; then the cooldown the wallet is under; then
+#               (KAN-572) a SECOND adversarial intent, wrong only in its price: one oracle source is made
+#               to say −90 % (PUT /api/cryptobot/demo/price, demo profile only) → PRICE_DEVIATION, and
+#               every source made 15 min old → PRICE_STALE — each with its Decision Receipt (RISK_DECISION
+#               by policy-engine, L1) verified live and placed in the lineage
 #   3 recovery  the RPC dies at broadcast → no verdict → dead letter → RPC back → requeue by API
 #               → idempotent retry (same operationId, new signature) → EXECUTED; the chain, asked
 #               directly, shows ONE transaction                        (e2e-devnet.sh --chaos rpc-down)
@@ -32,6 +36,8 @@
 #   (CRYPTOBOT_DEMO_AUTH_URL/_USER/_PASSWORD), the signer's wallet, the vault, the RPC. No docker.
 #   Act 3 needs the chaos endpoint (CRYPTOBOT_CHAOS_ENABLED, demo compose only): on a target without
 #   it the act is SKIPPED and the report says why.
+#   The price injection (act 2, KAN-572) needs CRYPTOBOT_CHAOS_ENABLED too: without it the price
+#   intents are SKIPPED and the report says why.
 # --keep leaves the local stack running (UI, curl, Postgres). --dry-run prints the plan and exits.
 # Exit: 0 every act passed (SKIPPED allowed only where the target lacks the feature) · 1 an act
 # failed (the report is still written, the failing act marked) · 3 a secret reached the report/log.
@@ -71,7 +77,7 @@ RUN_DIR="${OUT}/run-${TS}"
 REPORT="${OUT}/demo-report-${TS}.md"
 LOG="${RUN_DIR}/demo.log"
 COOLDOWN_S="${CRYPTOBOT_POLICY_COOLDOWN:-60s}"; COOLDOWN_S="${COOLDOWN_S%s}"
-COMPOSE=(); BASE=""; TOKEN=""; CURL_OPTS=(); HOST_RPC=""; RPC_LABEL=""; SERVICE_COMMIT="$(git -C "$PROJECT" rev-parse --short HEAD 2>/dev/null || echo unknown)"
+COMPOSE=(); BASE=""; TOKEN=""; CURL_OPTS=(); HOST_RPC=""; RPC_LABEL=""; PRICE_ARMED=0; PRICE_NOTE=""; SERVICE_COMMIT="$(git -C "$PROJECT" rev-parse --short HEAD 2>/dev/null || echo unknown)"
 declare -A A1=() A3=()
 
 # ---- act bookkeeping ------------------------------------------------------------------------------
@@ -99,6 +105,10 @@ on_exit() {
   local rc=$?
   if (( CURRENT >= 0 )); then
     ACT_RESULTS[CURRENT]="FAILED"; ACT_NOTES[CURRENT]="${LAST_ERROR:-exit ${rc}}"; ACT_SECS[CURRENT]=$(( $(date +%s) - ACT_START ))
+  fi
+  if [[ "${PRICE_ARMED:-0}" -eq 1 ]]; then
+    # Never leave the adversarial price armed in a stack that stays up (--keep) or in a rehearsal that failed mid-way.
+    RESP="$(api DELETE /api/cryptobot/demo/price 2>/dev/null || true)"; PRICE_ARMED=0
   fi
   if [[ "$TARGET" == "local" && "$KEEP" -eq 0 && ${#COMPOSE[@]} -gt 0 && "$DRY_RUN" -eq 0 ]]; then
     log "stopping the demo stack (--keep to leave it running)"
@@ -144,7 +154,7 @@ write_report() {
       echo
     fi
     if (( ${#EV2[@]} > 0 )); then
-      echo "## Act 2 — risk: the adversarial intent, blocked; the cooldown"
+      echo "## Act 2 — risk: the adversarial intents, blocked (policy; price), each with a verifiable Decision Receipt; the cooldown"
       echo
       echo "| step | evidence |"; echo "|---|---|"
       for line in "${EV2[@]}"; do echo "| ${line} |"; done
@@ -319,6 +329,104 @@ act_risk() {
   else
     EV2+=("cooldown | rule \`COOLDOWN\` (${COOLDOWN_S}s) already elapsed (${ago}s since the act-1 execution)")
   fi
+  act_price "$wid"
+}
+
+# KAN-572 (HK-4): the second adversarial intent — nothing wrong with the trade, everything wrong with the
+# price. The oracle needs ≥ 2 independent sources within 1 % of the median, younger than max-age, and no
+# jump against the last consensus; the plan's price must agree with the fresh median. Here one source is
+# tampered with (demo profile only), the real oracle refuses, the policy names the rule, the Decision
+# Receipt (RISK_DECISION by policy-engine) is verified live — hash, signature, L1 re-execution — and sits
+# in the lineage under the STRATEGY it validates. Then every source is made stale: PRICE_STALE.
+act_price() {
+  local wid="$1"
+  RESP="$(api GET /api/cryptobot/demo/price)"; split_status
+  if [[ "$STATUS" != "200" ]]; then
+    if [[ "$TARGET" == "uat" ]]; then
+      log "price injection not available on this target (HTTP ${STATUS}): CRYPTOBOT_CHAOS_ENABLED is demo-compose only, never UAT/PROD. The price intents run on the local target."
+      EV2+=("adversarial price | SKIPPED — no /demo/price endpoint on ${TARGET} (HTTP ${STATUS}), by design (demo profile only)")
+      PRICE_NOTE="price intents skipped"
+      return 0
+    fi
+    fail "price endpoint returned HTTP ${STATUS} on the local demo stack: is CRYPTOBOT_CHAOS_ENABLED=true in docker-compose.demo.yml?"
+  fi
+  step "adversarial price #1: one oracle source (Pyth) is made to say SOL is worth −90 % — PUT /api/cryptobot/demo/price"
+  RESP="$(api PUT /api/cryptobot/demo/price '{"asset":"SOL","source":"pyth-hermes","factor":0.1}')"; split_status
+  [[ "$STATUS" == "200" ]] || fail "arm price override: HTTP ${STATUS} ${BODY}"
+  PRICE_ARMED=1
+  log "armed: $(printf '%s' "$BODY" | jget "['overrides']")"
+  price_intent "$wid" PRICE_DEVIATION "pyth-hermes × 0.1 (one of ≥ 2 sources disagrees with the median beyond max-deviation)"
+
+  step "adversarial price #2: every oracle source is made 15 minutes old — PUT /api/cryptobot/demo/price"
+  RESP="$(api PUT /api/cryptobot/demo/price '{"asset":"SOL","source":"*","ageSeconds":900}')"; split_status
+  [[ "$STATUS" == "200" ]] || fail "arm price override: HTTP ${STATUS} ${BODY}"
+  price_intent "$wid" PRICE_STALE "every source observed 900 s ago (older than max-age: no fresh quorum)"
+
+  RESP="$(api DELETE /api/cryptobot/demo/price)"; split_status
+  [[ "$STATUS" == "200" ]] || fail "disarm price override: HTTP ${STATUS} ${BODY}"
+  PRICE_ARMED=0
+  log "price override disarmed: armed=$(printf '%s' "$BODY" | jget "['armed']")"
+  EV2+=("price override | disarmed (\`DELETE /api/cryptobot/demo/price\`); the next intent (act 3) is priced by the real consensus again")
+  PRICE_NOTE="PRICE_DEVIATION + PRICE_STALE blocked, receipts verified"
+}
+
+# price_intent <wallet-id> <expected-rule> <what was injected>
+price_intent() {
+  local wid="$1" expect="$2" injected="$3" pid pstatus rules blocked_by
+  RESP="$(api POST "/api/cryptobot/wallets/${wid}/proposals" "{\"kind\":\"REBALANCE\",\"targetWeights\":{\"SOL\":50},\"reasoningSummary\":\"demo: adversarial price — ${expect}\"}")"; split_status
+  [[ "$STATUS" == "201" ]] || fail "price intent propose: HTTP ${STATUS} ${BODY}"
+  pid="$(printf '%s' "$BODY" | jget "['proposal']['id']")"; pstatus="$(printf '%s' "$BODY" | jget "['proposal']['status']")"
+  rules="$(printf '%s' "$BODY" | python3 -c "import json,sys; d=json.load(sys.stdin)['proposal']['policy']; print('; '.join(f\"{v['rule']}: {v['message']}\" for v in d.get('violations', [])))")"
+  blocked_by="$(printf '%s' "$BODY" | python3 -c "import json,sys; d=json.load(sys.stdin)['proposal']['policy']; print(','.join(v['rule'] for v in d.get('violations', [])))")"
+  local oracle_sol; oracle_sol="$(printf '%s' "$BODY" | python3 -c "
+import json,sys
+d=json.load(sys.stdin)['proposal']['policy'].get('oracle') or {}
+for a in d.get('assets', []):
+    if a['asset']=='SOL':
+        used='; '.join(f\"{o['source']}=\${o['priceUsd']}\" for o in a.get('used', []))
+        rej='; '.join(f\"{o['observation']['source']}={o['reason']}\" for o in a.get('rejected', []))
+        print(f\"refusals={a.get('refusals')} used=[{used}] rejected=[{rej}] limits(min={d['limits']['minSources']}, maxAge={d['limits']['maxAgeSeconds']}s, maxDev={d['limits']['maxDeviationBps']}bps)\")
+")"
+  log "proposal ${pid}: ${pstatus}; blocked by [${blocked_by}]; ${rules}"
+  log "oracle saw: ${oracle_sol}"
+  [[ "$pstatus" == "BLOCKED_BY_POLICY" ]] || fail "expected BLOCKED_BY_POLICY for the ${expect} intent, got ${pstatus}: ${BODY}"
+  [[ ",${blocked_by}," == *",${expect},"* ]] || fail "expected rule ${expect} among the violations, got [${blocked_by}]: ${rules}"
+  EV2+=("adversarial price (${expect}) | injected: ${injected} → proposal \`${pid}\` SOL → 50 % → **${pstatus}**; blocked by [${blocked_by}]")
+  EV2+=("rule + message | ${rules}")
+  EV2+=("what the oracle saw | ${oracle_sol}")
+  # The Decision Receipt: the last RISK_DECISION of the proposal is the policy engine's; verify re-runs the engine.
+  RESP="$(api GET "/api/cryptobot/proposals/${pid}/receipts")"; split_status
+  local kinds dhash dparams
+  kinds="$(printf '%s' "$BODY" | python3 -c "import json,sys; d=json.load(sys.stdin); print(' → '.join(x['body']['kind'] + ('(policy-engine)' if (x['body'].get('engine') or {}).get('id')=='policy-engine' else '') for x in d))")"
+  dhash="$(printf '%s' "$BODY" | python3 -c "import json,sys; d=json.load(sys.stdin); r=[x for x in d if x['body']['kind']=='RISK_DECISION' and (x['body'].get('engine') or {}).get('id')=='policy-engine']; print(r[-1]['receiptHash'] if r else '')")"
+  [[ -n "$dhash" ]] || fail "no Decision Receipt (RISK_DECISION by policy-engine) on proposal ${pid}: ${kinds}"
+  dparams="$(printf '%s' "$BODY" | python3 -c "
+import json,sys
+d=json.load(sys.stdin); r=[x for x in d if x['receiptHash']=='${dhash}'][0]['body']; p=r.get('params',{})
+print(f\"agent {r['agentId']} · engine {r['engine']['id']} {r['engine']['version']} H_R {r['engine']['weightsHash'][:23]}… · status {p.get('status')} · blockedBy {p.get('blockedBy')} · failedPredicates {p.get('failedPredicates')} · rule.${expect}: {p.get('rule.${expect}')} · oracle.SOL: {p.get('oracle.SOL')}\")
+")"
+  RESP="$(api POST "/api/cryptobot/receipts/${dhash}/verify" '{}')"; split_status
+  local valid sigok repro reason engine
+  valid="$(printf '%s' "$BODY" | jget "['valid']")"; sigok="$(printf '%s' "$BODY" | jget "['signatureValid']")"; repro="$(printf '%s' "$BODY" | jget "['reproduced']")"
+  reason="$(printf '%s' "$BODY" | jget "['reproduction']['reason']")"; engine="$(printf '%s' "$BODY" | jget "['reproduction']['engineId']")"
+  log "receipts: ${kinds}; Decision Receipt ${dhash} verify valid=${valid} signatureValid=${sigok} reproduced=${repro} (${engine}: ${reason})"
+  [[ "$valid" == "True" && "$repro" == "True" ]] || fail "the Decision Receipt did not verify: valid=${valid} reproduced=${repro} ${BODY}"
+  EV2+=("Decision Receipt | \`${dhash}\` — ${dparams}")
+  EV2+=("receipt verify (live) | **valid=${valid}**, signatureValid=${sigok}, **reproduced=${repro}** (${engine} re-run on the stored (I, S): ${reason}); receipts: ${kinds}")
+  # …and in the lineage (KAN-393): the decision under the STRATEGY it validates.
+  RESP="$(api GET "/api/cryptobot/proposals/${pid}/lineage")"; split_status
+  local lin; lin="$(printf '%s' "$BODY" | python3 -c "
+import json,sys
+d=json.load(sys.stdin); nodes=d.get('nodes') or d.get('receipts') or []; edges=d.get('edges') or []
+mine=[e for e in edges if e.get('childHash')=='${dhash}' or e.get('from')=='${dhash}' or e.get('receiptHash')=='${dhash}']
+print(f\"{len(nodes)} nodes, {len(edges)} edges; decision receipt present={'${dhash}' in json.dumps(d)}; its edges: \" + ', '.join(f\"{e.get('role')} → {(e.get('parentHash') or e.get('to') or '')[:16]}…\" for e in mine))
+")"
+  log "lineage: ${lin}"
+  EV2+=("lineage (KAN-393) | ${lin}")
+  # A blocked proposal cannot be approved.
+  RESP="$(api POST "/api/cryptobot/proposals/${pid}/approve" '{"note":"demo: trying to approve a price-blocked proposal"}')"; split_status
+  [[ "$STATUS" == "409" ]] || fail "approve of a price-blocked proposal must be 409, got ${STATUS}: ${BODY}"
+  EV2+=("approve | **409** — $(printf '%s' "$BODY" | jget "['message']")")
 }
 
 # ---- act 4: evidence ------------------------------------------------------------------------------
@@ -391,7 +499,7 @@ if [[ "$TARGET" == "local" ]]; then setup_local; else setup_uat; fi
 if [[ "$DRY_RUN" -eq 1 ]]; then
   log "dry run — the plan:"
   log "  act 1 execute   ${HERE}/e2e-devnet.sh $([[ "$TARGET" == "local" ]] && echo --no-up || echo "--base-url ${BASE}") $([[ "$RPC_MODE" == "local" ]] && echo --local-validator) --env-file ${ENV_FILE} --sell-sol ${SELL_SOL} --token-env CRYPTOBOT_DEMO_TOKEN"
-  log "  act 2 risk      adversarial intent SOL → 5 % → BLOCKED_BY_POLICY; approve/execute → 409; cooldown ${COOLDOWN_S}s"
+  log "  act 2 risk      adversarial intent SOL → 5 % → BLOCKED_BY_POLICY; approve/execute → 409; cooldown ${COOLDOWN_S}s; then (KAN-572) PUT /demo/price → SOL → 50 % blocked by PRICE_DEVIATION, then PRICE_STALE; Decision Receipts verified + lineage"
   log "  act 3 recovery  $([[ "$RECOVERY" -eq 1 ]] && echo "e2e-devnet.sh --chaos rpc-down (if the target has the chaos endpoint)" || echo "skipped (--no-recovery)")"
   log "  act 4 evidence  $([[ "$ANCHOR" -eq 1 ]] && echo "receipt DAG → POST /anchors?wait=true → inclusion proof → anchor verify → metrics" || echo "skipped (--no-anchor)")"
   log "  report          ${REPORT}"
@@ -410,9 +518,9 @@ act_begin "execute — request → policy → approval → timelock → Solana �
 read_summary "${RUN_DIR}/act1.env" A1
 act_end PASS "signature ${A1[SIGNATURE]:-?} ${A1[CONFIRMATION]:-?} · receipt ${A1[RECEIPT_EXECUTION]:-?} · mainnet ${A1[MAINNET]:-?}"
 
-act_begin "risk — adversarial intent blocked, approve/execute 409, cooldown"
+act_begin "risk — adversarial intents blocked (policy, then price), approve/execute 409, cooldown, Decision Receipts verified"
 act_risk
-act_end PASS "BLOCKED_BY_POLICY + 409 + cooldown ${COOLDOWN_S}s"
+act_end PASS "BLOCKED_BY_POLICY + 409 + cooldown ${COOLDOWN_S}s; ${PRICE_NOTE:-price intents not run}"
 
 act_begin "recovery — RPC down at broadcast → dead letter → requeue → idempotent retry → EXECUTED"
 if [[ "$RECOVERY" -eq 0 ]]; then

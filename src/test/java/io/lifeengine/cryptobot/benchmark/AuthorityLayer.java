@@ -7,6 +7,11 @@ import io.lifeengine.cryptobot.domain.intent.IntentSchema;
 import io.lifeengine.cryptobot.domain.intent.IntentSchemaViolation;
 import io.lifeengine.cryptobot.domain.intent.JsonCanonicalizer;
 import io.lifeengine.cryptobot.domain.intent.TradingIntent;
+import io.lifeengine.cryptobot.domain.oracle.OracleConsensus;
+import io.lifeengine.cryptobot.domain.oracle.OracleLimits;
+import io.lifeengine.cryptobot.domain.oracle.OracleRefusal;
+import io.lifeengine.cryptobot.domain.oracle.PriceObservation;
+import io.lifeengine.cryptobot.domain.oracle.PriceOracle;
 import io.lifeengine.cryptobot.domain.policy.DeterministicPolicyEngine;
 import io.lifeengine.cryptobot.domain.policy.PolicyInput;
 import io.lifeengine.cryptobot.domain.policy.PolicyInput.IntentFacts;
@@ -16,6 +21,7 @@ import io.lifeengine.cryptobot.domain.policy.PolicyVerdict;
 import io.lifeengine.cryptobot.domain.policy.ReferencePolicyValidator;
 import io.lifeengine.cryptobot.observability.CryptobotMetrics;
 import java.math.BigInteger;
+import java.time.Instant;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
@@ -94,13 +100,25 @@ public final class AuthorityLayer {
         }
     }
 
-    /** Two independent price sources; they must agree or the price is unknown (KAN-439 stand-in). */
+    /**
+     * Three independent price sources reduced by the real {@link PriceOracle} under real
+     * {@link OracleLimits} (KAN-439 / KAN-572): quorum 2, max age 60 s, deviation 100 bps. A refused
+     * consensus is an unknown price ({@code null} cents) and {@link #refusalRule} names the
+     * {@code PolicyEngine} rule the service would block with ({@code PRICE_DEVIATION},
+     * {@code PRICE_STALE}, {@code PRICE_QUORUM}). The breaker is not exercised here (no memory
+     * between cases): it is covered by {@code PriceOracleTest} and the service's flow test.
+     */
     public static final class Oracle {
+        public static final OracleLimits LIMITS = new OracleLimits(2, 60, 100, 1_000, 300);
+        static final Instant NOW = Instant.parse("2026-09-20T12:00:00Z");
+        static final List<String> SOURCES = List.of("primary", "secondary", "tertiary");
         private final Map<String, Long> primaryCents = new HashMap<>();
         private final Map<String, Long> secondaryCents = new HashMap<>();
         private final Map<String, Integer> decimals = new HashMap<>();
         private Long ageSeconds = 5L;
-        private int maxDeviationBps = 500;
+        private boolean staleSources;
+        private boolean singleSource;
+        private String lastRefusalRule;
 
         public Oracle price(String asset, long centsPerUnit, int decimals) {
             primaryCents.put(asset, centsPerUnit);
@@ -126,6 +144,16 @@ public final class AuthorityLayer {
             secondaryCents.put(asset, primaryCents.get(asset));
         }
 
+        /** KAN-572: every source's observation is 15 minutes old (quorum lost to staleness). */
+        public void staleSources(boolean stale) {
+            this.staleSources = stale;
+        }
+
+        /** KAN-572: only the primary source answers (no quorum). */
+        public void singleSource(boolean single) {
+            this.singleSource = single;
+        }
+
         public boolean offline() {
             return ageSeconds == null;
         }
@@ -134,18 +162,60 @@ public final class AuthorityLayer {
             return decimals.get(asset);
         }
 
-        /** Cents per whole unit, or {@code null}: offline, unknown asset, or the two sources disagree. */
+        /** The {@code PolicyEngine} rule the last {@link #priceCents} of {@code asset} was refused by, or {@code null}. */
+        public String refusalRule() {
+            return lastRefusalRule;
+        }
+
+        /** Cents per whole unit, or {@code null}: offline, unknown asset, or no consensus (deviation, stale, quorum). */
         public Long priceCents(String asset) {
+            lastRefusalRule = null;
             if (ageSeconds == null) {
                 return null;
             }
             Long p = primaryCents.get(asset);
-            Long s = secondaryCents.get(asset);
-            if (p == null || s == null || p <= 0) {
+            Long sec = secondaryCents.get(asset);
+            if (p == null || sec == null || p <= 0) {
                 return null;
             }
-            long deviationBps = Math.abs(p - s) * 10_000L / p;
-            return deviationBps > maxDeviationBps ? null : p;
+            Instant observedAt = staleSources ? NOW.minusSeconds(900) : NOW;
+            List<PriceObservation> obs = new java.util.ArrayList<>();
+            obs.add(new PriceObservation("primary", asset, null, cents(p), observedAt));
+            if (!singleSource) {
+                obs.add(new PriceObservation("secondary", asset, null, cents(sec), observedAt));
+                obs.add(new PriceObservation("tertiary", asset, null, cents(p), observedAt));
+            }
+            OracleConsensus c = PriceOracle.consensus(asset, null, obs, null, NOW, LIMITS);
+            if (!c.accepted()) {
+                lastRefusalRule = rule(c);
+                return null;
+            }
+            return c.priceUsd().movePointRight(2).setScale(0, java.math.RoundingMode.HALF_UP).longValueExact();
+        }
+
+        static java.math.BigDecimal cents(long cents) {
+            return java.math.BigDecimal.valueOf(cents).movePointLeft(2);
+        }
+
+        /** The same mapping {@code PolicyEngine.refusals} applies in the service. */
+        static String rule(OracleConsensus c) {
+            for (OracleRefusal r : c.refusals()) {
+                switch (r) {
+                    case DEVIATION_EXCEEDED -> {
+                        return "PRICE_DEVIATION";
+                    }
+                    case CIRCUIT_BREAKER -> {
+                        return "PRICE_CIRCUIT_BREAKER";
+                    }
+                    case INSUFFICIENT_SOURCES -> {
+                        return c.rejected().stream().anyMatch(x -> "STALE".equals(x.reason())) ? "PRICE_STALE" : "PRICE_QUORUM";
+                    }
+                    case NO_OBSERVATIONS -> {
+                        return "PRICE_QUORUM";
+                    }
+                }
+            }
+            return "PRICE_QUORUM";
         }
     }
 
@@ -297,7 +367,9 @@ public final class AuthorityLayer {
         switch (verdict.decision()) {
             case DENY -> {
                 metrics.tradeRequested("blocked_by_policy", asset(input));
-                return new Outcome(Result.DENIED, Stage.GATE, "DENY " + verdict.failedPredicates(), intent, input, verdict, signatureValid,
+                // KAN-572: when the price was refused, the reason also names the price-integrity rule the service blocks with.
+                String priceRule = oracle.refusalRule();
+                return new Outcome(Result.DENIED, Stage.GATE, "DENY " + verdict.failedPredicates() + (priceRule == null ? "" : " · " + priceRule), intent, input, verdict, signatureValid,
                         new Timings(t1 - t0, t2 - t1, t3 - t2, t4 - t3, t5 - t4, System.nanoTime() - t5));
             }
             case ESCALATE -> {

@@ -140,17 +140,19 @@ class LineageFlowTest {
         assertThat(reusedBy.get(0).path("node").path("kind").asText()).isEqualTo("STRATEGY");
         assertThat(reusedBy.get(0).path("node").path("receiptHash").asText()).isEqualTo(strategyHash);
 
-        // 3. The DAG of the proposal: its 3 receipts at depth 0, the 4 they came from above; typed edges; honest summary.
+        // 3. The DAG of the proposal: its 4 receipts at depth 0 (KAN-572 adds the policy's Decision Receipt, a RISK_DECISION that
+        // VALIDATES the strategy and derives from the simulation), the 4 they came from above; typed edges; honest summary.
         JsonNode graph = get("/api/cryptobot/proposals/" + proposalId + "/lineage", token);
         assertThat(graph.path("direction").asText()).isEqualTo("ANCESTORS");
         assertThat(graph.path("maxDepth").asInt()).isEqualTo(16);
         assertThat(graph.path("truncated").asBoolean()).isFalse();
-        assertThat(graph.path("roots")).hasSize(3);
-        assertThat(kinds(graph)).containsExactlyInAnyOrder("STRATEGY", "RISK_DECISION", "SIMULATION", "WALLET_SNAPSHOT", "RISK_DECISION", "HUMAN_IDEA", "MARKET_ANALYSIS");
-        assertThat(graph.path("edges")).hasSize(9);
+        assertThat(graph.path("roots")).hasSize(4);
+        assertThat(kinds(graph)).containsExactlyInAnyOrder("STRATEGY", "RISK_DECISION", "SIMULATION", "RISK_DECISION", "WALLET_SNAPSHOT", "RISK_DECISION", "HUMAN_IDEA", "MARKET_ANALYSIS");
+        assertThat(graph.path("edges")).hasSize(11);
         List<String> edgeRoles = new ArrayList<>();
         graph.path("edges").forEach(e -> edgeRoles.add(e.path("role").asText()));
-        assertThat(edgeRoles).containsOnlyOnce("REUSES").containsOnlyOnce("VALIDATES");
+        assertThat(edgeRoles).containsOnlyOnce("REUSES");
+        assertThat(edgeRoles.stream().filter("VALIDATES"::equals).count()).isEqualTo(2); // risk-after and the Decision Receipt
         JsonNode snapshotNode = node(graph, "WALLET_SNAPSHOT");
         assertThat(graph.path("lineageRoots")).hasSize(1);
         assertThat(graph.path("lineageRoots").get(0).asText()).isEqualTo(snapshotNode.path("receiptHash").asText());
@@ -169,15 +171,15 @@ class LineageFlowTest {
         assertThat(strategyNode.path("engine").path("id").asText()).isEqualTo("rebalance-planner");
         assertThat(strategyNode.path("refs").path("proposalId").asText()).isEqualTo(proposalId);
         JsonNode summary = graph.path("summary");
-        assertThat(summary.path("nodes").asInt()).isEqualTo(7);
-        assertThat(summary.path("edges").asInt()).isEqualTo(9);
+        assertThat(summary.path("nodes").asInt()).isEqualTo(8);
+        assertThat(summary.path("edges").asInt()).isEqualTo(11);
         assertThat(summary.path("inputTokens").asLong()).isEqualTo(3512);
         assertThat(summary.path("outputTokens").asLong()).isEqualTo(240);
-        assertThat(summary.path("computeUnits").asLong()).isEqualTo(3512 + 3 * 240 + 5); // the LLM step + 5 × 1 unit; HUMAN_IDEA measures nothing
+        assertThat(summary.path("computeUnits").asLong()).isEqualTo(3512 + 3 * 240 + 6); // the LLM step + 6 × 1 unit; HUMAN_IDEA measures nothing
         assertThat(summary.path("costUsd").isNull()).as("no price table ⇒ no cost claimed").isTrue();
         assertThat(summary.path("anchored").asInt()).isZero();
         assertThat(summary.path("reused").asInt()).isEqualTo(1);
-        assertThat(summary.path("byLevel").path("L1_REPRODUCIBLE").asInt()).isEqualTo(3);
+        assertThat(summary.path("byLevel").path("L1_REPRODUCIBLE").asInt()).isEqualTo(4); // strategy, risk-after, risk (snapshot), the Decision Receipt
         assertThat(summary.path("byLevel").path("L0_SIGNED").asInt()).isEqualTo(4);
         // Nothing private in the graph: no question, no answer, no key, no transaction.
         assertThat(graph.toString()).doesNotContain("biggest risk").doesNotContain("drawdown").doesNotContain("unsignedTransaction").doesNotContain("signatureBase64");
@@ -185,21 +187,21 @@ class LineageFlowTest {
         // 4. From a receipt: descendants of the snapshot are everything; ancestors of the strategy at depth 1 are cut short.
         String snapshotHash = snapshotNode.path("receiptHash").asText();
         JsonNode down = get("/api/cryptobot/receipts/" + snapshotHash + "/descendants", token);
-        assertThat(down.path("nodes")).hasSize(7);
+        assertThat(down.path("nodes")).hasSize(8);
         assertThat(down.path("roots").get(0).asText()).isEqualTo(snapshotHash);
         JsonNode shallow = get("/api/cryptobot/receipts/" + strategyHash + "/ancestors?depth=1", token);
         assertThat(kinds(shallow)).containsExactlyInAnyOrder("STRATEGY", "WALLET_SNAPSHOT", "MARKET_ANALYSIS");
         assertThat(shallow.path("truncated").asBoolean()).isTrue();
         JsonNode both = get("/api/cryptobot/receipts/" + strategyHash + "/lineage?direction=both&depth=3", token);
-        assertThat(both.path("nodes")).hasSize(7);
+        assertThat(both.path("nodes")).hasSize(8);
         assertThat(both.path("direction").asText()).isEqualTo("BOTH");
         JsonNode parents = get("/api/cryptobot/receipts/" + strategyHash + "/parents", token);
         assertThat(parents).hasSize(2);
         JsonNode children = get("/api/cryptobot/receipts/" + strategyHash + "/children", token);
-        assertThat(children).hasSize(2);
+        assertThat(children).hasSize(3); // risk-after, simulation, the Decision Receipt (KAN-572)
         List<String> childRoles = new ArrayList<>();
         children.forEach(c -> childRoles.add(c.path("role").asText()));
-        assertThat(childRoles).containsExactlyInAnyOrder("VALIDATES", "DERIVES_FROM");
+        assertThat(childRoles).containsExactlyInAnyOrder("VALIDATES", "DERIVES_FROM", "VALIDATES");
 
         // 5. A proposal that names the run derives from the analysis instead of reusing it; reusedBy is unchanged.
         JsonNode named = JSON.readTree(web.post().uri("/api/cryptobot/wallets/" + walletId + "/proposals").header(HttpHeaders.AUTHORIZATION, token)
@@ -242,9 +244,9 @@ class LineageFlowTest {
         String proposalId = proposed.path("proposal").path("id").asText();
         assertThat(get("/api/cryptobot/proposals/" + proposalId + "/audit", token).get(0).path("payload").has("analysisReceipt")).isFalse();
         JsonNode graph = get("/api/cryptobot/proposals/" + proposalId + "/lineage", token);
-        assertThat(kinds(graph)).containsExactlyInAnyOrder("STRATEGY", "RISK_DECISION", "SIMULATION", "WALLET_SNAPSHOT");
+        assertThat(kinds(graph)).containsExactlyInAnyOrder("STRATEGY", "RISK_DECISION", "SIMULATION", "RISK_DECISION", "WALLET_SNAPSHOT");
         assertThat(graph.path("summary").path("reused").asInt()).isZero();
-        assertThat(graph.path("edges")).hasSize(3);
+        assertThat(graph.path("edges")).hasSize(5);
 
         // A proposal id that left no receipts (or does not exist for this owner): 404 for the owner check first.
         web.get().uri("/api/cryptobot/proposals/" + UUID.randomUUID() + "/lineage").header(HttpHeaders.AUTHORIZATION, token)
