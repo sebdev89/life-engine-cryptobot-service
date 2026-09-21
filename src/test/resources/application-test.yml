@@ -44,6 +44,9 @@ cryptobot:
     coingecko:
       enabled: false
       base-url: http://localhost:0
+    coinbase:
+      enabled: false
+      base-url: http://localhost:0
     fallback-prices:
       SOL: 100
       USDC: 1

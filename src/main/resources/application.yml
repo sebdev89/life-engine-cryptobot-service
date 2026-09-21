@@ -120,10 +120,25 @@ cryptobot:
         WIF: dogwifcoin
         PYTH: pyth-network
         JTO: jito-governance-token
+    # KAN-572: Coinbase spot, keyless, one exchange — the source that keeps the quorum when Pyth answers 401
+    # (its public endpoint needs a key since 2026-09) and CoinGecko's public tier lags.
+    coinbase:
+      enabled: ${CRYPTOBOT_COINBASE_ENABLED:true}
+      base-url: ${CRYPTOBOT_COINBASE_BASE_URL:https://api.coinbase.com}
+      products:
+        SOL: SOL-USD
+        USDC: USDC-USD
+        USDT: USDT-USD
+        JUP: JUP-USD
+        BONK: BONK-USD
+        RAY: RAY-USD
+        WIF: WIF-USD
+        PYTH: PYTH-USD
+        JTO: JTO-USD
     # The integrity assumptions of the execution envelope. Their hash travels in every decision.
     oracle:
       min-sources: ${CRYPTOBOT_ORACLE_MIN_SOURCES:2}          # quorum; never below 2
-      max-age: ${CRYPTOBOT_ORACLE_MAX_AGE:120s}               # an observation older than this is not a fact
+      max-age: ${CRYPTOBOT_ORACLE_MAX_AGE:300s}               # an observation older than this is not a fact (CoinGecko's public tier lags 1–3 min)
       max-deviation-bps: ${CRYPTOBOT_ORACLE_MAX_DEVIATION_BPS:100}   # every source within 1 % of the median
       max-move-bps: ${CRYPTOBOT_ORACLE_MAX_MOVE_BPS:1000}     # breaker: 10 % vs the last accepted consensus…
       move-interval: ${CRYPTOBOT_ORACLE_MOVE_INTERVAL:5m}     # …younger than this; also the plan-vs-oracle drift bound
