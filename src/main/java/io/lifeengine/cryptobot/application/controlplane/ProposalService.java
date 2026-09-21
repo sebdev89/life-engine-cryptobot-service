@@ -1,8 +1,10 @@
 package io.lifeengine.cryptobot.application.controlplane;
 
+import io.lifeengine.cryptobot.application.receipt.ReceiptDraft;
 import io.lifeengine.cryptobot.application.receipt.ReceiptService;
 import io.lifeengine.cryptobot.domain.policy.PolicyDecision;
 import io.lifeengine.cryptobot.domain.policy.PolicyVerdict;
+import io.lifeengine.cryptobot.domain.receipt.ReceiptEdge;
 import io.lifeengine.cryptobot.domain.reliability.OutboxEvent;
 import io.lifeengine.cryptobot.domain.reliability.TradeEvents;
 import io.lifeengine.cryptobot.domain.risk.RiskReport;
@@ -67,6 +69,7 @@ public class ProposalService {
     private final CryptobotMetrics metrics;
     private final ReceiptService receipts;
     private final Receipts receiptOf;
+    private final AnalysisReuse analysisReuse;
     private final Clock clock;
 
     @org.springframework.beans.factory.annotation.Autowired
@@ -82,8 +85,9 @@ public class ProposalService {
             AuditService audit,
             CryptobotMetrics metrics,
             ReceiptService receipts,
-            Receipts receiptOf) {
-        this(proposals, portfolio, planner, riskEngine, simulation, policy, signer, validator, audit, metrics, receipts, receiptOf, Clock.systemUTC());
+            Receipts receiptOf,
+            AnalysisReuse analysisReuse) {
+        this(proposals, portfolio, planner, riskEngine, simulation, policy, signer, validator, audit, metrics, receipts, receiptOf, analysisReuse, Clock.systemUTC());
     }
 
     ProposalService(
@@ -99,6 +103,7 @@ public class ProposalService {
             CryptobotMetrics metrics,
             ReceiptService receipts,
             Receipts receiptOf,
+            AnalysisReuse analysisReuse,
             Clock clock) {
         this.proposals = proposals;
         this.portfolio = portfolio;
@@ -112,6 +117,7 @@ public class ProposalService {
         this.metrics = metrics;
         this.receipts = receipts;
         this.receiptOf = receiptOf;
+        this.analysisReuse = analysisReuse;
         this.clock = clock;
     }
 
@@ -120,6 +126,10 @@ public class ProposalService {
      * snapshot it was planned on and, if the caller passed the advisor's {@code runtimeRunId}, the
      * {@code MARKET_ANALYSIS} that suggested it), {@code RISK_DECISION} over the projected portfolio
      * (VALIDATES the strategy, L1) and {@code SIMULATION} (DERIVES_FROM the strategy).
+     *
+     * <p>KAN-393: without a {@code runtimeRunId}, the strategy may instead <em>reuse</em> the
+     * wallet's latest {@code MARKET_ANALYSIS} — same asset, younger than the reuse window — and
+     * says so with a {@code REUSES} edge ({@link AnalysisReuse}). The audit event records which.
      */
     public Mono<ActionProposal> createRebalance(Wallet wallet, String actor, RebalanceIntent intent, String reasoningSummary, UUID runtimeRunId) {
         return portfolio.latest(wallet).flatMap(view -> {
@@ -139,19 +149,39 @@ public class ProposalService {
             String tenant = Receipts.tenantOf(wallet.ownerUserId());
             Mono<Optional<String>> snapshotReceipt = receipts.byNonce(tenant, view.snapshot().id().toString())
                     .map(r -> Optional.of(r.receiptHash())).defaultIfEmpty(Optional.empty());
-            Mono<Optional<String>> analysisReceipt = runtimeRunId == null ? Mono.just(Optional.empty())
-                    : receipts.byNonce(tenant, runtimeRunId.toString()).map(r -> Optional.of(r.receiptHash())).defaultIfEmpty(Optional.empty());
-            return proposals.insert(p)
-                    .flatMap(saved -> audit.record(saved.ownerUserId(), saved.walletId(), saved.id(), EV_CREATED, actor,
-                            payload("plan", plan.summary(), "turnoverUsd", plan.turnoverUsd(), "riskBefore", view.risk().overall(), "riskAfter", riskAfter.overall(),
-                                    "runtimeRunId", runtimeRunId)).thenReturn(saved))
-                    .flatMap(saved -> Mono.zip(snapshotReceipt, analysisReceipt)
-                            .flatMap(refs -> receipts.issue(receiptOf.strategy(wallet, saved, view.snapshot(), intent, plan, refs.getT1().orElse(null), refs.getT2().orElse(null))))
-                            .flatMap(strategy -> receipts.issue(receiptOf.riskDecisionAfter(wallet, saved, projected, riskAfter, strategy.receiptHash()))
-                                    .thenReturn(strategy.receiptHash()))
-                            .flatMap(strategyHash -> simulate(saved, wallet, view.snapshot(), strategyHash)))
-                    .flatMap(sim -> evaluatePolicy(sim, wallet, view.snapshot().capturedAt()));
+            // The analysis behind this strategy: the run the caller named (DERIVES_FROM), or — without one —
+            // the wallet's latest analysis if it is recent and about the same asset (REUSES, KAN-393).
+            Mono<AnalysisLink> analysis = runtimeRunId != null
+                    ? receipts.byNonce(tenant, runtimeRunId.toString()).map(r -> new AnalysisLink(r.receiptHash(), ReceiptEdge.Role.DERIVES_FROM))
+                            .defaultIfEmpty(AnalysisLink.NONE)
+                    : analysisReuse.find(wallet, intent).map(r -> r.map(x -> new AnalysisLink(x.receiptHash(), ReceiptEdge.Role.REUSES)).orElse(AnalysisLink.NONE));
+            return Mono.zip(snapshotReceipt, analysis).flatMap(refs -> {
+                AnalysisLink link = refs.getT2();
+                return proposals.insert(p)
+                        .flatMap(saved -> audit.record(saved.ownerUserId(), saved.walletId(), saved.id(), EV_CREATED, actor,
+                                payload("plan", plan.summary(), "turnoverUsd", plan.turnoverUsd(), "riskBefore", view.risk().overall(), "riskAfter", riskAfter.overall(),
+                                        "runtimeRunId", runtimeRunId, "analysisReceipt", link.receiptHash(), "analysisRole", link.receiptHash() == null ? null : link.role().name()))
+                                .thenReturn(saved))
+                        .flatMap(saved -> {
+                            ReceiptDraft strategyDraft = receiptOf.strategy(wallet, saved, view.snapshot(), intent, plan, refs.getT1().orElse(null), link.receiptHash());
+                            if (link.role() == ReceiptEdge.Role.REUSES) {
+                                strategyDraft = strategyDraft.withRole(link.receiptHash(), ReceiptEdge.Role.REUSES);
+                                metrics.artifactReuse(false);
+                                log.info("analysis_reused proposal={} analysis={}", saved.id(), link.receiptHash());
+                            }
+                            return receipts.issue(strategyDraft)
+                                    .flatMap(strategy -> receipts.issue(receiptOf.riskDecisionAfter(wallet, saved, projected, riskAfter, strategy.receiptHash()))
+                                            .thenReturn(strategy.receiptHash()))
+                                    .flatMap(strategyHash -> simulate(saved, wallet, view.snapshot(), strategyHash));
+                        })
+                        .flatMap(sim -> evaluatePolicy(sim, wallet, view.snapshot().capturedAt()));
+            });
         });
+    }
+
+    /** Which MARKET_ANALYSIS a strategy points at and how; {@link #NONE} when there is none. */
+    private record AnalysisLink(String receiptHash, ReceiptEdge.Role role) {
+        static final AnalysisLink NONE = new AnalysisLink(null, ReceiptEdge.Role.DERIVES_FROM);
     }
 
     private Mono<ActionProposal> simulate(ActionProposal p, Wallet wallet, io.lifeengine.cryptobot.domain.portfolio.PortfolioSnapshot snapshot, String strategyReceipt) {

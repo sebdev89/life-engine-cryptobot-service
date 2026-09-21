@@ -63,6 +63,7 @@ class ProposalServiceTimelockTest {
                 null, new com.fasterxml.jackson.databind.ObjectMapper());
         service = new ProposalService(repo, mock(PortfolioService.class), mock(RebalancePlanner.class), mock(RiskEngine.class),
                 mock(SimulationService.class), policy, mock(SignerClient.class), mock(ValidatorClient.class), audit, metrics, receipts, receiptOf,
+                new AnalysisReuse(receipts, InMemoryControlPlaneRepositories.messages(), Duration.ZERO, Clock.fixed(NOW, ZoneOffset.UTC)),
                 Clock.fixed(NOW, ZoneOffset.UTC));
     }
 

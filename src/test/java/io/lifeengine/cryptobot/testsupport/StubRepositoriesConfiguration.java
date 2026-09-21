@@ -113,4 +113,10 @@ public class StubRepositoriesConfiguration {
     io.lifeengine.cryptobot.infrastructure.persistence.controlplane.AnchorRepository anchorRepository() {
         return new InMemoryAnchorRepository();
     }
+
+    /** KAN-393: the DAG walks over the same in-memory receipts and edges. */
+    @Bean
+    io.lifeengine.cryptobot.infrastructure.persistence.controlplane.LineageRepository lineageRepository() {
+        return new InMemoryLineageRepository();
+    }
 }
