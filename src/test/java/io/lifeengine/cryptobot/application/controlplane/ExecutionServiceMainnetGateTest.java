@@ -204,6 +204,30 @@ class ExecutionServiceMainnetGateTest {
         verify(validator).authorize(any(), any());
     }
 
+    /**
+     * KAN-604 (audit §26/§29): the mainnet gate as a property, not a single example — N freshly
+     * approved mainnet proposals, N random operationIds (including the server-generated overload),
+     * every one refused before the validator, the signer or the RPC client sees anything.
+     */
+    @Test
+    @DisplayName("property: allow-mainnet=false ⇒ zero sendTransaction, whatever the operationId or proposal is, across many independent proposals")
+    void alwaysMainnetDisabledRefusesRegardlessOfOperationId() {
+        PolicyEngine policy = engine("mainnet-beta");
+        Wallet wallet = Fixtures.wallet(SolanaCluster.MAINNET_BETA);
+        ExecutionService svc = service(policy, false);
+        java.util.Random random = new java.util.Random(493L);
+        for (int i = 0; i < 15; i++) {
+            ActionProposal approved = approvedFor(wallet, policy);
+            reactor.core.publisher.Mono<ActionProposal> exec = random.nextBoolean()
+                    ? svc.execute(wallet.ownerUserId(), approved.id(), "actor-" + i)
+                    : svc.execute(wallet.ownerUserId(), approved.id(), "actor-" + i, UUID.randomUUID());
+            org.assertj.core.api.Assertions.assertThatThrownBy(exec::block).as("iteration %d", i).isInstanceOf(MainnetDisabledException.class);
+        }
+        verify(validator, never()).authorize(any(), any());
+        verify(signer, never()).sign(any(), anyString(), anyString(), any(), any());
+        verify(rpc, never()).sendTransaction(any(), anyString());
+    }
+
     @Test
     @DisplayName("if the RPC guard is what fires, the row is FAILED (nothing was sent) — not left in flight for the reconciler")
     void rpcGuardRefusalIsACertainFailure() {

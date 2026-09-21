@@ -41,6 +41,25 @@ jobs:
       - name: Run tests (surefire)
         run: ./mvnw -B -ntp test
 
+      # KAN-604 — Testcontainers Postgres for ActionProposalR2dbcStore (optimistic lock, unique
+      # operation_id, atomic commit), OutboxEventR2dbcStore (SKIP LOCKED) and DeadLetterR2dbcStore
+      # (single resolution): *IT classes Surefire's default patterns do not pick up, run here
+      # explicitly. le-ci has Docker; KAN-296 — several Testcontainers jobs in parallel can produce
+      # a false red ("bind: address already in use") from port contention between runners, not a
+      # code regression, so one retry absorbs that before failing the build for real.
+      - name: Run Postgres integration tests (Testcontainers)
+        run: |
+          for attempt in 1 2; do
+            if ./mvnw -B -ntp -Dtest=ActionProposalR2dbcStoreIT,OutboxEventR2dbcStoreIT,DeadLetterR2dbcStoreIT test; then
+              exit 0
+            fi
+            if [ "$attempt" -eq 1 ] && grep -q "bind: address already in use" target/surefire-reports/*.txt 2>/dev/null; then
+              echo "KAN-296: port contention between parallel Testcontainers jobs — retrying once."
+              continue
+            fi
+            exit 1
+          done
+
       - name: Run signer tests (isolated module, own pom)
         run: ./mvnw -B -ntp -f signer/pom.xml test
 
