@@ -516,6 +516,13 @@ Binance-public market data, watchlist / zones / observations / journal / indicat
 README and the Docker files. The exact list lives in the vault:
 `Products/CryptoBot-Colosseum/06-Preexistente-vs-Hackathon.md`.
 
+## Architecture documents (KAN-583 — Trusted Agent Execution)
+
+- [`docs/architecture/TRUSTED-AGENT-EXECUTION-AUDIT.md`](docs/architecture/TRUSTED-AGENT-EXECUTION-AUDIT.md) — phase-0 audit of what runs at `2b69b37`: sequence, state machine, trust boundaries, policy, signer, validator, reconciliation, receipts, tests, gaps, threat model, target architecture, migration plan (`READY_TO_IMPLEMENT=true` with conditions).
+- [`docs/architecture/TRUSTED-AGENT-EXECUTION-ADR.md`](docs/architecture/TRUSTED-AGENT-EXECUTION-ADR.md) — decision: the trading strategy is separated from a generic execution core (`core` / `solana` / `trading`), inside this repository, without renaming anything that is persisted, scraped or routed.
+- [`docs/architecture/trusted-agent-execution-trust-boundaries.md`](docs/architecture/trusted-agent-execution-trust-boundaries.md) — where the private keys, the policy, the DB truth and the chain truth actually are.
+- [`docs/architecture/audit-evidence/`](docs/architecture/audit-evidence/) — the three raw audit reports the documents above cite.
+
 ## Configuration
 
 Full list with defaults in `src/main/resources/application.yml` under `cryptobot.solana`,
