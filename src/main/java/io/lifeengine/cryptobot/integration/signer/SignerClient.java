@@ -1,5 +1,7 @@
 package io.lifeengine.cryptobot.integration.signer;
 
+import io.lifeengine.cryptobot.observability.ErrorCode;
+import io.lifeengine.cryptobot.observability.LogFields;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import io.lifeengine.cryptobot.adapters.solana.SolanaCluster;
 import io.lifeengine.cryptobot.integration.validator.ValidatorClient;
@@ -71,7 +73,8 @@ public class SignerClient {
                 .map(Optional::of)
                 .onErrorResume(
                         ex -> {
-                            log.warn("signer_identity_unavailable baseUrl={} error={}", props.baseUrl(), ex.toString());
+                            log.warn("signer_identity_unavailable baseUrl={} error={}", props.baseUrl(), ex.toString(),
+                                    LogFields.event("signer_identity"), LogFields.status("unavailable"), ErrorCode.SIGNER_UNAVAILABLE.kv());
                             return Mono.just(Optional.empty());
                         });
     }

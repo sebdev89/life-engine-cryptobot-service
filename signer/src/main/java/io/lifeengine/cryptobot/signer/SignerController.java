@@ -1,5 +1,8 @@
 package io.lifeengine.cryptobot.signer;
 
+import io.lifeengine.cryptobot.signer.observability.ErrorCode;
+import io.lifeengine.cryptobot.signer.observability.LogContext;
+import io.lifeengine.cryptobot.signer.observability.LogFields;
 import io.lifeengine.cryptobot.signer.solana.Base58;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
@@ -52,7 +55,7 @@ public class SignerController {
     @GetMapping("/identity")
     public Mono<ResponseEntity<?>> identity(@RequestHeader(value = TOKEN_HEADER, required = false) String token) {
         if (!authorized(token)) {
-            return Mono.just(ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of("reason", "bad_token")));
+            return Mono.just(badToken("identity"));
         }
         return Mono.just(ResponseEntity.ok(new Identity(keys.publicKey(), props.cluster(), props.maxLamports(), props.allowedDestinations(), props.enabled(),
                 props.requireAttestation(), props.validatorPublicKey())));
@@ -60,29 +63,40 @@ public class SignerController {
 
     @PostMapping(path = "/sign", consumes = "application/json")
     public Mono<ResponseEntity<?>> sign(@RequestHeader(value = TOKEN_HEADER, required = false) String token, @RequestBody SignRequest req) {
+        // KAN-573: el trabajo corre dentro de la cadena reactiva para que proposalId esté en el MDC de
+        // cada línea (LogContext); con Mono.just(...) el log saldría antes de que exista el Context.
+        return Mono.<ResponseEntity<?>>fromCallable(() -> doSign(token, req))
+                .contextWrite(ctx -> LogContext.write(ctx, LogContext.PROPOSAL_ID, req == null ? null : req.proposalId()));
+    }
+
+    private ResponseEntity<?> doSign(String token, SignRequest req) {
         if (!authorized(token)) {
-            return Mono.just(ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of("reason", "bad_token")));
+            return badToken("sign");
         }
         if (req == null || req.unsignedTransactionBase64() == null || req.unsignedTransactionBase64().isBlank()) {
-            return Mono.just(ResponseEntity.badRequest().body(Map.of("reason", "missing_transaction")));
+            log.warn("signer_bad_request reason=missing_transaction", LogFields.event("sign_refused"), LogFields.status(400), ErrorCode.HTTP_400.kv());
+            return ResponseEntity.badRequest().body(Map.of("reason", "missing_transaction"));
         }
         SigningPolicy.Verdict v = policy.evaluate(req.unsignedTransactionBase64(), req.expectedFeePayer(), req.cluster());
         if (!v.allowed()) {
-            log.warn("signer_refused proposalId={} cluster={} reason={}", req.proposalId(), req.cluster(), v.reason());
-            return Mono.just(ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("reason", v.reason())));
+            log.warn("signer_refused proposalId={} cluster={} reason={}", req.proposalId(), req.cluster(), v.reason(),
+                    LogFields.event("sign_refused"), LogFields.status("refused"), ErrorCode.SIGN_REFUSED.kv());
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("reason", v.reason()));
         }
         byte[] message = v.decoded().message();
         // Level 5 (paper §20): the bytes that passed our own limits must also have been attested by
         // the independent validator — for this proposal, these exact bytes, for this cluster, and not as a DENY.
         AttestationVerifier.Verdict a = attestations.verify(req.attestation(), req.proposalId(), message, req.cluster());
         if (!a.ok()) {
-            log.warn("signer_refused proposalId={} reason={}", req.proposalId(), a.reason());
-            return Mono.just(ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("reason", a.reason())));
+            log.warn("signer_refused proposalId={} reason={}", req.proposalId(), a.reason(),
+                    LogFields.event("sign_refused"), LogFields.status("refused"), ErrorCode.ATTESTATION_REFUSED.kv());
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("reason", a.reason()));
         }
         SignResponse signed = sign(message, a.validator(), a.verdictHash());
         log.info("signer_signed proposalId={} lamports={} destination={} signature={} validator={} decision={} verdictHash={}",
-                req.proposalId(), v.lamports(), v.destination(), signed.signature(), a.validator(), a.decision(), a.verdictHash());
-        return Mono.just(ResponseEntity.ok(signed));
+                req.proposalId(), v.lamports(), v.destination(), signed.signature(), a.validator(), a.decision(), a.verdictHash(),
+                LogFields.event("signed"), LogFields.status("signed"));
+        return ResponseEntity.ok(signed);
     }
 
     /**
@@ -94,19 +108,27 @@ public class SignerController {
     @PostMapping(path = "/sign-anchor", consumes = "application/json")
     public Mono<ResponseEntity<?>> signAnchor(@RequestHeader(value = TOKEN_HEADER, required = false) String token, @RequestBody AnchorSignRequest req) {
         if (!authorized(token)) {
-            return Mono.just(ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of("reason", "bad_token")));
+            return Mono.just(badToken("sign-anchor"));
         }
         if (req == null || req.unsignedTransactionBase64() == null || req.unsignedTransactionBase64().isBlank()) {
             return Mono.just(ResponseEntity.badRequest().body(Map.of("reason", "missing_transaction")));
         }
         SigningPolicy.Verdict v = policy.evaluateAnchor(req.unsignedTransactionBase64(), req.expectedFeePayer(), req.root(), req.receiptCount());
         if (!v.allowed()) {
-            log.warn("signer_anchor_refused root={} reason={}", req.root(), v.reason());
+            log.warn("signer_anchor_refused root={} reason={}", req.root(), v.reason(),
+                    LogFields.event("anchor_refused"), LogFields.status("refused"), ErrorCode.ANCHOR_REFUSED.kv());
             return Mono.just(ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("reason", v.reason())));
         }
         SignResponse signed = sign(v.decoded().message(), null, null);
-        log.info("signer_anchor_signed root={} receipts={} signature={}", req.root(), req.receiptCount(), signed.signature());
+        log.info("signer_anchor_signed root={} receipts={} signature={}", req.root(), req.receiptCount(), signed.signature(),
+                LogFields.event("anchor_signed"), LogFields.status("signed"));
         return Mono.just(ResponseEntity.ok(signed));
+    }
+
+    /** 401 con su línea: el token de servicio es la única puerta y un rechazo tiene que verse en Loki (CB-SIGNER-003). */
+    private static ResponseEntity<?> badToken(String operation) {
+        log.warn("signer_bad_token operation={}", operation, LogFields.event("auth_rejected"), LogFields.status(401), ErrorCode.BAD_TOKEN.kv());
+        return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of("reason", "bad_token"));
     }
 
     private SignResponse sign(byte[] message, String validator, String verdictHash) {

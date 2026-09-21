@@ -1,6 +1,9 @@
 package io.lifeengine.cryptobot.security;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.lifeengine.cryptobot.observability.ErrorCode;
+import io.lifeengine.cryptobot.observability.LogContext;
+import io.lifeengine.cryptobot.observability.LogFields;
 import java.util.stream.Collectors;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -63,7 +66,10 @@ public class CryptobotJwtAuthenticationWebFilter implements WebFilter {
                     "cryptobot_jwt rejected path={} method={} reason={}",
                     exchange.getRequest().getPath().value(),
                     exchange.getRequest().getMethod(),
-                    reason);
+                    reason,
+                    LogFields.event("auth_rejected"),
+                    LogFields.status(401),
+                    ErrorCode.AUTH_TOKEN.kv());
             return writeJson(exchange, HttpStatus.UNAUTHORIZED, "unauthorized", "Authentication required");
         }
         CryptobotPrincipal principal = outcome.principal().orElseThrow();
@@ -72,7 +78,13 @@ public class CryptobotJwtAuthenticationWebFilter implements WebFilter {
                         .map(SimpleGrantedAuthority::new)
                         .collect(Collectors.toList());
         var authentication = new UsernamePasswordAuthenticationToken(principal, null, authorities);
+        // KAN-573: el tenant del log es el del token verificado (sub = ownerUserId, lo que Receipts.tenantOf
+        // usa como tenant), nunca un header del cliente. Va al Reactor Context (→ MDC, LogContext) y al
+        // exchange, para los WebExceptionHandler que corren fuera de la cadena.
+        String tenantId = principal.userId() == null ? null : principal.userId().toString();
+        LogContext.attach(exchange, LogContext.TENANT_ID, tenantId);
         return chain.filter(exchange)
+                .contextWrite(ctx -> LogContext.write(ctx, LogContext.TENANT_ID, tenantId))
                 .contextWrite(ReactiveSecurityContextHolder.withAuthentication(authentication));
     }
 

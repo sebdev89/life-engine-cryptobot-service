@@ -447,13 +447,55 @@ mirrors it with an index). KAN-393 makes it queryable and visible:
 | tenancy | every endpoint resolves the owner from the JWT and the tenant from the owner (`tenantId = ownerId`, V4); a receipt or proposal of another owner is a 404. "Public" receipts (§7 *publicado*) do not exist yet: no column, no visibility — when they do, `LineageR2dbcStore` is the only place that admits a public parent. |
 | UI | `cryptobot-ui/src/app/lineage`: layered SVG of the proposal's DAG (parents above children, longest-path layering, one barycenter pass), node = kind · level · short hash · producer · ⚓ when anchored; dashed teal edge = `REUSES`, purple = `VALIDATES`, orange = `EXECUTES`. Click → the stored receipt (parents with roles, inputs, prompt commitment) and a live `POST …/verify`, one line per check. Meter: `provenance_depth` (distribution of the max depth returned). |
 
+## Observability (KAN-573 / KAN-426 — the 7/7)
+
+The three processes log **one JSON line per event** (`LOG_FORMAT=json`, default; `text` for a human console),
+with the platform's common fields — `service`, `env`, `version`, `commitSha`, `traceId`, `spanId`, `requestId`,
+`correlationId`, `tenantId` (the verified `sub` of the token = `Receipts.tenantOf`, never a client header) — plus the
+demo path's own MDC keys, which travel through the Reactor Context (`LogContext`) so no line has to repeat them:
+`proposalId`, `operationId` (the Idempotency-Key, same on retry and requeue), `runtimeRunId`. Business lines carry
+`event`, `status`, `stage` and, on a failure, `errorCode`. Same pattern as ATP/Dev Agent (`logback-spring.xml`,
+`LogContext`, `RequestCorrelationWebFilter`, `BuildIdentityJsonProvider`).
+
+| `errorCode` | Where in the demo | Line |
+|---|---|---|
+| `CB-POLICY-001` | proposal `BLOCKED_BY_POLICY` (allowlist, caps, cooldown, DENY) | `proposal_blocked_by_policy` |
+| `CB-POLICY-002` | `execute` refused: kill switch, timelock, cluster, validator missing, wrong state | `execution_precondition_failed` |
+| `CB-POLICY-003` | mainnet fail-closed (KAN-493) | `execution_mainnet_disabled` |
+| `CB-RISK-001` | projected portfolio HIGH risk | `proposal_risk_high` |
+| `CB-RISK-002` | oracle refused the execution (KAN-572, reserved) | — |
+| `CB-EXEC-001..004` | failed before broadcast: `stage` = preflight / validate / sign; validator or signer unreachable | `proposal_execution_failed`, `*_identity_unavailable` |
+| `CB-EXEC-002` | broadcast **uncertain** (row stays in flight for the reconciler) | `proposal_broadcast_uncertain` |
+| `CB-SOLANA-001` / `-002` | RPC failed / transaction failed on chain | `solana_rpc_failed`, `proposal_execution_failed stage=ONCHAIN` |
+| `CB-RECON-001` / `-002` / `-003` | SUBMITTED-but-never-seen · idempotent retry · row reconciliation failed | `reconciliation_mismatch`, `reconciliation_retry`, `reconciliation_row_failed` |
+| `CB-DLQ-001` / `-002` / `-003` | dead letter created · requeue did not reconcile · outbox event dead | `reconciliation_dead_letter`, `dead_letter_requeue_reconcile_failed`, `outbox_event_dead` |
+| `CB-SIGNER-001..004` · `CB-VALIDATOR-001..003` | signer / validator refusals (own catalogues in `signer/`, `validator/`) | `signer_refused`, `validator_denied` |
+| `CB-AUTH-001`, `CB-HTTP-*`, `CB-INTERNAL-500`, `CB-RUNTIME-001` | edge | `cryptobot_jwt rejected`, `api_error`, `control_plane_upstream_failed` |
+
+```logql
+{service="cryptobot-service"} | json | proposalId="<id>"            # the whole story of one proposal, all three processes share the traceId
+{service="cryptobot-service"} | json | errorCode=~"CB-DLQ-.*"        # what landed in the DLQ and why
+{service=~"cryptobot-(signer|validator)"} | json | proposalId="<id>" # what the authority processes said about it
+```
+
+Traces: Micrometer Tracing (OTel bridge) is always on so every line has `traceId`/`spanId` and `traceparent`
+reaches Runtime, signer and validator; export is **off by default** (`MANAGEMENT_OTLP_TRACING_EXPORT_ENABLED=true`
++ `OTEL_EXPORTER_OTLP_ENDPOINT` to send to a collector). Probes (`/actuator/*`) never produce spans.
+
+Metrics (`/actuator/prometheus`, names in `observability/CryptobotMetrics`, common tags `environment`/`service`/
+`version`/`commit` on the three processes): the funnel `trade_requested_total{result,asset}` → `policy_verdicts_total{decision,escalation}`
+→ `approvals_total{result}` → `validator_attestations_total{result}` → `trade_submitted_total{asset}` →
+`trade_confirmed_total{result,asset}` / `trade_failed_total{stage,asset}` → `cryptobot_reconciliation_total{outcome}`
+→ `cryptobot_dead_letter_total{reason}` and the gauge `cryptobot_dead_letter_open` (alert `CryptoBotDlqNotEmpty: > 0 for 5m`).
+`PrometheusMeterNamesTest` fails the build if a name gets a double suffix or two label sets.
+
 ## Tests
 
 ```bash
-./mvnw test                     # 458 tests (1 skipped: the golden writer): independent validator client + fail-closed execution + timelock/cancel + default-policy parity (KAN-438), adapters (recorded responses), engines, state machine, HTTP flow with fake RPC + Runtime, ARS quotes (fixtures, no network), idempotency + crash/reconciliation + outbox (KAN-403), intent schema + canonicalization vectors (KAN-435), deterministic policy: decision table + golden vectors + 2-implementation agreement (KAN-436), adversarial benchmark 10 000 intents + invariants I1–I7 + chaos (KAN-440), PDA derivation + program client vs SDK vectors (KAN-437), receipt vectors + DAG invariants + verify + the 7-kind DAG over the HTTP flow (KAN-391), risk engine: canonical input/output, action table, tie-breaks, 200-hash golden, L1 re-execution with every reason code (KAN-392), Merkle vectors + memo format + anchoring batch (submit / finalized / re-anchor / abandon / verify) + the anchor flow over HTTP with a signing fake (KAN-394), lineage walks (ancestors/descendants/both, depth cap, tenant boundary, reuse) + REUSES over the HTTP flow (KAN-393)
+./mvnw test                     # 467 tests (1 skipped: the golden writer): JSON log lines + errorCode + MDC over HTTP, Prometheus names/label sets (KAN-573), independent validator client + fail-closed execution + timelock/cancel + default-policy parity (KAN-438), adapters (recorded responses), engines, state machine, HTTP flow with fake RPC + Runtime, ARS quotes (fixtures, no network), idempotency + crash/reconciliation + outbox (KAN-403), intent schema + canonicalization vectors (KAN-435), deterministic policy: decision table + golden vectors + 2-implementation agreement (KAN-436), adversarial benchmark 10 000 intents + invariants I1–I7 + chaos (KAN-440), PDA derivation + program client vs SDK vectors (KAN-437), receipt vectors + DAG invariants + verify + the 7-kind DAG over the HTTP flow (KAN-391), risk engine: canonical input/output, action table, tie-breaks, 200-hash golden, L1 re-execution with every reason code (KAN-392), Merkle vectors + memo format + anchoring batch (submit / finalized / re-anchor / abandon / verify) + the anchor flow over HTTP with a signing fake (KAN-394), lineage walks (ancestors/descendants/both, depth cap, tenant boundary, reuse) + REUSES over the HTTP flow (KAN-393)
 CRYPTOBOT_IT_PG_HOST=127.0.0.1 ./mvnw test -Dtest=ReceiptR2dbcStoreIT,LineageR2dbcStoreIT   # opt-in, real Postgres (dev box :5433, own schema kan391_it): V6/V7 + the WITH RECURSIVE walks
-./mvnw -f signer/pom.xml test   # 21 tests: signing policy (every refusal reason, transfer and anchor memo), token, signature verification, attestation gate (KAN-438)
-./mvnw -f validator/pom.xml test  # 25 tests: independent table vs golden vectors, agreement/disagreement/hash pin, attestation, HTTP (KAN-438)
+./mvnw -f signer/pom.xml test   # 33 tests: JSON log lines (KAN-573), signing policy (every refusal reason, transfer and anchor memo), token, signature verification, attestation gate (KAN-438)
+./mvnw -f validator/pom.xml test  # 28 tests: JSON log lines (KAN-573), independent table vs golden vectors, agreement/disagreement/hash pin, attestation, HTTP (KAN-438)
 (cd programs/intent-authority && cargo test)   # 29 tests: on-chain rules, bank simulator, shared vectors (KAN-437)
 ./mvnw -Pe2e-devnet verify      # E2EDevnetIT (2): the real pipeline against the demo stack + devnet (KAN-570); needs scripts/demo/ up
 cd ../cryptobot-ui && npx ng test   # 24 tests: api helpers, glossary, lineage layout + formatting (KAN-393)

@@ -1,5 +1,7 @@
 package io.lifeengine.cryptobot.integration.validator;
 
+import io.lifeengine.cryptobot.observability.ErrorCode;
+import io.lifeengine.cryptobot.observability.LogFields;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import io.lifeengine.cryptobot.domain.policy.PolicyDecision;
 import io.lifeengine.cryptobot.domain.policy.PolicyInput;
@@ -98,7 +100,8 @@ public class ValidatorClient {
                 .map(Optional::of)
                 .onErrorResume(
                         ex -> {
-                            log.warn("validator_identity_unavailable baseUrl={} error={}", props.baseUrl(), ex.toString());
+                            log.warn("validator_identity_unavailable baseUrl={} error={}", props.baseUrl(), ex.toString(),
+                                    LogFields.event("validator_identity"), LogFields.status("unavailable"), ErrorCode.VALIDATOR_UNAVAILABLE.kv());
                             return Mono.just(Optional.empty());
                         });
     }

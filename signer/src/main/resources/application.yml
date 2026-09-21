@@ -3,6 +3,9 @@ spring:
     name: cryptobot-signer
   main:
     web-application-type: reactive
+  reactor:
+    # KAN-573: el Reactor Context se proyecta al MDC alrededor de cada operador (LogContext).
+    context-propagation: auto
 
 server:
   port: ${SIGNER_PORT:8096}
@@ -35,14 +38,40 @@ signer:
   # (403 mainnet_disabled) unless this is true — independently of cryptobot-service's flag.
   allow-mainnet: ${SIGNER_ALLOW_MAINNET:false}
 
+lifeengine:
+  # Entorno para la identidad del build (logs `env`, common tag `environment`). De APP_ENV, nunca hardcodeado.
+  deployment:
+    env: ${APP_ENV:local}
+  # KAN-573 / KAN-426: `json` (default, lo que lee Promtail/Loki) o `text` (una consola con un humano).
+  logging:
+    format: ${LOG_FORMAT:json}
+
+# KAN-573: identidad del build cuando la imagen no tiene .git (build-args de CI, KAN-579). Nunca un secreto.
+identity:
+  git:
+    commit: ${GIT_COMMIT:}
+    branch: ${GIT_BRANCH:}
+    commit-time: ${GIT_COMMIT_TIME:}
+
 management:
   endpoints:
     web:
       exposure:
-        include: health
+        # prometheus (KAN-573): sólo desde la red interna; el compose/k8s no lo publica.
+        include: health,prometheus
   endpoint:
     health:
       show-details: never
+  # KAN-573: tracer siempre activo (traceId/spanId en cada línea; acepta el traceparent del servicio).
+  # Exportar es por entorno: MANAGEMENT_OTLP_TRACING_EXPORT_ENABLED=true + OTEL_EXPORTER_OTLP_ENDPOINT.
+  tracing:
+    sampling:
+      probability: ${OTEL_TRACES_SAMPLER_PROBABILITY:1.0}
+  otlp:
+    tracing:
+      endpoint: ${OTEL_EXPORTER_OTLP_ENDPOINT:http://localhost:4318/v1/traces}
+      export:
+        enabled: ${MANAGEMENT_OTLP_TRACING_EXPORT_ENABLED:false}
 
 logging:
   level:

@@ -1,8 +1,14 @@
 spring:
   application:
+    # `cryptobot-service` y no `life-engine-cryptobot-service`: es el valor del label `service` de las
+    # métricas que ya consultan los tableros de deploy/observability (service=~"cryptobot|cryptobot-service").
     name: cryptobot-service
   main:
     web-application-type: reactive
+  reactor:
+    # KAN-573: el Reactor Context se proyecta al MDC alrededor de cada operador (LogContext). Sin
+    # esto, traceId/requestId/tenantId/proposalId salen vacíos en cualquier hilo que no sea el del filtro.
+    context-propagation: auto
 
   # R2DBC is the runtime data plane (used by application services & controllers).
   r2dbc:
@@ -322,6 +328,10 @@ lifeengine:
   # never hardcoded per environment (KAN-199 / §2.2).
   deployment:
     env: ${APP_ENV:local}
+  # KAN-573 / KAN-426: `json` (default, lo que lee Promtail/Loki) o `text` (una consola con un humano).
+  # Ver logback-spring.xml.
+  logging:
+    format: ${LOG_FORMAT:json}
   security:
     jwt:
       secret: ${JWT_SECRET:}
@@ -341,6 +351,18 @@ management:
     web:
       exposure:
         include: health, prometheus, metrics, info
+  # KAN-573: el tracer siempre está activo para que cada línea de log lleve traceId/spanId (y para
+  # propagar traceparent hacia Runtime, signer y validator). Exportar a un collector es una decisión
+  # por entorno: MANAGEMENT_OTLP_TRACING_EXPORT_ENABLED=true + OTEL_EXPORTER_OTLP_ENDPOINT. Apagado por
+  # default: sin collector no se intenta nada contra localhost:4318.
+  tracing:
+    sampling:
+      probability: ${OTEL_TRACES_SAMPLER_PROBABILITY:1.0}
+  otlp:
+    tracing:
+      endpoint: ${OTEL_EXPORTER_OTLP_ENDPOINT:http://localhost:4318/v1/traces}
+      export:
+        enabled: ${MANAGEMENT_OTLP_TRACING_EXPORT_ENABLED:false}
   # BuildIdentityConfig owns /actuator/info in the exact shape of LIFE-OPS-02 §2.2. The stock env/git/build
   # contributors are disabled so they cannot pollute or reshape that contract (KAN-199).
   info:
@@ -373,8 +395,8 @@ identity:
     commit-time: ${GIT_COMMIT_TIME:}
 
 logging:
-  pattern:
-    console: "%d{yyyy-MM-dd HH:mm:ss.SSS} %5p marketReviewId=%X{marketReviewId:-} runtimeRunId=%X{runtimeRunId:-} [%t] %logger{36} - %msg%n"
+  # KAN-573: el formato lo decide logback-spring.xml (json | text); el pattern plano con
+  # marketReviewId/runtimeRunId que había acá nunca se llenaba (nadie escribía ese MDC).
   level:
     root: INFO
     io.lifeengine.cryptobot: INFO
