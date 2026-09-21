@@ -18,6 +18,7 @@ import io.lifeengine.cryptobot.domain.wallet.Wallet;
 import io.lifeengine.cryptobot.integration.signer.SignerClient;
 import io.lifeengine.cryptobot.integration.validator.ValidatorClient;
 import io.lifeengine.cryptobot.observability.CryptobotMetrics;
+import io.micrometer.core.instrument.Timer;
 import io.lifeengine.cryptobot.observability.ErrorCode;
 import io.lifeengine.cryptobot.observability.LogContext;
 import io.lifeengine.cryptobot.observability.LogFields;
@@ -141,12 +142,20 @@ public class ExecutionService {
                 return suppressDuplicate(p, actor);
             }
             if (p.status().inFlight()) {
+                metrics.executionRefused(CryptobotMetrics.RefusalReason.STATE);
                 return Mono.error(new ControlPlaneExceptions.Conflict("Proposal is " + p.status() + " under operation " + p.operationId()
                         + "; retry with the same operationId or wait for the result"));
             }
-            List<String> problems = policy.executionPreconditions(p);
-            if (!problems.isEmpty()) {
-                log.warn("execution_precondition_failed proposalId={} problems={}", p.id(), problems,
+            // KAN-582: the policy stage — preconditions plus the fresh oracle reading — has its own histogram,
+            // and a 409 here is counted by its most specific reason (cryptobot_execution_refused_total{reason}).
+            Timer.Sample policyStage = metrics.stageStart();
+            List<PolicyEngine.Refusal> refusals = policy.executionRefusals(p);
+            if (!refusals.isEmpty()) {
+                List<String> problems = refusals.stream().map(PolicyEngine.Refusal::message).toList();
+                CryptobotMetrics.RefusalReason reason = PolicyEngine.primaryRefusal(refusals);
+                metrics.executionRefused(reason);
+                metrics.stageStop(CryptobotMetrics.Stage.POLICY, policyStage);
+                log.warn("execution_precondition_failed proposalId={} reason={} problems={}", p.id(), reason.label(), problems,
                         LogFields.event("execution_refused"), LogFields.status("refused"), ErrorCode.EXECUTION_PRECONDITION.kv());
                 return Mono.error(new ControlPlaneExceptions.Conflict(String.join("; ", problems)));
             }
@@ -154,8 +163,10 @@ public class ExecutionService {
             // before anything is signed — quorum, deviation, the breaker, and the plan's price vs. the world now.
             return oracle.read(ProposalService.assetsOf(p.plan())).flatMap(reading -> {
                 List<String> oracleProblems = policy.priceViolations(p, reading).stream().map(v -> v.rule() + ": " + v.message()).toList();
+                metrics.stageStop(CryptobotMetrics.Stage.POLICY, policyStage);
                 if (!oracleProblems.isEmpty()) {
                     metrics.oracleExecutionRefused();
+                    metrics.executionRefused(CryptobotMetrics.RefusalReason.ORACLE);
                     log.warn("execution_oracle_refused proposalId={} problems={} quotesHash={}", p.id(), oracleProblems, reading.quotesHash(),
                             LogFields.event("execution_refused"), LogFields.status("refused"), ErrorCode.ORACLE_REFUSED.kv());
                     return Mono.error(new ControlPlaneExceptions.Conflict("Oracle refused execution: " + String.join("; ", oracleProblems)));
@@ -181,15 +192,18 @@ public class ExecutionService {
         try {
             proposalCluster = SolanaCluster.parse(p.cluster());
         } catch (IllegalArgumentException unknown) {
+            metrics.executionRefused(CryptobotMetrics.RefusalReason.STATE);
             return Mono.error(new ControlPlaneExceptions.Conflict("Proposal " + p.id() + " is on an unknown cluster: " + p.cluster()));
         }
         SolanaCluster refused = !execution.permits(wallet.cluster()) ? wallet.cluster() : !execution.permits(proposalCluster) ? proposalCluster : null;
         if (refused != null) {
+            metrics.executionRefused(CryptobotMetrics.RefusalReason.MAINNET);
             log.warn("execution_mainnet_disabled proposalId={} walletCluster={} proposalCluster={}", p.id(), wallet.cluster().id(), p.cluster(),
                     LogFields.event("execution_refused"), LogFields.status("refused"), ErrorCode.MAINNET_DISABLED.kv());
             return Mono.error(new MainnetDisabledException("execute", refused));
         }
         if (proposalCluster != wallet.cluster()) {
+            metrics.executionRefused(CryptobotMetrics.RefusalReason.STATE);
             return Mono.error(new ControlPlaneExceptions.Conflict("Proposal " + p.id() + " was prepared for " + p.cluster() + "; the wallet is on " + wallet.cluster().id()));
         }
         return Mono.just(wallet);
@@ -256,27 +270,28 @@ public class ExecutionService {
         // ("dónde se cae"), not just as "failed".
         AtomicReference<CryptobotMetrics.FailureStage> stage = new AtomicReference<>(CryptobotMetrics.FailureStage.PREFLIGHT);
         // 1. Fresh blockhash: the one from approval time is almost certainly expired.
-        return simulation.prepareTransfer(wallet, lamports)
+        //    KAN-582: each stage runs under its own histogram (cryptobot_stage_latency_seconds{stage}).
+        return timed(CryptobotMetrics.Stage.SIMULATE, () -> simulation.prepareTransfer(wallet, lamports)
                 // 2. Re-simulate the exact bytes that will be signed.
                 .flatMap(tx -> rpc.simulateTransaction(wallet.cluster(), tx.unsignedTransactionBase64(), false)
                         .flatMap(sim -> sim.ok() ? Mono.just(tx)
-                                : Mono.error(new ControlPlaneExceptions.Conflict("Pre-flight simulation failed: " + sim.error()))))
+                                : Mono.error(new ControlPlaneExceptions.Conflict("Pre-flight simulation failed: " + sim.error())))))
                 // 3. Independent validation (KAN-438, paper §20): a separate process re-derives the verdict
                 //    over the recorded (I, S) under its own pinned H_R and attests THESE bytes. Disagreement,
                 //    DENY, or no answer ⇒ nothing is signed.
                 .doOnNext(tx -> stage.set(CryptobotMetrics.FailureStage.VALIDATE))
-                .flatMap(tx -> validator.authorize(executing, tx)
+                .flatMap(tx -> timed(CryptobotMetrics.Stage.VALIDATE, () -> validator.authorize(executing, tx)
                         .doOnNext(att -> {
                             metrics.validatorAttestation("issued");
                             log.info("execution_validated proposalId={} validator={} decision={} verdictHash={} expiresAt={}",
                                     executing.id(), att.attestation().validator(), att.decision(), att.verdictHash(), att.expires());
                         })
                         .doOnError(ValidatorClient.ValidatorRefused.class, ex -> metrics.validatorAttestation("refused"))
-                        .map(att -> new Attested(tx, att)))
+                        .map(att -> new Attested(tx, att))))
                 // 4. Sign in the isolated signer (which checks the attestation itself), then verify the signature ourselves.
                 .doOnNext(a -> stage.set(CryptobotMetrics.FailureStage.SIGN))
-                .flatMap(a -> signer.sign(executing.id(), a.tx().unsignedTransactionBase64(), wallet.address(), wallet.cluster(), a.attestation().attestation())
-                        .map(resp -> verifySigned(a.tx(), resp, wallet, a.attestation())))
+                .flatMap(a -> timed(CryptobotMetrics.Stage.SIGN, () -> signer.sign(executing.id(), a.tx().unsignedTransactionBase64(), wallet.address(), wallet.cluster(), a.attestation().attestation())
+                        .map(resp -> verifySigned(a.tx(), resp, wallet, a.attestation()))))
                 // 5. Persist the signature BEFORE broadcasting: from here on a crash is reconcilable.
                 .flatMap(signed -> persistSigned(executing, signed, wallet, actor, retry).map(s -> new Step(s, signed)))
                 // Anything up to here failed before the chain could have seen the transaction: safe to FAILED.
@@ -336,7 +351,7 @@ public class ExecutionService {
 
     private Mono<ActionProposal> broadcast(ActionProposal signedP, Signed signed, Wallet wallet, String actor, String asset) {
         long lamports = signedP.transaction().lamports();
-        return rpc.sendTransaction(wallet.cluster(), signed.signedBase64())
+        return timed(CryptobotMetrics.Stage.SUBMIT, () -> rpc.sendTransaction(wallet.cluster(), signed.signedBase64())
                 .flatMap(sig -> {
                     if (!sig.equals(signed.signature())) {
                         log.warn("execution_signature_mismatch proposalId={} expected={} returned={}", signedP.id(), signed.signature(), sig);
@@ -350,8 +365,8 @@ public class ExecutionService {
                                     ProposalService.payload("signature", sig, "lamports", lamports, "signer", signed.signer(), "blockhash", signed.tx().recentBlockhash())))
                             .publish(ProposalService.tradeEvent(next, TradeEvents.SUBMITTED, submitted,
                                     ProposalService.payload("signature", sig, "explorerUrl", next.execution().explorerUrl(), "lamports", lamports))));
-                })
-                .flatMap(s -> confirm(wallet.cluster(), s.execution().signature())
+                }))
+                .flatMap(s -> timed(CryptobotMetrics.Stage.CONFIRM, () -> confirm(wallet.cluster(), s.execution().signature()))
                         .doOnNext(status -> metrics.solanaConfirmationLatency(
                                 Duration.between(s.execution().submittedAt(), clock.instant()), confirmationResult(status), wallet.cluster().id()))
                         .flatMap(status -> finish(s, status, actor, asset))
@@ -484,6 +499,14 @@ public class ExecutionService {
             case ONCHAIN -> ErrorCode.SOLANA_TX_FAILED;
             default -> ErrorCode.EXECUTION_FAILED;
         };
+    }
+
+    /** KAN-582: runs {@code step} under the stage's histogram; recorded on success, error and cancel alike. */
+    private <T> Mono<T> timed(CryptobotMetrics.Stage stage, java.util.function.Supplier<Mono<T>> step) {
+        return Mono.defer(() -> {
+            Timer.Sample sample = metrics.stageStart();
+            return step.get().doFinally(signal -> metrics.stageStop(stage, sample));
+        });
     }
 
     private static final class Pending extends RuntimeException {

@@ -137,7 +137,12 @@ public class ReconciliationService {
 
     public Mono<Result> reconcile(ActionProposal p) {
         // KAN-573: el barrido corre sin request; proposalId/operationId entran al MDC por fila (LogContext).
-        return reconcile(p, false).doOnNext(r -> metrics.reconciliation(r.name()))
+        // KAN-582: una fila = una muestra del histograma de la etapa reconcile (cryptobot_stage_latency_seconds{stage="reconcile"}).
+        return Mono.defer(() -> {
+                    io.micrometer.core.instrument.Timer.Sample sample = metrics.stageStart();
+                    return reconcile(p, false).doOnNext(r -> metrics.reconciliation(r.name()))
+                            .doFinally(signal -> metrics.stageStop(CryptobotMetrics.Stage.RECONCILE, sample));
+                })
                 .contextWrite(ctx -> LogContext.proposal(ctx, p.id(), p.operationId()));
     }
 

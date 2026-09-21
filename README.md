@@ -489,6 +489,25 @@ Metrics (`/actuator/prometheus`, names in `observability/CryptobotMetrics`, comm
 → `cryptobot_dead_letter_total{reason}` and the gauge `cryptobot_dead_letter_open` (alert `CryptoBotDlqNotEmpty: > 0 for 5m`).
 `PrometheusMeterNamesTest` fails the build if a name gets a double suffix or two label sets.
 
+**Fine-grained (KAN-582, HK-5b).** A `409` of `POST /execute` is no longer an anonymous HTTP status: the service
+counts it under its most specific reason, and the two authority processes publish what *they* decided instead of
+the dashboard deriving it.
+
+| Series | Process | Labels | What it says |
+|---|---|---|---|
+| `cryptobot_execution_refused_total` | service | `reason` = `mainnet` · `timelock` · `cooldown` · `policy` · `oracle` · `state` | why `/execute` was refused before any state change (`PolicyEngine.executionRefusals`; several failed ⇒ the first in that order; `cooldown` = the proposal the `COOLDOWN` rule blocked at evaluation) |
+| `cryptobot_stage_latency_seconds` | service | `stage` = `simulate` · `policy` · `validate` · `sign` · `submit` · `confirm` · `reconcile` | histogram (`_bucket{le}` / `_sum` / `_count`) per stage of the demo path, with buckets sized to the stage (`CryptobotMetrics.Stage`): a failed or cancelled stage is a sample too |
+| `signer_signatures_total` | signer | `outcome` = `signed` · `refused`; `rule` = `none` or the refusal reason (`amount_over_cap`, `mainnet_disabled`, `attestation_missing`, … — `SignerMetrics.KNOWN_RULES`, else `other`); `kind` = `transfer` · `anchor` | what the isolated signer signed and refused; a `401` is not a signing decision and does not count |
+| `signer_sign_latency_seconds` | signer | `kind` | histogram: policy check + attestation check + Ed25519 |
+| `validator_attestations_total` | validator | `outcome` = `issued` (ALLOW/ESCALATE) · `denied` · `malformed`; `rule` = `none`, the validator's own refusal (`policy_hash_mismatch`, `validator_disabled`, `verdict_disagreement`), the first failed predicate of `R_v` (lowercased), or the malformed reason | what the independent validator decided; distinct from the service's `validator_attestations_total{result}` by the `service` common tag |
+| `validator_predicate_failed_total` | validator | `predicate` | one per failed predicate of a DENY |
+| `validator_validate_latency_seconds` | validator | — | histogram: re-derive the verdict + sign the attestation |
+
+Every label value is from a closed list and every series exists at 0 from boot, so a panel reads a measured zero, not
+"No data". The dashboard side (`deploy/observability/grafana/dashboards/life-engine-cryptobot-demo.json`: "Mainnet
+bloqueado · 409" → `cryptobot_execution_refused_total{reason="mainnet"}`, "Firmados" → `signer_signatures_total{outcome="signed",kind="transfer"}`,
+latency row → `histogram_quantile` over `cryptobot_stage_latency_seconds_bucket`) lives in the deploy repo.
+
 ## Tests
 
 ```bash

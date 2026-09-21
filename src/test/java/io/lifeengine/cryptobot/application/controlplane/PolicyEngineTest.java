@@ -371,6 +371,50 @@ class PolicyEngineTest {
         assertThat(engine.executionPreconditions(legacy)).singleElement().asString().contains("1200s remaining");
     }
 
+    // ---- KAN-582: each failed precondition carries the bounded reason the 409 is counted under ----
+
+    @Test
+    void executionRefusalsCarryTheReasonAndThePrimaryOneIsTheMostSpecific() {
+        Wallet w = Fixtures.wallet(SolanaCluster.DEVNET);
+        TimelockProperties locks = new TimelockProperties(Duration.ZERO, Duration.ofMinutes(30), Duration.ofMinutes(30));
+        PolicyEngine engine = new PolicyEngine(defaults(), authorization(), locks, Clock.fixed(NOW, ZoneOffset.UTC));
+        ActionProposal p = proposal(w, new BigDecimal("50"), true, true);
+        PolicyDecision decided = engine.evaluate(p, w, fresh(), signer(w.address()));
+
+        // Not yet approved: state, twice (status + no approval record); the messages are the old ones.
+        List<PolicyEngine.Refusal> notApproved = engine.executionRefusals(p.withPolicy(decided, NOW));
+        assertThat(notApproved).extracting(PolicyEngine.Refusal::reason).containsOnly(io.lifeengine.cryptobot.observability.CryptobotMetrics.RefusalReason.STATE);
+        assertThat(engine.executionPreconditions(p.withPolicy(decided, NOW))).containsExactlyElementsOf(notApproved.stream().map(PolicyEngine.Refusal::message).toList());
+        assertThat(PolicyEngine.primaryRefusal(notApproved)).isEqualTo(io.lifeengine.cryptobot.observability.CryptobotMetrics.RefusalReason.STATE);
+
+        // Approved inside the timelock: timelock.
+        ActionProposal approved = p.withPolicy(decided, NOW).withStatus(ProposalStatus.AWAITING_APPROVAL, NOW)
+                .withApproval(new ApprovalRecord(ApprovalRecord.Decision.APPROVED, "op", NOW, null, engine.executableAt(NOW, decided)), NOW)
+                .withStatus(ProposalStatus.APPROVED, NOW).withExpiresAt(NOW.plus(Duration.ofHours(2)), NOW);
+        List<PolicyEngine.Refusal> locked = engine.executionRefusals(approved);
+        assertThat(locked).singleElement().extracting(PolicyEngine.Refusal::reason).isEqualTo(io.lifeengine.cryptobot.observability.CryptobotMetrics.RefusalReason.TIMELOCK);
+
+        // Kill switch on top of the timelock: both reasons are reported; the primary follows the enum order
+        // (mainnet > timelock > cooldown > policy > oracle > state), so timelock wins.
+        PolicyProperties stopped = new PolicyProperties(false, "devnet", new BigDecimal("500"), new BigDecimal("50"), List.of("SOL", "USDC"),
+                Duration.ofSeconds(60), "", 10_000_000_000L, Duration.ofMinutes(30));
+        PolicyEngine halted = new PolicyEngine(stopped, authorization(), locks, Clock.fixed(NOW, ZoneOffset.UTC));
+        List<PolicyEngine.Refusal> both = halted.executionRefusals(approved);
+        assertThat(both).extracting(PolicyEngine.Refusal::reason).contains(
+                io.lifeengine.cryptobot.observability.CryptobotMetrics.RefusalReason.POLICY,
+                io.lifeengine.cryptobot.observability.CryptobotMetrics.RefusalReason.TIMELOCK);
+        assertThat(PolicyEngine.primaryRefusal(both)).isEqualTo(io.lifeengine.cryptobot.observability.CryptobotMetrics.RefusalReason.TIMELOCK);
+
+        // A proposal the cooldown rule blocked at evaluation time: cooldown, not policy, and it beats state.
+        PolicyDecision cooled = new PolicyDecision(false, false,
+                List.of(new PolicyDecision.Violation(PolicyEngine.RULE_COOLDOWN, "This wallet executed a trade 5s ago; cooldown is 60s")),
+                List.of(), decided.rulesApplied(), NOW, decided.authorization(), decided.input(), decided.oracle());
+        List<PolicyEngine.Refusal> cooldown = engine.executionRefusals(p.withPolicy(cooled, NOW).withStatus(ProposalStatus.BLOCKED_BY_POLICY, NOW));
+        assertThat(cooldown).extracting(PolicyEngine.Refusal::reason).contains(io.lifeengine.cryptobot.observability.CryptobotMetrics.RefusalReason.COOLDOWN);
+        assertThat(PolicyEngine.primaryRefusal(cooldown)).isEqualTo(io.lifeengine.cryptobot.observability.CryptobotMetrics.RefusalReason.COOLDOWN);
+        assertThat(PolicyEngine.primaryRefusal(List.of())).isEqualTo(io.lifeengine.cryptobot.observability.CryptobotMetrics.RefusalReason.STATE);
+    }
+
     // ---- KAN-439: CorrectRules + CorruptState ⇏ SafeExecution (paper §22) --------------------------
 
     @Test

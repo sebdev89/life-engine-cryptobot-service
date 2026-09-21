@@ -53,7 +53,12 @@ class PrometheusMeterNamesTest {
             "cryptobot_dead_letter_open",
             "dlq_size",
             "reconciliation_mismatch_total",
-            "duplicate_trade_suppressed_total");
+            "duplicate_trade_suppressed_total",
+            // KAN-582: the 409 by reason and the per-stage histograms
+            "cryptobot_execution_refused_total",
+            "cryptobot_stage_latency_seconds_bucket",
+            "cryptobot_stage_latency_seconds_count",
+            "cryptobot_stage_latency_seconds_sum");
 
     @Autowired private WebTestClient webTestClient;
     @Autowired private CryptobotMetrics metrics;
@@ -98,6 +103,50 @@ class PrometheusMeterNamesTest {
         assertThat(scrape.lines().filter(l -> l.startsWith("cryptobot_dead_letter_open{")).findFirst().orElseThrow())
                 .as("la alerta CryptoBotDlqNotEmpty lee este gauge")
                 .endsWith("1.0");
+    }
+
+    @Test
+    @DisplayName("KAN-582: cada reason del 409 existe en 0 y cada etapa del demo path expone un histograma con sus buckets")
+    void refusalReasonsAndStageHistogramsAreScraped() {
+        metrics.executionRefused(CryptobotMetrics.RefusalReason.MAINNET);
+        metrics.stageLatency(CryptobotMetrics.Stage.CONFIRM, java.time.Duration.ofSeconds(12));
+
+        String scrape = webTestClient.get().uri("/actuator/prometheus").exchange().expectStatus().isOk()
+                .expectBody(String.class).returnResult().getResponseBody();
+        assertThat(scrape).isNotNull();
+
+        for (CryptobotMetrics.RefusalReason r : CryptobotMetrics.RefusalReason.values()) {
+            assertThat(scrape.lines().filter(l -> l.startsWith("cryptobot_execution_refused_total{") && l.contains("reason=\"" + r.label() + "\"")).findFirst())
+                    .as("cryptobot_execution_refused_total{reason=%s} existe desde el arranque", r.label())
+                    .isPresent();
+        }
+        assertThat(value(scrape.lines().filter(l -> l.startsWith("cryptobot_execution_refused_total{") && l.contains("reason=\"mainnet\"")).findFirst().orElseThrow()))
+                .isEqualTo(1.0);
+
+        for (CryptobotMetrics.Stage s : CryptobotMetrics.Stage.values()) {
+            List<String> buckets = scrape.lines()
+                    .filter(l -> l.startsWith("cryptobot_stage_latency_seconds_bucket{") && l.contains("stage=\"" + s.label() + "\""))
+                    .toList();
+            // one line per explicit bucket + the +Inf one
+            assertThat(buckets).as("buckets de la etapa %s", s.label()).hasSize(s.buckets().length + 1);
+            assertThat(buckets).anyMatch(l -> l.contains("le=\"+Inf\""));
+        }
+        // 12 s in confirm: inside the 15 s bucket, outside the 10 s one.
+        assertThat(value(bucket(scrape, "confirm", "15"))).isEqualTo(1.0);
+        assertThat(value(bucket(scrape, "confirm", "10"))).isEqualTo(0.0);
+    }
+
+    private static String bucket(String scrape, String stage, String le) {
+        // Prometheus sorts labels alphabetically (le before stage): match each independently.
+        Pattern lePattern = Pattern.compile("le=\"" + le + "(\\.0)?\"");
+        return scrape.lines()
+                .filter(l -> l.startsWith("cryptobot_stage_latency_seconds_bucket{") && l.contains("stage=\"" + stage + "\"") && lePattern.matcher(l).find())
+                .findFirst().orElseThrow(() -> new AssertionError("sin bucket le=" + le + " para " + stage));
+    }
+
+    private static double value(String sample) {
+        String[] parts = sample.trim().split("\\s+");
+        return Double.parseDouble(parts[1]);
     }
 
     @Test

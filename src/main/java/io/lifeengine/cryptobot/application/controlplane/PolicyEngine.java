@@ -19,6 +19,7 @@ import io.lifeengine.cryptobot.domain.transactions.ProposalStatus;
 import io.lifeengine.cryptobot.domain.wallet.Wallet;
 import io.lifeengine.cryptobot.integration.signer.SignerClient;
 import io.lifeengine.cryptobot.integration.validator.ValidatorClient;
+import io.lifeengine.cryptobot.observability.CryptobotMetrics;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.Clock;
@@ -501,46 +502,73 @@ public class PolicyEngine {
         return oldest.isAfter(now) ? 0L : Duration.between(oldest, now).getSeconds();
     }
 
-    /** Re-checked at execution time — the world may have changed since approval. */
+    /**
+     * KAN-582: one failed execution precondition with the bounded reason the 409 is counted under
+     * ({@code cryptobot_execution_refused_total{reason}}). The message is what the caller reads.
+     */
+    public record Refusal(CryptobotMetrics.RefusalReason reason, String message) {}
+
+    /** Re-checked at execution time — the world may have changed since approval. Messages only; see {@link #executionRefusals}. */
     public List<String> executionPreconditions(ActionProposal proposal) {
-        List<String> problems = new ArrayList<>();
+        return executionRefusals(proposal).stream().map(Refusal::message).toList();
+    }
+
+    /**
+     * Re-checked at execution time, with the reason of each failure. Empty ⇒ the proposal may go
+     * to the chain. The most specific reason is the one the metric counts:
+     * {@link #primaryRefusal(List)}.
+     */
+    public List<Refusal> executionRefusals(ActionProposal proposal) {
+        List<Refusal> problems = new ArrayList<>();
         if (proposal.status() != ProposalStatus.APPROVED) {
-            problems.add("Proposal is " + proposal.status() + ", not APPROVED");
+            problems.add(new Refusal(CryptobotMetrics.RefusalReason.STATE, "Proposal is " + proposal.status() + ", not APPROVED"));
         }
         if (!props.executionEnabled()) {
-            problems.add("Emergency stop is active");
+            problems.add(new Refusal(CryptobotMetrics.RefusalReason.POLICY, "Emergency stop is active"));
         }
         if (proposal.policy() == null || !proposal.policy().executable()) {
-            problems.add("Policy marked this proposal as not executable");
+            // A proposal the cooldown rule blocked is "policy" to the caller; to the dashboard it is
+            // the cooldown, which is the one label the issue asks for by name.
+            boolean cooldown = proposal.policy() != null && proposal.policy().violations() != null
+                    && proposal.policy().violations().stream().anyMatch(v -> RULE_COOLDOWN.equals(v.rule()));
+            problems.add(new Refusal(cooldown ? CryptobotMetrics.RefusalReason.COOLDOWN : CryptobotMetrics.RefusalReason.POLICY,
+                    "Policy marked this proposal as not executable"));
         }
         PolicyVerdict verdict = proposal.policy() == null ? null : proposal.policy().authorization();
         if (verdict == null) {
-            problems.add("No policy verdict on this proposal (evaluated before KAN-436): re-create it");
+            problems.add(new Refusal(CryptobotMetrics.RefusalReason.POLICY, "No policy verdict on this proposal (evaluated before KAN-436): re-create it"));
         } else if (verdict.denied()) {
-            problems.add("Policy verdict is DENY: " + verdict.failedPredicates());
+            problems.add(new Refusal(CryptobotMetrics.RefusalReason.POLICY, "Policy verdict is DENY: " + verdict.failedPredicates()));
         } else if (!rules.hash().equals(verdict.policyHash())) {
             // Policy-binding invariant (paper §23): what was approved under R_v does not execute under R_w.
-            problems.add("Policy changed since evaluation (" + verdict.policyHash() + " → " + rules.hash() + "): re-create the proposal");
+            problems.add(new Refusal(CryptobotMetrics.RefusalReason.POLICY,
+                    "Policy changed since evaluation (" + verdict.policyHash() + " → " + rules.hash() + "): re-create the proposal"));
         } else if (proposal.policy().input() == null) {
-            problems.add("No recorded (I, S) on this proposal (evaluated before KAN-438): the validator cannot re-derive it; re-create it");
+            problems.add(new Refusal(CryptobotMetrics.RefusalReason.POLICY,
+                    "No recorded (I, S) on this proposal (evaluated before KAN-438): the validator cannot re-derive it; re-create it"));
         }
         if (proposal.policy() != null && proposal.policy().oracle() == null) {
-            problems.add("No oracle reading on this proposal (evaluated before KAN-439): re-create it");
+            problems.add(new Refusal(CryptobotMetrics.RefusalReason.POLICY, "No oracle reading on this proposal (evaluated before KAN-439): re-create it"));
         }
         if (proposal.approval() == null || proposal.approval().decision() != ApprovalRecord.Decision.APPROVED) {
-            problems.add("No approval record");
+            problems.add(new Refusal(CryptobotMetrics.RefusalReason.STATE, "No approval record"));
         } else {
             Instant executableAt = executableAt(proposal);
             Instant now = clock.instant();
             if (executableAt != null && now.isBefore(executableAt)) {
-                problems.add("Timelock: executable at " + executableAt + " (" + Duration.between(now, executableAt).toSeconds()
-                        + "s remaining); cancel it or wait");
+                problems.add(new Refusal(CryptobotMetrics.RefusalReason.TIMELOCK, "Timelock: executable at " + executableAt + " ("
+                        + Duration.between(now, executableAt).toSeconds() + "s remaining); cancel it or wait"));
             }
         }
         if (proposal.expiresAt() != null && clock.instant().isAfter(proposal.expiresAt())) {
-            problems.add("Proposal expired at " + proposal.expiresAt());
+            problems.add(new Refusal(CryptobotMetrics.RefusalReason.STATE, "Proposal expired at " + proposal.expiresAt()));
         }
         return problems;
+    }
+
+    /** The reason the metric counts when several preconditions failed: the first by {@link CryptobotMetrics.RefusalReason} order. */
+    public static CryptobotMetrics.RefusalReason primaryRefusal(List<Refusal> refusals) {
+        return refusals.stream().map(Refusal::reason).min(Comparator.naturalOrder()).orElse(CryptobotMetrics.RefusalReason.STATE);
     }
 
     private boolean allowed(String symbol) {

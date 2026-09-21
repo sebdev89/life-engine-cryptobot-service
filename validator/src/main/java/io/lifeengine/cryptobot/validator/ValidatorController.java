@@ -3,6 +3,8 @@ package io.lifeengine.cryptobot.validator;
 import io.lifeengine.cryptobot.validator.observability.ErrorCode;
 import io.lifeengine.cryptobot.validator.observability.LogContext;
 import io.lifeengine.cryptobot.validator.observability.LogFields;
+import io.lifeengine.cryptobot.validator.observability.ValidatorMetrics;
+import io.micrometer.core.instrument.Timer;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.util.Map;
@@ -31,12 +33,15 @@ public class ValidatorController {
     private final PolicyStore policy;
     private final AttestationKeyStore keys;
     private final ValidationService validation;
+    private final ValidatorMetrics metrics;
 
-    public ValidatorController(ValidatorProperties props, PolicyStore policy, AttestationKeyStore keys, ValidationService validation) {
+    public ValidatorController(ValidatorProperties props, PolicyStore policy, AttestationKeyStore keys, ValidationService validation,
+            ValidatorMetrics metrics) {
         this.props = props;
         this.policy = policy;
         this.keys = keys;
         this.validation = validation;
+        this.metrics = metrics == null ? ValidatorMetrics.noop() : metrics;
     }
 
     @GetMapping("/identity")
@@ -60,8 +65,11 @@ public class ValidatorController {
         if (!authorized(token)) {
             return badToken("validate");
         }
+        // KAN-582: the validator's own series — issued vs denied, by the rule that decided — and the time it took.
+        Timer.Sample sample = metrics.start();
         try {
             ValidationService.Response response = validation.validate(req);
+            metrics.attested(response.decision(), response.refusals(), response.failedPredicates());
             if (!"ALLOW".equals(response.decision()) && !"ESCALATE".equals(response.decision())) {
                 log.warn("validator_denied proposalId={} decision={} refusals={} failed={}", req.proposalId(), response.decision(),
                         response.refusals(), response.failedPredicates(),
@@ -69,8 +77,11 @@ public class ValidatorController {
             }
             return ResponseEntity.ok(response);
         } catch (ValidationService.MalformedRequest e) {
+            metrics.malformed(e.getMessage());
             log.warn("validator_malformed reason={}", e.getMessage(), LogFields.event("validation_refused"), LogFields.status(400), ErrorCode.MALFORMED.kv());
             return ResponseEntity.badRequest().body(Map.of("reason", e.getMessage()));
+        } finally {
+            metrics.stop(sample);
         }
     }
 
