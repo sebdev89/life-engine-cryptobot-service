@@ -14,6 +14,8 @@
         <java.version>21</java.version>
         <spring.boot.version>3.4.2</spring.boot.version>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <!-- KAN-604: pinned to the same line life-engine-auth already uses (no BOM import, just the two artifacts). -->
+        <testcontainers.version>1.21.4</testcontainers.version>
     </properties>
 
     <dependencyManagement>
@@ -131,6 +133,40 @@
             <groupId>com.squareup.okhttp3</groupId>
             <artifactId>mockwebserver</artifactId>
             <version>4.12.0</version>
+            <scope>test</scope>
+        </dependency>
+        <!--
+          KAN-604 — Testcontainers Postgres for the R2DBC stores the in-memory replica cannot prove
+          (optimistic lock, unique operation_id, FOR UPDATE SKIP LOCKED): *IT classes under
+          infrastructure/persistence/controlplane, run explicitly (-Dtest=…IT), never by plain
+          `mvnw test` (Surefire's default include patterns do not match *IT). Needs Docker; the
+          le-ci runner has it (KAN-296: contention between parallel Testcontainers jobs shows up as
+          "bind: address already in use" — retry, it is not a code regression).
+        -->
+        <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>postgresql</artifactId>
+            <version>${testcontainers.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <version>${testcontainers.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <!--
+          Without this, spring-boot-dependencies' own dependencyManagement (3.4.2 pins testcontainers
+          to 1.20.4) wins for the *transitive* `org.testcontainers:testcontainers` core artifact even
+          though `postgresql`/`junit-jupiter` above are pinned to 1.21.4 — a mixed 1.20.4/1.21.4
+          graph whose docker-java client mis-negotiates the daemon's API version ("client version
+          1.32 is too old"; verified locally against Docker Engine 29.7.2, API 1.55). Pinning the
+          core artifact explicitly keeps the whole Testcontainers graph on one version.
+        -->
+        <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>testcontainers</artifactId>
+            <version>${testcontainers.version}</version>
             <scope>test</scope>
         </dependency>
     </dependencies>
