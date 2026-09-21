@@ -1,5 +1,40 @@
 # CryptoBot demo — the real pipeline on Solana devnet (KAN-570)
 
+## One command, from zero, with a report (KAN-575 / HK-7)
+
+```bash
+scripts/demo/run.sh                 # keys (once) → stack up → 4 acts → out/demo-report-<ts>.md → stack stopped
+scripts/demo/run.sh --rpc local     # force the local solana-test-validator (unlimited airdrop, no explorer links)
+scripts/demo/run.sh --target uat    # the same acts against a deployed service (.env.demo-uat, see the example)
+scripts/demo/run.sh --dry-run       # print the plan, touch nothing
+```
+
+On a machine with Docker, curl, python3 and git that is all: `run.sh` generates the keys and
+`.env.demo` if they are missing, picks devnet when the wallet holds ≥ 0.6 SOL there (otherwise the
+local validator, and says so), builds and starts the stack, and runs the story in four acts —
+each step printed with its evidence as it happens, each act timed:
+
+| act | what happens | who runs it |
+|---|---|---|
+| 1 execute | request → plan → simulation → 13 rules + `R_v` + validator → 409 before approval → approval → timelock → execute (`Idempotency-Key`) → validator attests → signer signs → Solana → `SUBMITTED` → confirmed on chain → `EXECUTED` → replay = same tx → outbox → `EXECUTION` receipt verified → a mainnet intent → 409 | `e2e-devnet.sh` |
+| 2 risk | an adversarial intent (dump 95 % of the position) → `BLOCKED_BY_POLICY` with the rules that failed (`MAX_TRADE_PCT_OF_PORTFOLIO`, `MAX_TRADE_USD`, `COOLDOWN`…), approve → 409, execute → 409, `RISK_DECISION` receipt verified; then the 60 s cooldown the wallet is under, waited out visibly | `run.sh` |
+| 3 recovery | the RPC dies at broadcast → no verdict → dead letter → RPC back → `POST /dead-letters/{id}/requeue` (replay = 409) → idempotent retry (same `operationId`, new signature) → `EXECUTED`; the chain, asked directly: signature #1 never seen, #2 confirmed, vault +1 | `e2e-devnet.sh --chaos rpc-down` |
+| 4 evidence | receipt DAG (parents of the `EXECUTION` receipt) → Merkle anchor of the receipts on Solana (`POST /anchors?wait=true`: memo tx signed by the signer, **finalized**) → inclusion proof of the `EXECUTION` receipt (`proofValid`) → batch verify (root recomputed, memo read back from the chain) → metrics | `run.sh` |
+
+The report `out/demo-report-<ts>.md` has the act table (result, time, key facts), the evidence
+tables of acts 1 and 3, the risk and anchor evidence, and the non-zero metrics; `out/run-<ts>/`
+keeps the per-act evidence, the key=value summaries and the full log. Before it exits, `run.sh`
+greps the report and the log for every secret value of `.env.demo` (exit 3 on a hit) and checks that
+`.env.demo` and `out/` are gitignored. Exit 0 = every act passed; the acts that a target lacks by
+design (chaos on UAT) are `SKIPPED` and say why. Budget: < 10 min after the first image build
+(`run.sh` prints the total and the verdict). Three consecutive runs on the same stack need no
+intervention: the wallet is topped up by airdrop on the local validator; on devnet each execution
+moves ≈ 21 % of the position to the vault, so refill at https://faucet.solana.com when the balance
+drops below 0.6 SOL (`--rpc auto` then falls back to the local validator and tells you).
+
+`CRYPTOBOT_DEMO_PROJECT=<name>` names the compose project (containers, volumes, network): a new
+name is a new stack — how "from zero" is proven without touching a previous rehearsal.
+
 One command brings up **service + independent validator + isolated signer + Postgres**, runs the
 whole control plane by API and leaves a Markdown file with the on-chain evidence:
 

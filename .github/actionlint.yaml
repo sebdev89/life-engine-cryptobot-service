@@ -1,0 +1,5 @@
+# actionlint (~/.local/bin/actionlint) no conoce los labels de runners self-hosted: sin esto
+# cada `runs-on: [self-hosted, le-ci]` es un falso rojo [runner-label] (KAN-579).
+self-hosted-runner:
+  labels:
+    - le-ci

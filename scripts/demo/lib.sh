@@ -14,6 +14,24 @@ fail() { printf '\033[1;31m[demo]\033[0m %s\n' "$*" >&2; exit 1; }
 
 need() { command -v "$1" >/dev/null 2>&1 || fail "missing tool: $1"; }
 
+# ---- HTTP against the service (KAN-575: shared by e2e-devnet.sh and run.sh) --------------------
+# Globals the caller sets: BASE (service URL), TOKEN (bearer, never printed), CURL_OPTS (array,
+# extra curl arguments, e.g. --resolve for a UAT host without public DNS).
+# api <method> <path> [json-body] [extra curl args...]  → body, newline, HTTP status
+api() {
+  local m="$1" p="$2" b="${3:-}"; shift 3 || shift $#
+  if [[ -n "$b" ]]; then
+    curl -sS -m 150 "${CURL_OPTS[@]}" -X "$m" "${BASE}${p}" -H "Authorization: Bearer ${TOKEN}" -H 'content-type: application/json' -d "$b" -w '\n%{http_code}' "$@"
+  else
+    curl -sS -m 150 "${CURL_OPTS[@]}" -X "$m" "${BASE}${p}" -H "Authorization: Bearer ${TOKEN}" -w '\n%{http_code}' "$@"
+  fi
+}
+# jget "<python index expression>"  ← JSON on stdin; prints the value or nothing (never fails the caller)
+jget() { python3 -c "import json,sys; d=json.load(sys.stdin); print(eval('d'+sys.argv[1]))" "$1" 2>/dev/null || true; }
+# split_status: RESP (body + status from api) → BODY and STATUS
+split_status() { STATUS="${RESP##*$'\n'}"; BODY="${RESP%$'\n'*}"; }
+step() { printf '\n\033[1;32m== %s\033[0m\n' "$*" >&2; }
+
 # rpc <url> <method> <params-json>  → prints the JSON response
 rpc() {
   curl -sS -m 30 "$1" -X POST -H 'content-type: application/json' \
@@ -61,6 +79,9 @@ airdrop_confirmed() {
 
 # jwt_hs256 <secret> <subject-uuid> <email>  → a Life Engine-shaped HS256 token (RUNTIME_OPERATOR + RUNTIME_ADMIN), 1 h.
 # Mirrors what life-engine-auth issues; only for the local demo where the service verifies the shared secret.
+# TODO-PLATFORM KAN-? (propuesto — NO creado; state/proposals/auth-demo-mode-para-composes-de-vertical.md):
+# this is Auth's token contract copied into the vertical. `run.sh --target uat` already logs in against
+# the real Auth; the local compose would do the same once Auth ships an embeddable demo profile.
 jwt_hs256() {
   python3 - "$1" "$2" "$3" <<'PY'
 import base64, hmac, hashlib, json, sys, time

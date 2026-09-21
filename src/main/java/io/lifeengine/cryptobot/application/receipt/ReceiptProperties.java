@@ -1,5 +1,6 @@
 package io.lifeengine.cryptobot.application.receipt;
 
+import java.time.Duration;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
 /**
@@ -16,15 +17,21 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
  *   <li>{@code price-table-version} — the version label of the cost table the receipt quotes.
  *       Cost is an estimate for local models and is labelled as such; a receipt without a cost is
  *       an honest receipt.
+ *   <li>{@code reuse-window} — KAN-393: how old a {@code MARKET_ANALYSIS} may be for a new
+ *       {@code STRATEGY} of the same wallet and asset to declare {@code REUSES} it instead of
+ *       requiring a fresh run (Endgame §19 step 3: "&lt; 1 h"). {@code PT0S} disables reuse.
  * </ul>
  */
 @ConfigurationProperties(prefix = "cryptobot.receipts")
-public record ReceiptProperties(String keyId, String signingKey, String saltSecret, String priceTableVersion) {
+public record ReceiptProperties(String keyId, String signingKey, String saltSecret, String priceTableVersion, Duration reuseWindow) {
+
+    public static final Duration DEFAULT_REUSE_WINDOW = Duration.ofHours(1);
 
     public ReceiptProperties {
         keyId = keyId == null || keyId.isBlank() ? null : keyId.trim();
         signingKey = signingKey == null || signingKey.isBlank() ? null : signingKey.trim();
         saltSecret = saltSecret == null || saltSecret.isBlank() ? null : saltSecret.trim();
         priceTableVersion = priceTableVersion == null || priceTableVersion.isBlank() ? "none" : priceTableVersion.trim();
+        reuseWindow = reuseWindow == null ? DEFAULT_REUSE_WINDOW : reuseWindow.isNegative() ? Duration.ZERO : reuseWindow;
     }
 }

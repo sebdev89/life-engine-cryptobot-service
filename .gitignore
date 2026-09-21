@@ -24,4 +24,6 @@ programs/*/target/
 
 # KAN-570 demo stack: secrets and evidence, never versioned
 .env.demo
+# KAN-575 run.sh --target uat: the UAT credentials (template: .env.demo-uat.example)
+.env.demo-uat
 out/

@@ -1,6 +1,7 @@
 package io.lifeengine.cryptobot.observability;
 
 import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.DistributionSummary;
 import io.micrometer.core.instrument.Gauge;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Tags;
@@ -61,6 +62,9 @@ import java.util.concurrent.atomic.AtomicLong;
  *   anchored.receipts             → anchored_receipts_total               receipts stamped by a FINALIZED batch
  *   anchor.pending                → anchor_pending          (gauge)       receipts without a finalized anchor (Endgame §24)
  *   anchor.finality.latency       → anchor_finality_latency_seconds       broadcast → finalized, per batch
+ *   --- KAN-393 (provenance DAG: lineage API + REUSES edge) ---
+ *   artifact.reuse                → artifact_reuse_total{external}       a STRATEGY that declared REUSES over an earlier MARKET_ANALYSIS; external=false until public receipts exist
+ *   provenance.depth              → provenance_depth (distribution)       max depth of the graph a lineage query returned
  * </pre>
  *
  * <h2>Labels</h2>
@@ -105,6 +109,8 @@ public class CryptobotMetrics {
     static final String ANCHORED_RECEIPTS = "anchored.receipts";
     static final String ANCHOR_PENDING = "anchor.pending";
     static final String ANCHOR_FINALITY_LATENCY = "anchor.finality.latency";
+    static final String ARTIFACT_REUSE = "artifact.reuse";
+    static final String PROVENANCE_DEPTH = "provenance.depth";
 
     /** Stages of {@code ExecutionService.run}; the one reached when it failed is the label. */
     public enum FailureStage {
@@ -316,6 +322,19 @@ public class CryptobotMetrics {
                 .record(elapsed);
     }
 
+    // ---- KAN-393: provenance DAG ------------------------------------------------------------------
+
+    /** A receipt reused an earlier artifact ({@code REUSES} edge) instead of recomputing it. {@code external}: the artifact came from another tenant (P1). */
+    public void artifactReuse(boolean external) {
+        counter(ARTIFACT_REUSE, "external", Boolean.toString(external)).increment();
+    }
+
+    /** How deep the graph a lineage query returned was (0 = only the roots). */
+    public void provenanceDepth(int depth) {
+        DistributionSummary.builder(PROVENANCE_DEPTH).description("Max depth of a returned lineage graph (KAN-393)")
+                .register(registry).record(Math.max(0, depth));
+    }
+
     // ---- plumbing -----------------------------------------------------------------------------
 
     /**
@@ -354,6 +373,8 @@ public class CryptobotMetrics {
             counter(RECEIPT_ANCHORS, "result", r);
         }
         counter(ANCHORED_RECEIPTS);
+        counter(ARTIFACT_REUSE, "external", "false");
+        DistributionSummary.builder(PROVENANCE_DEPTH).description("Max depth of a returned lineage graph (KAN-393)").register(registry);
         // The funnel and its failure modes also start at 0 for the asset-less series, so the ratio
         // panels divide by something and the "dónde se cae" panel lists every stage.
         for (String r : new String[] {"awaiting_approval", "blocked_by_policy"}) {
