@@ -154,6 +154,29 @@ class ValidatorClientTest {
                 .verify();
     }
 
+    /**
+     * KAN-500: found by the chain E2E with the validator "down". A 200 with no body completed
+     * {@code authorize} <em>empty</em>: the execution pipeline skipped the validator and the signer
+     * and answered HTTP 200 with no proposal, leaving the row EXECUTING with nothing recorded. No
+     * answer is a refusal — never an empty completion. A dropped connection is a refusal too.
+     */
+    @Test
+    void noAnswerIsARefusalNeverAnEmptyCompletion() {
+        PolicyInput in = input();
+        PolicyVerdict verdict = DeterministicPolicyEngine.evaluate(RULES, in);
+        PolicyDecision decision = new PolicyDecision(true, true, List.of(), List.of(), List.of(), NOW, verdict, in);
+
+        server.enqueue(new MockResponse().setResponseCode(200));
+        StepVerifier.create(client.authorize(proposal(decision), tx()))
+                .expectErrorSatisfies(ex -> assertThat(ex).isInstanceOf(ValidatorClient.ValidatorRefused.class).hasMessageContaining("no answer"))
+                .verify();
+
+        server.enqueue(new MockResponse().setSocketPolicy(okhttp3.mockwebserver.SocketPolicy.DISCONNECT_AT_START));
+        StepVerifier.create(client.authorize(proposal(decision), tx()))
+                .expectErrorSatisfies(ex -> assertThat(ex).isInstanceOf(ValidatorClient.ValidatorRefused.class))
+                .verify();
+    }
+
     @Test
     void refusesWithoutRecordedFactsOrWhenDisabled() {
         PolicyVerdict verdict = DeterministicPolicyEngine.evaluate(RULES, input());

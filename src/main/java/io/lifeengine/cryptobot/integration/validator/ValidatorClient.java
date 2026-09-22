@@ -148,6 +148,9 @@ public class ValidatorClient {
                 .retrieve()
                 .bodyToMono(Response.class)
                 .timeout(props.timeout())
+                // KAN-500: a 2xx with no body completes empty — and an empty Mono here let the pipeline skip the
+                // validator AND the signer (HTTP 200, no proposal, row stuck EXECUTING). No answer is a refusal.
+                .switchIfEmpty(Mono.error(new ValidatorRefused("no answer from the validator (empty response)")))
                 .onErrorMap(WebClientResponseException.class, ex -> new ValidatorRefused("HTTP " + ex.getStatusCode().value() + " " + ex.getResponseBodyAsString()))
                 .onErrorMap(ex -> !(ex instanceof ValidatorRefused), ex -> new ValidatorRefused(ex.getMessage()))
                 .flatMap(r -> check(r, verdict, messageHash, cluster));

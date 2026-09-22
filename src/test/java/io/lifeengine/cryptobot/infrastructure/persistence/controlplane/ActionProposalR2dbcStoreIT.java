@@ -32,7 +32,7 @@ import org.testcontainers.utility.DockerImageName;
 
 /**
  * KAN-604 (Gap G7, audit §15/§17, mandate §29): {@link ActionProposalR2dbcStore#commit} against a
- * real Postgres — Flyway {@code V1..V10} apply on a fresh container, no gating env var. Proves the
+ * real Postgres — Flyway {@code V1..V11} apply on a fresh container, no gating env var. Proves the
  * three things the in-memory replica ({@code InMemoryControlPlaneRepositories}) only asserts by
  * convention:
  *

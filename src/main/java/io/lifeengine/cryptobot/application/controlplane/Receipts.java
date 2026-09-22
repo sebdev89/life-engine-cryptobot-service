@@ -389,8 +389,9 @@ public class Receipts {
         }
         Long wallMs = startedAt == null ? null : Math.max(0, clock.instant().toEpochMilli() - startedAt.toEpochMilli());
         String nonce = "exec:" + (proposal.operationId() == null ? proposal.id() : proposal.operationId());
+        // KAN-500: the run that advised this trade (when the proposal came out of the advisor) travels to the EXECUTION receipt too.
         ReceiptBody body = new ReceiptBody(null, ReceiptKind.EXECUTION, tenantOf(proposal.ownerUserId()), proposal.ownerUserId().toString(), AGENT_EXECUTION,
-                parents, inputs, null, null, null, runtimeRef(null), Map.of("cluster", proposal.cluster()),
+                parents, inputs, null, null, null, runtimeRef(proposal.runtimeRunId()), Map.of("cluster", proposal.cluster()),
                 new ReceiptBody.Output(hash(out), "execution/1", "action_proposal:" + proposal.id() + "#execution"),
                 new ReceiptBody.Compute(null, null, 1, wallMs), null, ReproducibilityLevel.L0_SIGNED, startedAt == null ? clock.instant() : startedAt,
                 clock.instant(), nonce, new ReceiptBody.Refs(proposal.walletId().toString(), proposal.id().toString(), proposal.snapshotId() == null ? null : proposal.snapshotId().toString()));
