@@ -307,7 +307,7 @@ Consolidated from the three reports; ordered by the mandate's priority (demo rel
 
 | # | Gap | Evidence | Sev | Phase |
 |---|---|---|---|---|
-| G1 | Destination not bound approval → execution (config read at execute time; no compare) | `SimulationService.java:75`; grep `destination()` → 0; `SIGNER_ALLOWED_DESTINATIONS` empty by default | **H** | 4 |
+| G1 | ~~Destination not bound approval → execution (config read at execute time; no compare)~~ **CLOSED 2026-09-22** | `SimulationService.java:75`; grep `destination()` → 0 (before); `SIGNER_ALLOWED_DESTINATIONS` empty by default — now `ExecutionService.requireDestinationBound` (`run`, before the validator, also on `retry`); PR [#33](https://github.com/sebdev89/life-engine-cryptobot-service/pull/33) (KAN-599); test `ExecutionServiceDestinationBindingTest` (5, incl. the drift property over 15 random pairs) | **H** | 4 |
 | G2 | Canonical intent not wired; `(I)` fabricated from plan + config (`POLICY_BOUND` tautological, slippage from config); no `source/tenant/destination/maxFee/metadataHash/schemaVersion` persisted | `PolicyEngine.java:447-485`; `ProposalsController.java:131-133`; KAN-457 | **H** | 2 |
 | G3 | Validator does not decode bytes, uses caller-frozen `current_slot`/`nonce_unused`, no own clock/state | `ValidationService.java:202-236`; `ValidatorClient.java:299-301` | **H** | 4 |
 | G4 | Attestation payload and `messageHash` not persisted; `EXECUTION` receipt lacks attestation/validator/policyHash/timestamps | `ExecutionService.java:328-331`; `Receipts.java:378-388` | **H** | 4–5 |
