@@ -272,6 +272,9 @@ public class ExecutionService {
         // 1. Fresh blockhash: the one from approval time is almost certainly expired.
         //    KAN-582: each stage runs under its own histogram (cryptobot_stage_latency_seconds{stage}).
         return timed(CryptobotMetrics.Stage.SIMULATE, () -> simulation.prepareTransfer(wallet, lamports)
+                // 1b. KAN-599 (audit G1): prepareTransfer just re-read cryptobot.policy.rebalance-vault
+                //     from live config — bind it to what was actually approved before anything downstream sees it.
+                .flatMap(tx -> requireDestinationBound(executing, tx))
                 // 2. Re-simulate the exact bytes that will be signed.
                 .flatMap(tx -> rpc.simulateTransaction(wallet.cluster(), tx.unsignedTransactionBase64(), false)
                         .flatMap(sim -> sim.ok() ? Mono.just(tx)
@@ -297,6 +300,31 @@ public class ExecutionService {
                 // Anything up to here failed before the chain could have seen the transaction: safe to FAILED.
                 .onErrorResume(ex -> fail(executing, actor, ex, stage.get(), asset).map(p -> new Step(p, null)))
                 .flatMap(step -> step.signed() == null ? Mono.just(step.proposal()) : broadcast(step.proposal(), step.signed(), wallet, actor, asset));
+    }
+
+    /**
+     * KAN-599 (audit G1, §17): {@code SimulationService.prepareTransfer} rebuilds the transaction
+     * from {@code cryptobot.policy.rebalance-vault} <em>at execution time</em> — before this check
+     * nothing compared the freshly-read destination with what the human actually approved
+     * ({@code executing.transaction()}, the {@link PreparedTransaction} persisted when the proposal
+     * was simulated/created, unchanged by approval). If the config moved between the two —
+     * intentionally or by a compromised deploy — the destination or the lamports diverge here,
+     * before the validator or the signer are ever asked. Runs on {@link #retry} too (same {@link
+     * #run} code path, KAN-571). {@code SIGNER_ALLOWED_DESTINATIONS} on the isolated signer remains
+     * the last independent barrier; this closes the gap in the service itself.
+     */
+    private static Mono<PreparedTransaction> requireDestinationBound(ActionProposal executing, PreparedTransaction fresh) {
+        PreparedTransaction approved = executing.transaction();
+        if (approved == null) {
+            return Mono.error(new ControlPlaneExceptions.Conflict(
+                    "destination_mismatch: proposal " + executing.id() + " has no approved transaction to bind execution to"));
+        }
+        if (!approved.destination().equals(fresh.destination()) || approved.lamports() != fresh.lamports()) {
+            return Mono.error(new ControlPlaneExceptions.Conflict("destination_mismatch: approved " + approved.destination() + "/"
+                    + approved.lamports() + " lamports, rebuilt at execution time " + fresh.destination() + "/" + fresh.lamports()
+                    + " lamports — cryptobot.policy.rebalance-vault (or the amount) changed between approval and execution"));
+        }
+        return Mono.just(fresh);
     }
 
     /** Defence in depth: the signer's output must be the same message we sent, signed by the wallet key. */
