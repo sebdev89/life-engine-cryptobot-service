@@ -133,6 +133,36 @@ every secret before the script exits. `--target uat` runs the same acts against 
 service (`.env.demo-uat.example`). Details and the underlying scripts (`wallet-devnet.sh`,
 `e2e-devnet.sh --chaos …`, `--it` for `E2EDevnetIT`): `scripts/demo/README.md`.
 
+### The whole chain in one test, in CI (KAN-500)
+
+`ChainE2EIT` (`./mvnw -Pe2e-chain verify`, job `e2e-chain` of the workflow — without it green no
+image is published) walks **intent → risk → policy → approval → timelock → validator → signer →
+submit → confirm → receipt → reconcile** with the gates and the pipeline together and nothing
+stubbed inside the service: the real Spring context on the real R2DBC stores, Flyway-migrated into
+a Postgres from Testcontainers; `validator/` and `signer/` as **real processes** (`java -jar` of
+their modules, keys generated for the run, the validator pinned to the service's `H_R`); the
+Solana RPC and the Runtime as HTTP mocks — the RPC answers `sendTransaction` with the signature
+inside the bytes it received and only ever confirms what it was sent. Three scenarios: `EXECUTED`
+(one `sendTransaction`, the bytes the chain got are signed by the wallet key the signer holds,
+`EXECUTION_VALIDATED` carries `policyHash`/`verdictHash`/attestation, the `EXECUTION` receipt
+verifies and names `runtime.runId`, reconciliation touches nothing and counts no mismatch, the
+same intent hash replays without a second transaction); validator unreachable at execution ⇒
+`FAILED` at `validate`, the signer never asked, nothing sent; attestation corrupted on the wire ⇒
+the real signer refuses (`attestation_bad_signature`) ⇒ `FAILED` at `sign`, nothing sent.
+Evidence lands in `target/e2e-chain/evidence.txt` (and the job summary); the processes' logs in
+`target/e2e-chain/{validator,signer}.log`.
+
+Found by that test and fixed with it: a validator (or signer) answer with **no body** completed the
+HTTP call *empty*, and an empty `Mono` let the pipeline skip the validator **and** the signer,
+answer HTTP 200 with no proposal and leave the row `EXECUTING` with nothing recorded. Both clients
+now treat no answer as a refusal (`ValidatorClientTest.noAnswerIsARefusalNeverAnEmptyCompletion`).
+
+Two identities of an execution are now **columns** of `action_proposal` (`V10`), not only fields of
+the JSONB document: `intent_hash` (the `sha256:…` presented as `Idempotency-Key`, KAN-435 — until
+now folded into `operation_id` and lost; written with `EXECUTING`, recorded in `EXECUTION_STARTED`,
+returned as `intentHash`) and `execution_signature` (written at `SIGNED`, before broadcast; a retry
+overwrites it). Rows written before `V10` keep `NULL` and the document as their authority.
+
 ## API
 
 All endpoints take `Authorization: Bearer <Life Engine JWT>`. Everything is scoped by the token's
@@ -511,12 +541,14 @@ latency row → `histogram_quantile` over `cryptobot_stage_latency_seconds_bucke
 ## Tests
 
 ```bash
-./mvnw test                     # 467 tests (1 skipped: the golden writer): JSON log lines + errorCode + MDC over HTTP, Prometheus names/label sets (KAN-573), independent validator client + fail-closed execution + timelock/cancel + default-policy parity (KAN-438), adapters (recorded responses), engines, state machine, HTTP flow with fake RPC + Runtime, ARS quotes (fixtures, no network), idempotency + crash/reconciliation + outbox (KAN-403), intent schema + canonicalization vectors (KAN-435), deterministic policy: decision table + golden vectors + 2-implementation agreement (KAN-436), adversarial benchmark 10 000 intents + invariants I1–I7 + chaos (KAN-440), PDA derivation + program client vs SDK vectors (KAN-437), receipt vectors + DAG invariants + verify + the 7-kind DAG over the HTTP flow (KAN-391), risk engine: canonical input/output, action table, tie-breaks, 200-hash golden, L1 re-execution with every reason code (KAN-392), Merkle vectors + memo format + anchoring batch (submit / finalized / re-anchor / abandon / verify) + the anchor flow over HTTP with a signing fake (KAN-394), lineage walks (ancestors/descendants/both, depth cap, tenant boundary, reuse) + REUSES over the HTTP flow (KAN-393)
+./mvnw test                     # 549 tests (1 skipped: the golden writer) — measured 2026-09-22, `Tests run: 549, Failures: 0, Errors: 0, Skipped: 1`: JSON log lines + errorCode + MDC over HTTP, Prometheus names/label sets (KAN-573), independent validator client + fail-closed execution + timelock/cancel + default-policy parity (KAN-438), adapters (recorded responses), engines, state machine, HTTP flow with fake RPC + Runtime, ARS quotes (fixtures, no network), idempotency + crash/reconciliation + outbox (KAN-403), intent schema + canonicalization vectors (KAN-435), deterministic policy: decision table + golden vectors + 2-implementation agreement (KAN-436), adversarial benchmark 10 000 intents + invariants I1–I7 + chaos (KAN-440), PDA derivation + program client vs SDK vectors (KAN-437), receipt vectors + DAG invariants + verify + the 7-kind DAG over the HTTP flow (KAN-391), risk engine: canonical input/output, action table, tie-breaks, 200-hash golden, L1 re-execution with every reason code (KAN-392), Merkle vectors + memo format + anchoring batch (submit / finalized / re-anchor / abandon / verify) + the anchor flow over HTTP with a signing fake (KAN-394), lineage walks (ancestors/descendants/both, depth cap, tenant boundary, reuse) + REUSES over the HTTP flow (KAN-393), intent hash + on-chain signature persisted as columns, EXECUTION receipt with runtime.runId, no-answer-is-a-refusal in the validator client (KAN-500), destination bound between approval and execution (KAN-599)
 CRYPTOBOT_IT_PG_HOST=127.0.0.1 ./mvnw test -Dtest=ReceiptR2dbcStoreIT,LineageR2dbcStoreIT   # opt-in, real Postgres (dev box :5433, own schema kan391_it): V6/V7 + the WITH RECURSIVE walks
-./mvnw -f signer/pom.xml test   # 33 tests: JSON log lines (KAN-573), signing policy (every refusal reason, transfer and anchor memo), token, signature verification, attestation gate (KAN-438)
-./mvnw -f validator/pom.xml test  # 28 tests: JSON log lines (KAN-573), independent table vs golden vectors, agreement/disagreement/hash pin, attestation, HTTP (KAN-438)
+./mvnw -Dtest=ActionProposalR2dbcStoreIT,OutboxEventR2dbcStoreIT,DeadLetterR2dbcStoreIT test   # Testcontainers Postgres (KAN-604): optimistic lock, unique operation_id, atomic outbox commit, SKIP LOCKED, dead-letter resolution
+./mvnw -f signer/pom.xml test   # 36 tests: JSON log lines (KAN-573), signing policy (every refusal reason, transfer and anchor memo), token, signature verification, attestation gate (KAN-438)
+./mvnw -f validator/pom.xml test  # 31 tests: JSON log lines (KAN-573), independent table vs golden vectors, agreement/disagreement/hash pin, attestation, HTTP (KAN-438)
 (cd programs/intent-authority && cargo test)   # 29 tests: on-chain rules, bank simulator, shared vectors (KAN-437)
-./mvnw -Pe2e-devnet verify      # E2EDevnetIT (2): the real pipeline against the demo stack + devnet (KAN-570); needs scripts/demo/ up
+./mvnw -Pe2e-devnet verify      # E2EDevnetIT (3): the real pipeline against the demo stack + devnet, chaos rpc-down recovery (KAN-570/571); needs scripts/demo/ up
+./mvnw -Pe2e-chain verify       # ChainE2EIT: the whole chain in CI — real service on Testcontainers Postgres + validator and signer as processes, RPC/Runtime mocked (KAN-500); package signer/ and validator/ first
 cd ../cryptobot-ui && npx ng test   # 24 tests: api helpers, glossary, lineage layout + formatting (KAN-393)
 ```
 

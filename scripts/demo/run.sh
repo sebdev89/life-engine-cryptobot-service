@@ -154,7 +154,7 @@ write_report() {
       echo
     fi
     if (( ${#EV2[@]} > 0 )); then
-      echo "## Act 2 — risk: the adversarial intents, blocked (policy; price), each with a verifiable Decision Receipt; the cooldown"
+      echo "## Act 2 — risk: the adversarial intents, blocked (policy; mint; price), a receipt caught tampered at rest, each with a verifiable Decision Receipt; the cooldown"
       echo
       echo "| step | evidence |"; echo "|---|---|"
       for line in "${EV2[@]}"; do echo "| ${line} |"; done
@@ -318,6 +318,12 @@ act_risk() {
   else
     EV2+=("receipts | ${kinds:-none}")
   fi
+
+  # KAN-607 — two more failure demos, both cheap (no waiting, no chain): a mint outside the allowed
+  # asset list, and a receipt caught tampered at rest.
+  mint_not_allowed_demo "$wid"
+  tampered_receipt_demo "${MINT_RISK_RECEIPT:-$risk_hash}"
+
   # The cooldown: after act 1 this wallet cannot trade again for CRYPTOBOT_POLICY_COOLDOWN (60 s in
   # production config). Act 3 needs an approvable proposal, so the demo waits it out — visibly.
   local executed_at="${A1[EXECUTED_AT]:-0}" ago wait_s
@@ -330,6 +336,73 @@ act_risk() {
     EV2+=("cooldown | rule \`COOLDOWN\` (${COOLDOWN_S}s) already elapsed (${ago}s since the act-1 execution)")
   fi
   act_price "$wid"
+}
+
+# KAN-607 — failure demo #1 (cheap): a mint outside the allowed asset list. The plan itself is fine
+# (SOL → 50 %); what is wrong is where the counter side would land — BONK is not in
+# cryptobot.policy.allowed-assets (SOL,USDC,USDT in the demo). ASSET_ALLOWLIST checks every leg's
+# asset AND its counter asset, so this blocks before any price is even needed for BONK. Sets
+# MINT_RISK_RECEIPT to the RISK_DECISION receipt hash for tampered_receipt_demo below.
+MINT_RISK_RECEIPT=""
+mint_not_allowed_demo() {
+  local wid="$1" pid pstatus rules blocked_by kinds
+  step "an adversarial mint: SOL → 50 %, funded in BONK — not in the allowed asset list — POST /wallets/${wid}/proposals"
+  RESP="$(api POST "/api/cryptobot/wallets/${wid}/proposals" '{"kind":"REBALANCE","targetWeights":{"SOL":50},"counterAsset":"BONK","reasoningSummary":"demo: adversarial mint — BONK is not in the allowed asset list"}')"; split_status
+  [[ "$STATUS" == "201" ]] || fail "mint-not-allowed propose: HTTP ${STATUS} ${BODY}"
+  pid="$(printf '%s' "$BODY" | jget "['proposal']['id']")"; pstatus="$(printf '%s' "$BODY" | jget "['proposal']['status']")"
+  rules="$(printf '%s' "$BODY" | python3 -c "import json,sys; d=json.load(sys.stdin)['proposal']['policy']; print('; '.join(f\"{v['rule']}: {v['message']}\" for v in d.get('violations', [])))")"
+  blocked_by="$(printf '%s' "$BODY" | python3 -c "import json,sys; d=json.load(sys.stdin)['proposal']['policy']; print(','.join(v['rule'] for v in d.get('violations', [])))")"
+  log "proposal ${pid}: ${pstatus}; blocked by [${blocked_by}]; ${rules}"
+  [[ "$pstatus" == "BLOCKED_BY_POLICY" ]] || fail "expected BLOCKED_BY_POLICY for the BONK mint, got ${pstatus}: ${BODY}"
+  [[ ",${blocked_by}," == *",ASSET_ALLOWLIST,"* ]] || fail "expected ASSET_ALLOWLIST among the violations, got [${blocked_by}]: ${rules}"
+  printf '\033[1;31m[demo] BLOCKED_BY_POLICY\033[0m — mint not allowed: proposal %s wants BONK as the counter asset → ASSET_ALLOWLIST: %s\n' "$pid" "$rules" >&2
+  EV2+=("adversarial mint (BONK) | proposal \`${pid}\` SOL → 50 % funded in BONK → **${pstatus}**; blocked by [${blocked_by}]; ${rules}")
+  RESP="$(api POST "/api/cryptobot/proposals/${pid}/approve" '{"note":"demo: trying to approve a BONK-blocked proposal"}')"; split_status
+  [[ "$STATUS" == "409" ]] || fail "approve of a policy-blocked proposal must be 409, got ${STATUS}: ${BODY}"
+  log "approve → 409: $(printf '%s' "$BODY" | jget "['message']")"
+  EV2+=("approve | **409** — $(printf '%s' "$BODY" | jget "['message']")")
+  RESP="$(api GET "/api/cryptobot/proposals/${pid}/receipts")"; split_status
+  kinds="$(printf '%s' "$BODY" | python3 -c "import json,sys; d=json.load(sys.stdin); print(' → '.join(x['body']['kind'] for x in d))")"
+  MINT_RISK_RECEIPT="$(printf '%s' "$BODY" | python3 -c "import json,sys; d=json.load(sys.stdin); r=[x for x in d if x['body']['kind']=='RISK_DECISION']; print(r[-1]['receiptHash'] if r else '')")"
+  if [[ -n "$MINT_RISK_RECEIPT" ]]; then
+    RESP="$(api POST "/api/cryptobot/receipts/${MINT_RISK_RECEIPT}/verify" '{}')"; split_status
+    log "receipts: ${kinds}; RISK_DECISION ${MINT_RISK_RECEIPT} verify valid=$(printf '%s' "$BODY" | jget "['valid']")"
+    EV2+=("receipts | ${kinds}; RISK_DECISION \`${MINT_RISK_RECEIPT}\` — verify valid=$(printf '%s' "$BODY" | jget "['valid']"), signatureValid=$(printf '%s' "$BODY" | jget "['signatureValid']")")
+  else
+    EV2+=("receipts | ${kinds:-none}")
+  fi
+}
+
+# KAN-607 — failure demo #2 (cheap): a receipt caught tampered at rest. `POST /receipts/{hash}/verify`
+# (ReceiptsController) takes no body — it re-reads whatever is stored under receipt_hash and
+# re-verifies THAT (KAN-597's body-based /receipts/verify is not built yet). So "1 byte altered in
+# the body" is exercised the only way today's endpoint can observe it — the same pattern
+# ReceiptTamperVerifyApiTest (KAN-604) uses at the repository level: the byte is flipped in what is
+# PERSISTED, as if storage had corrupted it, and the same verify the API exposes today is asked to
+# catch it. Needs direct DB access, so this runs only against the demo's own disposable Postgres
+# (`--target local`); on `uat` it is SKIPPED, same as the chaos/price endpoints.
+tampered_receipt_demo() {
+  local hash="$1" before_valid after_valid hashok bodyok sigok
+  [[ -n "$hash" ]] || { EV2+=("tampered receipt | SKIPPED — no receipt hash to tamper (the mint-not-allowed demo above produced none)"); return 0; }
+  if [[ "$TARGET" != "local" ]]; then
+    EV2+=("tampered receipt | SKIPPED — needs direct access to the demo's own Postgres, local target only by design (never touches a shared UAT/PROD database)")
+    return 0
+  fi
+  step "receipt tampered at rest: flip 1 byte of \`${hash}\`'s stored canonical bytes, then verify again — docker exec into the demo's own Postgres"
+  RESP="$(api POST "/api/cryptobot/receipts/${hash}/verify" '{}')"; split_status
+  before_valid="$(printf '%s' "$BODY" | jget "['valid']")"
+  [[ "$before_valid" == "True" ]] || fail "receipt ${hash} did not verify BEFORE tampering (valid=${before_valid}): ${BODY}"
+  "${COMPOSE[@]}" exec -T demo-postgres psql -v ON_ERROR_STOP=1 -U "${CRYPTOBOT_DB_USER:-cryptobot}" -d life_engine_cryptobot -c \
+    "UPDATE intelligence_receipt SET canonical = set_byte(canonical, length(canonical) / 2, (get_byte(canonical, length(canonical) / 2) # 1)) WHERE receipt_hash = '${hash}';" \
+    >/dev/null || fail "could not flip a byte of the stored receipt ${hash} (demo-postgres unreachable?)"
+  RESP="$(api POST "/api/cryptobot/receipts/${hash}/verify" '{}')"; split_status
+  after_valid="$(printf '%s' "$BODY" | jget "['valid']")"; hashok="$(printf '%s' "$BODY" | jget "['hashMatchesCanonical']")"
+  bodyok="$(printf '%s' "$BODY" | jget "['bodyMatchesCanonical']")"; sigok="$(printf '%s' "$BODY" | jget "['signatureValid']")"
+  log "tampered receipt ${hash} verify: valid=${after_valid} hashMatchesCanonical=${hashok} bodyMatchesCanonical=${bodyok} signatureValid=${sigok}"
+  [[ "$after_valid" == "False" ]] || fail "expected valid=false after flipping 1 byte of the stored receipt, got valid=${after_valid}: ${BODY}"
+  printf '\033[1;31m[demo] TAMPER CAUGHT\033[0m — receipt %s: 1 byte flipped at rest → POST /receipts/%s/verify → valid=false (hashMatchesCanonical=%s, bodyMatchesCanonical=%s, signatureValid=%s: the Ed25519 signature alone does not prove the document)\n' \
+    "$hash" "$hash" "$hashok" "$bodyok" "$sigok" >&2
+  EV2+=("tampered receipt | \`${hash}\` — verify before: valid=true; 1 byte flipped in the stored \`canonical\` bytes (demo-postgres, same pattern as ReceiptTamperVerifyApiTest KAN-604); verify after: **valid=${after_valid}**, hashMatchesCanonical=${hashok}, bodyMatchesCanonical=${bodyok}, signatureValid=${sigok}")
 }
 
 # KAN-572 (HK-4): the second adversarial intent — nothing wrong with the trade, everything wrong with the
@@ -499,7 +572,7 @@ if [[ "$TARGET" == "local" ]]; then setup_local; else setup_uat; fi
 if [[ "$DRY_RUN" -eq 1 ]]; then
   log "dry run — the plan:"
   log "  act 1 execute   ${HERE}/e2e-devnet.sh $([[ "$TARGET" == "local" ]] && echo --no-up || echo "--base-url ${BASE}") $([[ "$RPC_MODE" == "local" ]] && echo --local-validator) --env-file ${ENV_FILE} --sell-sol ${SELL_SOL} --token-env CRYPTOBOT_DEMO_TOKEN"
-  log "  act 2 risk      adversarial intent SOL → 5 % → BLOCKED_BY_POLICY; approve/execute → 409; cooldown ${COOLDOWN_S}s; then (KAN-572) PUT /demo/price → SOL → 50 % blocked by PRICE_DEVIATION, then PRICE_STALE; Decision Receipts verified + lineage"
+  log "  act 2 risk      adversarial intent SOL → 5 % → BLOCKED_BY_POLICY; approve/execute → 409; (KAN-607) mint into BONK → ASSET_ALLOWLIST; a RISK_DECISION receipt tampered at rest (1 byte, local target only) → verify valid=false; cooldown ${COOLDOWN_S}s; then (KAN-572) PUT /demo/price → SOL → 50 % blocked by PRICE_DEVIATION, then PRICE_STALE; Decision Receipts verified + lineage"
   log "  act 3 recovery  $([[ "$RECOVERY" -eq 1 ]] && echo "e2e-devnet.sh --chaos rpc-down (if the target has the chaos endpoint)" || echo "skipped (--no-recovery)")"
   log "  act 4 evidence  $([[ "$ANCHOR" -eq 1 ]] && echo "receipt DAG → POST /anchors?wait=true → inclusion proof → anchor verify → metrics" || echo "skipped (--no-anchor)")"
   log "  report          ${REPORT}"
@@ -518,9 +591,9 @@ act_begin "execute — request → policy → approval → timelock → Solana �
 read_summary "${RUN_DIR}/act1.env" A1
 act_end PASS "signature ${A1[SIGNATURE]:-?} ${A1[CONFIRMATION]:-?} · receipt ${A1[RECEIPT_EXECUTION]:-?} · mainnet ${A1[MAINNET]:-?}"
 
-act_begin "risk — adversarial intents blocked (policy, then price), approve/execute 409, cooldown, Decision Receipts verified"
+act_begin "risk — adversarial intents blocked (policy, mint, price), a tampered receipt caught, approve/execute 409, cooldown, Decision Receipts verified"
 act_risk
-act_end PASS "BLOCKED_BY_POLICY + 409 + cooldown ${COOLDOWN_S}s; ${PRICE_NOTE:-price intents not run}"
+act_end PASS "BLOCKED_BY_POLICY + mint ASSET_ALLOWLIST + tampered receipt + 409 + cooldown ${COOLDOWN_S}s; ${PRICE_NOTE:-price intents not run}"
 
 act_begin "recovery — RPC down at broadcast → dead letter → requeue → idempotent retry → EXECUTED"
 if [[ "$RECOVERY" -eq 0 ]]; then

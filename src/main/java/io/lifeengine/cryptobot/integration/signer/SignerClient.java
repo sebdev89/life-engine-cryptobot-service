@@ -111,6 +111,8 @@ public class SignerClient {
                 .retrieve()
                 .bodyToMono(SignResponse.class)
                 .timeout(props.timeout())
+                // KAN-500: same rule as ValidatorClient — a 2xx with no body is a refusal, never an empty completion.
+                .switchIfEmpty(Mono.error(new SignerRefused("no answer from the signer (empty response)")))
                 .onErrorMap(WebClientResponseException.class, ex -> new SignerRefused("HTTP " + ex.getStatusCode().value() + " " + ex.getResponseBodyAsString()))
                 .onErrorMap(ex -> !(ex instanceof SignerRefused), ex -> new SignerRefused(ex.getMessage()));
     }

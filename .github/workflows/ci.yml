@@ -81,6 +81,74 @@ jobs:
           retention-days: 14
 
   # ---------------------------------------------------------------------------
+  # KAN-500 — la cadena completa una vez, con los gates y el pipeline juntos (ChainE2EIT):
+  # el service real sobre sus stores R2DBC (Postgres por Testcontainers), validator y signer
+  # como PROCESOS reales (los jars de sus módulos), RPC de Solana y Runtime mockeados por HTTP.
+  # Tres escenarios: EXECUTED con receipt + reconciliación; validator caído ⇒ FAILED sin
+  # sendTransaction; attestation corrupta ⇒ el signer la rechaza. Sin este job verde no se
+  # publica imagen (docker-publish depende de él).
+  #
+  # Testcontainers en le-ci: el único daemon accesible es el rootless del runner (DOCKER_HOST lo
+  # inyecta su unidad systemd); se verifica antes de levantar nada, como en life-engine-auth.
+  # ---------------------------------------------------------------------------
+  e2e-chain:
+    name: e2e chain (service + signer + validator, failsafe)
+    runs-on: [self-hosted, le-ci]
+    needs: build-and-test
+    timeout-minutes: 25
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 21 (Temurin)
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+          cache: maven
+
+      - name: Verificar que el daemon disponible es el rootless
+        run: |
+          echo "DOCKER_HOST=${DOCKER_HOST:-<no seteado>}"
+          docker info --format 'root dir: {{.DockerRootDir}} · {{.SecurityOptions}}'
+          docker info --format '{{.SecurityOptions}}' | grep -q 'name=rootless' || {
+            echo "::error::el daemon visible no es rootless — Testcontainers no debe correr acá"
+            exit 1
+          }
+
+      - name: Empaquetar validator y signer (los procesos del E2E)
+        run: |
+          ./mvnw -B -ntp -f validator/pom.xml -DskipTests package
+          ./mvnw -B -ntp -f signer/pom.xml -DskipTests package
+
+      - name: E2E de la cadena (failsafe, perfil e2e-chain)
+        run: ./mvnw -B -ntp -Pe2e-chain verify
+        env:
+          TESTCONTAINERS_RYUK_DISABLED: "false"
+
+      - name: Evidencia del E2E
+        if: always()
+        run: |
+          echo "## ChainE2EIT" >> "$GITHUB_STEP_SUMMARY"
+          if [ -f target/e2e-chain/evidence.txt ]; then
+            sed 's/^/- /' target/e2e-chain/evidence.txt >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "- sin evidencia (el stack no llegó a correr)" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Upload Failsafe reports + logs de los procesos (on failure)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-chain-reports
+          path: |
+            target/failsafe-reports/**
+            target/e2e-chain/**
+          if-no-files-found: ignore
+          retention-days: 14
+
+  # ---------------------------------------------------------------------------
   # KAN-437 — el programa Solana (programs/intent-authority) se testea en el host, sin
   # toolchain SBF: `solana-program-test` corre el processor nativo contra un banco real.
   # Rust se instala en el runner por acción (no está en la imagen de le-ci); la cache de
@@ -145,7 +213,8 @@ jobs:
   docker-publish:
     name: docker build + push (${{ matrix.module }})
     runs-on: [self-hosted, le-ci]
-    needs: build-and-test
+    # KAN-500: sin la cadena completa verde no hay imagen.
+    needs: [build-and-test, e2e-chain]
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     permissions:
       contents: read
