@@ -1,6 +1,6 @@
 # CryptoBot — AI control plane for Solana wallets
 
-> Colosseum · Crypto World's Fair 2026 · Solana track.
+> Colosseum · Crypto World's Fair 2026 · Solana track. Submission write-up: [`SUBMISSION.md`](SUBMISSION.md).
 > **The agent proposes. You approve. An independent validator re-checks, a limited signer executes —
 > on devnet, under policy, after a timelock, with a full audit trail.** Built on Life Engine (Auth · Runtime · observability); this repo holds only
 > the crypto domain.
