@@ -2,6 +2,11 @@ package io.lifeengine.cryptobot.application.controlplane;
 
 import io.lifeengine.cryptobot.adapters.marketdata.TokenRegistry;
 import io.lifeengine.cryptobot.adapters.solana.SolanaCluster;
+import io.lifeengine.cryptobot.domain.oracle.OracleConsensus;
+import io.lifeengine.cryptobot.domain.oracle.OracleLimits;
+import io.lifeengine.cryptobot.domain.oracle.OracleReading;
+import io.lifeengine.cryptobot.domain.oracle.PriceObservation;
+import io.lifeengine.cryptobot.domain.oracle.PriceOracle;
 import io.lifeengine.cryptobot.domain.portfolio.PortfolioSnapshot;
 import io.lifeengine.cryptobot.domain.portfolio.Position;
 import io.lifeengine.cryptobot.domain.wallet.Wallet;
@@ -21,9 +26,34 @@ final class Fixtures {
 
     private Fixtures() {}
 
+    static final Instant NOW = Instant.parse("2026-09-14T12:00:00Z");
+    static final OracleLimits ORACLE_LIMITS = new OracleLimits(2, 60, 100, 1_000, 300);
+
     static Wallet wallet(SolanaCluster cluster) {
-        Instant now = Instant.parse("2026-09-14T12:00:00Z");
+        Instant now = NOW;
         return new Wallet(UUID.randomUUID(), OWNER, ADDRESS, cluster, "demo", now, now);
+    }
+
+    /** KAN-439: an accepted two-source reading for SOL and USDC, priced {@code solPrice} / $1, observed at {@code at}. */
+    static OracleReading oracle(String solPrice, Instant at) {
+        return new OracleReading(at, ORACLE_LIMITS, List.of(consensus("SOL", TokenRegistry.NATIVE_SOL_MINT, solPrice, solPrice, at),
+                consensus("USDC", TokenRegistry.USDC_MINT, "1", "1", at)));
+    }
+
+    /** The world as the oracle sees it now: SOL at $100, what every legacy snapshot was priced at. */
+    static OracleReading oracle() {
+        return oracle("100", NOW);
+    }
+
+    static OracleConsensus consensus(String symbol, String mint, String jupiterPrice, String pythPrice, Instant at) {
+        return consensus(symbol, mint, jupiterPrice, pythPrice, at, at);
+    }
+
+    /** Observed at {@code observedAt}, evaluated at {@code now}: the two differ when the observations are stale. */
+    static OracleConsensus consensus(String symbol, String mint, String jupiterPrice, String pythPrice, Instant observedAt, Instant now) {
+        return PriceOracle.consensus(symbol, mint, List.of(
+                new PriceObservation("jupiter", symbol, mint, new BigDecimal(jupiterPrice), observedAt),
+                new PriceObservation("pyth", symbol, mint, new BigDecimal(pythPrice), observedAt)), null, now, ORACLE_LIMITS);
     }
 
     /** SOL 7 @ $100 = 700, USDC 300 → SOL 70% / USDC 30%. */

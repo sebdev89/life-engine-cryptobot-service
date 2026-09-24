@@ -11,7 +11,6 @@ import io.r2dbc.postgresql.codec.Json;
 import io.r2dbc.spi.R2dbcDataIntegrityViolationException;
 import io.r2dbc.spi.Row;
 import java.nio.charset.StandardCharsets;
-import java.time.Instant;
 import java.util.Base64;
 import java.util.List;
 import java.util.Map;
@@ -34,8 +33,7 @@ import reactor.core.publisher.Mono;
 @Component
 public class ReceiptR2dbcStore implements ReceiptRepository {
 
-    private static final String COLS = "receipt_hash, tenant_id, owner_id, kind, schema_version, nonce, wallet_id, proposal_id, body, canonical,"
-            + " signature, key_id, reproducibility, anchor_chain, anchor_tx, anchor_slot, anchor_root, anchor_proof, created_at";
+    private static final String COLS = ReceiptRows.COLS;
 
     private final DatabaseClient db;
     private final JsonDocs docs;
@@ -110,7 +108,7 @@ public class ReceiptR2dbcStore implements ReceiptRepository {
 
     @Override
     public Mono<IntelligenceReceipt> findByHash(String receiptHash) {
-        return db.sql("SELECT " + COLS + " FROM intelligence_receipt WHERE receipt_hash = :hash")
+        return db.sql("SELECT " + COLS + " FROM intelligence_receipt r WHERE receipt_hash = :hash")
                 .bind("hash", receiptHash).map((row, meta) -> read(row)).one();
     }
 
@@ -129,7 +127,7 @@ public class ReceiptR2dbcStore implements ReceiptRepository {
 
     @Override
     public Mono<IntelligenceReceipt> findByHashAndOwner(String receiptHash, UUID ownerId) {
-        return db.sql("SELECT " + COLS + " FROM intelligence_receipt WHERE receipt_hash = :hash AND owner_id = :owner")
+        return db.sql("SELECT " + COLS + " FROM intelligence_receipt r WHERE receipt_hash = :hash AND owner_id = :owner")
                 .bind("hash", receiptHash).bind("owner", ownerId).map((row, meta) -> read(row)).one();
     }
 
@@ -145,25 +143,25 @@ public class ReceiptR2dbcStore implements ReceiptRepository {
 
     @Override
     public Mono<IntelligenceReceipt> findByNonce(String tenantId, String nonce) {
-        return db.sql("SELECT " + COLS + " FROM intelligence_receipt WHERE tenant_id = :tenant AND nonce = :nonce")
+        return db.sql("SELECT " + COLS + " FROM intelligence_receipt r WHERE tenant_id = :tenant AND nonce = :nonce")
                 .bind("tenant", tenantId).bind("nonce", nonce).map((row, meta) -> read(row)).one();
     }
 
     @Override
     public Flux<IntelligenceReceipt> findByWallet(UUID walletId, int limit) {
-        return db.sql("SELECT " + COLS + " FROM intelligence_receipt WHERE wallet_id = :wallet ORDER BY created_at DESC LIMIT :limit")
+        return db.sql("SELECT " + COLS + " FROM intelligence_receipt r WHERE wallet_id = :wallet ORDER BY created_at DESC LIMIT :limit")
                 .bind("wallet", walletId).bind("limit", Math.max(1, Math.min(limit, 200))).map((row, meta) -> read(row)).all();
     }
 
     @Override
     public Flux<IntelligenceReceipt> findByProposal(UUID proposalId) {
-        return db.sql("SELECT " + COLS + " FROM intelligence_receipt WHERE proposal_id = :proposal ORDER BY created_at ASC")
+        return db.sql("SELECT " + COLS + " FROM intelligence_receipt r WHERE proposal_id = :proposal ORDER BY created_at ASC")
                 .bind("proposal", proposalId).map((row, meta) -> read(row)).all();
     }
 
     @Override
     public Mono<IntelligenceReceipt> findLatestByWalletAndKind(UUID walletId, ReceiptKind kind) {
-        return db.sql("SELECT " + COLS + " FROM intelligence_receipt WHERE wallet_id = :wallet AND kind = :kind ORDER BY created_at DESC LIMIT 1")
+        return db.sql("SELECT " + COLS + " FROM intelligence_receipt r WHERE wallet_id = :wallet AND kind = :kind ORDER BY created_at DESC LIMIT 1")
                 .bind("wallet", walletId).bind("kind", kind.name()).map((row, meta) -> read(row)).one();
     }
 
@@ -184,22 +182,7 @@ public class ReceiptR2dbcStore implements ReceiptRepository {
                 ReceiptEdge.Role.valueOf(row.get("role", String.class)));
     }
 
-    @SuppressWarnings("unchecked")
     private IntelligenceReceipt read(Row row) {
-        Map<String, Object> body = docs.read(row.get("body", Json.class), Map.class);
-        byte[] canonical = row.get("canonical", byte[].class);
-        byte[] signature = row.get("signature", byte[].class);
-        String anchorTx = row.get("anchor_tx", String.class);
-        IntelligenceReceipt.Anchor anchor = anchorTx == null ? null : new IntelligenceReceipt.Anchor(
-                row.get("anchor_chain", String.class), anchorTx, row.get("anchor_slot", Long.class), row.get("anchor_root", String.class),
-                row.get("anchor_proof", Json.class) == null ? List.of() : docs.read(row.get("anchor_proof", Json.class), List.class));
-        return new IntelligenceReceipt(
-                row.get("receipt_hash", String.class),
-                null,
-                ReceiptBody.fromMap(body),
-                new String(canonical, StandardCharsets.UTF_8),
-                new IntelligenceReceipt.Signature("ed25519", row.get("key_id", String.class), Base64.getEncoder().encodeToString(signature)),
-                anchor,
-                row.get("created_at", Instant.class));
+        return ReceiptRows.read(row, docs);
     }
 }

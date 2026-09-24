@@ -4,12 +4,17 @@ import io.lifeengine.cryptobot.domain.receipt.DeterministicInference;
 import io.lifeengine.cryptobot.domain.receipt.IntelligenceReceipt;
 import io.lifeengine.cryptobot.domain.receipt.ReceiptBody;
 import io.lifeengine.cryptobot.domain.receipt.ReceiptInput;
+import io.lifeengine.cryptobot.domain.policy.DeterministicPolicyEngine;
+import io.lifeengine.cryptobot.domain.policy.PolicyInput;
+import io.lifeengine.cryptobot.domain.policy.PolicyRules;
+import io.lifeengine.cryptobot.domain.policy.PolicyVerdict;
 import io.lifeengine.cryptobot.domain.receipt.ReproducibilityLevel;
 import io.lifeengine.cryptobot.domain.risk.DeterministicRiskEngine;
 import io.lifeengine.cryptobot.domain.risk.RiskInput;
 import io.lifeengine.cryptobot.domain.risk.RiskVerdict;
 import java.util.Map;
 import java.util.Objects;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 /**
@@ -18,7 +23,8 @@ import org.springframework.stereotype.Component;
  * reported on its own so a UI can say exactly which one failed:
  *
  * <ol>
- *   <li>the engine id + version is one this build can run (today: {@code risk-engine 1.0.0});
+ *   <li>the engine id + version is one this build can run ({@code risk-engine 1.0.0}; since KAN-572
+ *       also {@code policy-engine R_v}, the policy in force in this process);
  *   <li>the weights hash the receipt names is the one this build ships (an older weights file
  *       cannot be re-run: honest {@code false}, not a guess);
  *   <li>the stored input tree hashes to the receipt's {@code RISK_INPUT} and the stored output
@@ -65,18 +71,31 @@ public class DeterministicReproducer {
     public static final String REASON_OK = "REPRODUCED";
 
     private final DeterministicRiskEngine riskEngine;
+    /** {@code R_v} in force in this process; {@code null} = this build cannot re-run policy receipts (tests without a policy). */
+    private final PolicyRules policyRules;
 
     public DeterministicReproducer() {
-        this(DeterministicRiskEngine.v1());
+        this(DeterministicRiskEngine.v1(), null);
     }
 
     public DeterministicReproducer(DeterministicRiskEngine riskEngine) {
+        this(riskEngine, null);
+    }
+
+    /** KAN-572: the policy engine's Decision Receipts are re-run under the rules this service starts with. */
+    @Autowired
+    public DeterministicReproducer(io.lifeengine.cryptobot.application.controlplane.PolicyEngine policy) {
+        this(DeterministicRiskEngine.v1(), policy.rules());
+    }
+
+    public DeterministicReproducer(DeterministicRiskEngine riskEngine, PolicyRules policyRules) {
         this.riskEngine = Objects.requireNonNull(riskEngine, "riskEngine");
+        this.policyRules = policyRules;
     }
 
     /** Whether this build can re-run receipts of {@code engine}. */
     public boolean knows(ReceiptBody.Engine engine) {
-        return engine != null && DeterministicRiskEngine.ID.equals(engine.id());
+        return engine != null && (DeterministicRiskEngine.ID.equals(engine.id()) || (policyRules != null && DeterministicPolicyEngine.ID.equals(engine.id())));
     }
 
     /** {@code inference} may be {@code null} (nothing stored). Never throws: a broken row is a {@code false} with its reason. */
@@ -93,13 +112,17 @@ public class DeterministicReproducer {
         if (inference == null) {
             return Reproduction.failed(REASON_INFERENCE_MISSING, engine, null, expected, null);
         }
-        if (!DeterministicRiskEngine.VERSION.equals(engine.version()) || !riskEngine.weightsHash().equals(engine.weightsHash())
+        boolean policy = DeterministicPolicyEngine.ID.equals(engine.id());
+        String version = policy ? policyRules.version() : DeterministicRiskEngine.VERSION;
+        String weights = policy ? policyRules.hash() : riskEngine.weightsHash();
+        if (!version.equals(engine.version()) || !weights.equals(engine.weightsHash())
                 || !engine.weightsHash().equals(inference.weightsHash()) || !engine.version().equals(inference.engineVersion())) {
             return Reproduction.failed(REASON_WEIGHTS_UNAVAILABLE, engine, inference.inputHash(), expected, null);
         }
         // The stored trees must hash to what the receipt names — the row is not trusted, it is recomputed.
         String inputHash = DeterministicInference.hashOf(inference.input());
-        String declaredInput = body.inputs().stream().filter(i -> ReceiptInput.RISK_INPUT.equals(i.type())).map(ReceiptInput::hash).findFirst().orElse(null);
+        String inputType = policy ? ReceiptInput.POLICY_INPUT : ReceiptInput.RISK_INPUT;
+        String declaredInput = body.inputs().stream().filter(i -> inputType.equals(i.type())).map(ReceiptInput::hash).findFirst().orElse(null);
         if (!inputHash.equals(inference.inputHash()) || declaredInput == null || !declaredInput.equals(inputHash)) {
             return Reproduction.failed(REASON_INPUT_MISMATCH, engine, inputHash, expected, null);
         }
@@ -108,14 +131,14 @@ public class DeterministicReproducer {
             return Reproduction.failed(REASON_STORED_OUTPUT_MISMATCH, engine, inputHash, expected, storedOutput);
         }
         // Re-execute.
-        RiskInput input;
+        String actual;
         try {
-            input = RiskInput.fromMap(inference.input());
+            actual = policy
+                    ? DeterministicPolicyEngine.evaluate(policyRules, PolicyInput.fromMap(inference.input())).hash()
+                    : riskEngine.verdict(RiskInput.fromMap(inference.input())).hash();
         } catch (RuntimeException ex) {
             return Reproduction.failed(REASON_INPUT_INVALID, engine, inputHash, expected, null);
         }
-        RiskVerdict again = riskEngine.verdict(input);
-        String actual = again.hash();
         boolean same = actual.equals(expected);
         return new Reproduction(same, same ? REASON_OK : REASON_OUTPUT_MISMATCH, engine.id(), engine.version(), engine.weightsHash(), inputHash, expected, actual);
     }
@@ -123,5 +146,13 @@ public class DeterministicReproducer {
     /** Convenience for tests and tooling: the verdict this build computes for a stored input tree. */
     public RiskVerdict run(Map<String, Object> inputTree) {
         return riskEngine.verdict(RiskInput.fromMap(inputTree));
+    }
+
+    /** KAN-572: the policy verdict this build computes for a stored {@code (I, S)} tree. */
+    public PolicyVerdict runPolicy(Map<String, Object> inputTree) {
+        if (policyRules == null) {
+            throw new IllegalStateException("this reproducer has no policy rules");
+        }
+        return DeterministicPolicyEngine.evaluate(policyRules, PolicyInput.fromMap(inputTree));
     }
 }

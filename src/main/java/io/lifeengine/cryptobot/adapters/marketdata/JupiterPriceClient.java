@@ -2,78 +2,81 @@ package io.lifeengine.cryptobot.adapters.marketdata;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.lifeengine.cryptobot.domain.oracle.PriceObservation;
 import java.math.BigDecimal;
 import java.time.Clock;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.Iterator;
-import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 import org.springframework.web.reactive.function.client.WebClient;
 import reactor.core.publisher.Mono;
 
 /**
- * Jupiter Price API v3 ({@code GET /price/v3?ids=<mint,...>}), keyless. Primary oracle. On any
- * failure it falls back to {@link MarketDataProperties#fallbackPrices()} so the demo degrades to
- * labelled stale prices instead of an error page.
+ * Jupiter Price API v3 ({@code GET /price/v3?ids=<mint,...>}), keyless — a DEX-aggregator view of
+ * the price. One of the oracle's independent sources (KAN-439); it no longer falls back to static
+ * prices itself: what it cannot price it does not observe, and the oracle counts that against the
+ * quorum. Jupiter publishes no timestamp, so an observation is dated at fetch time.
  */
 @Component
-public class JupiterPriceClient implements PriceProvider {
+public class JupiterPriceClient implements PriceSource {
 
     private static final Logger log = LoggerFactory.getLogger(JupiterPriceClient.class);
     public static final String SOURCE_JUPITER = "jupiter-price-v3";
-    public static final String SOURCE_FALLBACK = "fallback-static";
 
     private final WebClient webClient;
     private final MarketDataProperties properties;
-    private final TokenRegistry registry;
     private final ObjectMapper objectMapper;
     private final Clock clock;
 
-    public JupiterPriceClient(
-            WebClient.Builder builder, MarketDataProperties properties, TokenRegistry registry, ObjectMapper objectMapper) {
+    @Autowired
+    public JupiterPriceClient(WebClient.Builder builder, MarketDataProperties properties, ObjectMapper objectMapper) {
+        this(builder, properties, objectMapper, Clock.systemUTC());
+    }
+
+    public JupiterPriceClient(WebClient.Builder builder, MarketDataProperties properties, ObjectMapper objectMapper, Clock clock) {
         this.webClient = builder.baseUrl(properties.jupiterBaseUrl()).build();
         this.properties = properties;
-        this.registry = registry;
         this.objectMapper = objectMapper;
-        this.clock = Clock.systemUTC();
+        this.clock = clock;
     }
 
     @Override
-    public Mono<Map<String, PriceQuote>> prices(Set<String> mainnetMints) {
-        if (mainnetMints == null || mainnetMints.isEmpty()) {
-            return Mono.just(Map.of());
+    public String id() {
+        return SOURCE_JUPITER;
+    }
+
+    @Override
+    public boolean enabled() {
+        return properties.jupiterEnabled();
+    }
+
+    @Override
+    public Mono<List<PriceObservation>> observe(Map<String, String> symbolByMint) {
+        if (symbolByMint == null || symbolByMint.isEmpty() || !enabled()) {
+            return Mono.just(List.of());
         }
-        if (!properties.jupiterEnabled()) {
-            return Mono.just(fallback(mainnetMints));
-        }
-        String ids = String.join(",", mainnetMints);
+        String ids = String.join(",", symbolByMint.keySet());
         return webClient
                 .get()
                 .uri(b -> b.path("/price/v3").queryParam("ids", ids).build())
                 .retrieve()
                 .bodyToMono(String.class)
                 .timeout(properties.timeout())
-                .map(this::parse)
-                .map(
-                        quotes -> {
-                            // Anything Jupiter did not price gets the static fallback (if configured).
-                            Map<String, PriceQuote> merged = new LinkedHashMap<>(quotes);
-                            fallback(mainnetMints).forEach(merged::putIfAbsent);
-                            return merged;
-                        })
-                .onErrorResume(
-                        ex -> {
-                            log.warn("jupiter_price_failed ids={} error={}", ids, ex.toString());
-                            return Mono.just(fallback(mainnetMints));
-                        });
+                .map(raw -> parse(raw, symbolByMint))
+                .onErrorResume(ex -> {
+                    log.warn("jupiter_price_failed ids={} error={}", ids, ex.toString());
+                    return Mono.just(List.of());
+                });
     }
 
-    private Map<String, PriceQuote> parse(String raw) {
-        Map<String, PriceQuote> out = new LinkedHashMap<>();
+    private List<PriceObservation> parse(String raw, Map<String, String> symbolByMint) {
+        List<PriceObservation> out = new ArrayList<>();
         try {
             JsonNode root = objectMapper.readTree(raw);
             // v3 shape: { "<mint>": { "usdPrice": 102.9, "priceChange24h": 1.9, ... } }
@@ -82,37 +85,19 @@ public class JupiterPriceClient implements PriceProvider {
             Instant now = clock.instant();
             for (Iterator<Map.Entry<String, JsonNode>> it = container.fields(); it.hasNext(); ) {
                 Map.Entry<String, JsonNode> e = it.next();
+                String symbol = symbolByMint.get(e.getKey());
                 JsonNode v = e.getValue();
-                if (v == null || v.isNull()) {
+                if (symbol == null || v == null || v.isNull()) {
                     continue;
                 }
                 JsonNode price = v.has("usdPrice") ? v.get("usdPrice") : v.get("price");
                 if (price == null || price.isNull()) {
                     continue;
                 }
-                BigDecimal change = v.has("priceChange24h") && v.get("priceChange24h").isNumber()
-                        ? v.get("priceChange24h").decimalValue()
-                        : null;
-                out.put(e.getKey(), new PriceQuote(e.getKey(), new BigDecimal(price.asText()), SOURCE_JUPITER, now, change));
+                out.add(new PriceObservation(SOURCE_JUPITER, symbol, e.getKey(), new BigDecimal(price.asText()), now));
             }
         } catch (Exception ex) {
             throw new IllegalStateException("Unparseable Jupiter price response", ex);
-        }
-        return out;
-    }
-
-    private Map<String, PriceQuote> fallback(Set<String> mainnetMints) {
-        Map<String, PriceQuote> out = new LinkedHashMap<>();
-        Instant now = clock.instant();
-        for (String mint : mainnetMints) {
-            String symbol = registry.symbolOf(mint);
-            BigDecimal price = properties.fallbackPrices().get(symbol);
-            if (price == null) {
-                price = properties.fallbackPrices().get(symbol.toUpperCase());
-            }
-            if (price != null) {
-                out.put(mint, new PriceQuote(mint, price, SOURCE_FALLBACK, now, null));
-            }
         }
         return out;
     }

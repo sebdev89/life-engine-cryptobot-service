@@ -1,5 +1,40 @@
 # CryptoBot demo — the real pipeline on Solana devnet (KAN-570)
 
+## One command, from zero, with a report (KAN-575 / HK-7)
+
+```bash
+scripts/demo/run.sh                 # keys (once) → stack up → 4 acts → out/demo-report-<ts>.md → stack stopped
+scripts/demo/run.sh --rpc local     # force the local solana-test-validator (unlimited airdrop, no explorer links)
+scripts/demo/run.sh --target uat    # the same acts against a deployed service (.env.demo-uat, see the example)
+scripts/demo/run.sh --dry-run       # print the plan, touch nothing
+```
+
+On a machine with Docker, curl, python3 and git that is all: `run.sh` generates the keys and
+`.env.demo` if they are missing, picks devnet when the wallet holds ≥ 0.6 SOL there (otherwise the
+local validator, and says so), builds and starts the stack, and runs the story in four acts —
+each step printed with its evidence as it happens, each act timed:
+
+| act | what happens | who runs it |
+|---|---|---|
+| 1 execute | request → plan → simulation → 13 rules + `R_v` + validator → 409 before approval → approval → timelock → execute (`Idempotency-Key`) → validator attests → signer signs → Solana → `SUBMITTED` → confirmed on chain → `EXECUTED` → replay = same tx → outbox → `EXECUTION` receipt verified → a mainnet intent → 409 | `e2e-devnet.sh` |
+| 2 risk | an adversarial intent (dump 95 % of the position) → `BLOCKED_BY_POLICY` with the rules that failed (`MAX_TRADE_PCT_OF_PORTFOLIO`, `MAX_TRADE_USD`, `COOLDOWN`…), approve → 409, execute → 409, `RISK_DECISION` receipt verified; then the 60 s cooldown the wallet is under, waited out visibly; then (KAN-572 / HK-4) a **second adversarial intent, wrong only in its price**: one oracle source is made to say −90 % (`PUT /api/cryptobot/demo/price {"asset":"SOL","source":"pyth-hermes","factor":0.1}`) → `BLOCKED_BY_POLICY` by **`PRICE_DEVIATION`** with the sources, the median and the limit in the message; then every source is made 15 min old (`{"source":"*","ageSeconds":900}`) → **`PRICE_STALE`**. Each block leaves the policy's **Decision Receipt** (`RISK_DECISION` by `policy-engine@R_v`, params `blockedBy`, `rule.<NAME>`, `oracle.SOL`) that is verified live — hash, signature and the engine re-run on the stored `(I, S)` (`reproduced=true`) — and appears in the proposal's lineage under the `STRATEGY` it validates; approve → 409; the injection is disarmed (`DELETE`) before act 3 | `run.sh` |
+| 3 recovery | the RPC dies at broadcast → no verdict → dead letter → RPC back → `POST /dead-letters/{id}/requeue` (replay = 409) → idempotent retry (same `operationId`, new signature) → `EXECUTED`; the chain, asked directly: signature #1 never seen, #2 confirmed, vault +1 | `e2e-devnet.sh --chaos rpc-down` |
+| 4 evidence | receipt DAG (parents of the `EXECUTION` receipt) → Merkle anchor of the receipts on Solana (`POST /anchors?wait=true`: memo tx signed by the signer, **finalized**) → inclusion proof of the `EXECUTION` receipt (`proofValid`) → batch verify (root recomputed, memo read back from the chain) → metrics | `run.sh` |
+
+The report `out/demo-report-<ts>.md` has the act table (result, time, key facts), the evidence
+tables of acts 1 and 3, the risk and anchor evidence, and the non-zero metrics; `out/run-<ts>/`
+keeps the per-act evidence, the key=value summaries and the full log. Before it exits, `run.sh`
+greps the report and the log for every secret value of `.env.demo` (exit 3 on a hit) and checks that
+`.env.demo` and `out/` are gitignored. Exit 0 = every act passed; the acts that a target lacks by
+design (chaos on UAT) are `SKIPPED` and say why. Budget: < 10 min after the first image build
+(`run.sh` prints the total and the verdict). Three consecutive runs on the same stack need no
+intervention: the wallet is topped up by airdrop on the local validator; on devnet each execution
+moves ≈ 21 % of the position to the vault, so refill at https://faucet.solana.com when the balance
+drops below 0.6 SOL (`--rpc auto` then falls back to the local validator and tells you).
+
+`CRYPTOBOT_DEMO_PROJECT=<name>` names the compose project (containers, volumes, network): a new
+name is a new stack — how "from zero" is proven without touching a previous rehearsal.
+
 One command brings up **service + independent validator + isolated signer + Postgres**, runs the
 whole control plane by API and leaves a Markdown file with the on-chain evidence:
 
@@ -60,6 +95,26 @@ Every line lands in `out/evidence-<ts>.md`. Knobs (demo only): `CRYPTOBOT_RECONC
 `GET|PUT|DELETE /api/cryptobot/demo/chaos` (`RUNTIME_ADMIN`), body `{"broadcast":"rpc-down","shots":-1}`.
 Runbook for the human side: `docs/runbooks/dead-letter.md`.
 
+## Risk, visible (KAN-572 / HK-4): the adversarial price
+
+The same demo profile enables the **price injection** (`/api/cryptobot/demo/price`, `RUNTIME_ADMIN`;
+or `CRYPTOBOT_DEMO_PRICE_OVERRIDE=SOL:pyth-hermes:factor=0.1` at startup). It tampers with what the
+oracle's sources *said* — after they answered, before the real `PriceOracle` reduces them — so the
+refusal is the oracle's own: quorum, freshness, deviation, breaker, drift. Nothing is bypassed and
+every injection is logged (`oracle_price_injected — DEMO ONLY`, and `GET /demo/price` lists them).
+
+```bash
+PUT /api/cryptobot/demo/price {"asset":"SOL","source":"pyth-hermes","factor":0.1}   # one source −90 %  ⇒ PRICE_DEVIATION
+PUT /api/cryptobot/demo/price {"asset":"SOL","source":"*","ageSeconds":900}          # every source stale ⇒ PRICE_STALE
+PUT /api/cryptobot/demo/price {"asset":"SOL","source":"*","factor":0.1}              # the market "crashes" ⇒ PRICE_CIRCUIT_BREAKER (+ PRICE_DRIFT vs the plan)
+DELETE /api/cryptobot/demo/price                                                     # disarm (run.sh always does, even on failure)
+```
+
+`source` is a source id (`jupiter-price-v3`, `pyth-hermes`, `coingecko-simple`) or `*`; a source
+that did not answer gets an observation invented from the median of the others, so the demo does
+not depend on which real feeds are up. Only the demo compose sets `CRYPTOBOT_CHAOS_ENABLED`; on
+`--target uat` the price intents are `SKIPPED` and the report says why.
+
 ## When devnet does not cooperate (faucet dry, RPC slow): plan B
 
 Same stack, same bytes, against a local `solana-test-validator` (Anza image) with unlimited airdrop:
@@ -91,7 +146,7 @@ devnet for the recording. The devnet RPC airdrop allows a few SOL per day per IP
 |---|---|---|
 | `CRYPTOBOT_TIMELOCK_ESCALATED` | `20s` | so an ESCALATE verdict shows the timelock (409 + wait) without the 30 min of a real environment |
 | `CRYPTOBOT_RECONCILIATION_INTERVAL` / `_GRACE` / `_MAX_ATTEMPTS` / `_MAX_RETRIES` | `10s` / `20s` / `3` / `2` | so the whole recovery loop (no verdict → DLQ → requeue → retry) fits in ≈ 3 min; production is 30s / 2m / 20 / 2 |
-| `CRYPTOBOT_CHAOS_ENABLED` | `true` (compose) | KAN-571 fault injection; **never** in UAT/PROD |
+| `CRYPTOBOT_CHAOS_ENABLED` | `true` (compose) | KAN-571 fault injection and the KAN-572 price injection (`/api/cryptobot/demo/price`); **never** in UAT/PROD |
 | `CRYPTOBOT_DEMO_PORT` | `8091` | host port of the service |
 | `CRYPTOBOT_SOLANA_DEVNET_RPC` | `https://api.devnet.solana.com` | any devnet RPC; `--local-validator` overrides it |
 | `--sell-sol N` (script) / `CRYPTOBOT_E2E_SELL_SOL` (IT) | `1` | size of the SELL leg, clamped to 21–40 % of the SOL held so every rule holds: `R_v` `ASSET_CONCENTRATION` (SOL ≤ 80 % after), ≤ $500, ≤ 50 % of the portfolio, ≤ 2 SOL per tx. Keep the wallet between 0.5 and 9 SOL |

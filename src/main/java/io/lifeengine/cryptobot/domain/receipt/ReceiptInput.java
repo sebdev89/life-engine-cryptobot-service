@@ -21,6 +21,10 @@ public record ReceiptInput(String type, String hash) {
     public static final String INTENT = "INTENT";
     public static final String TRANSACTION = "TRANSACTION";
     public static final String POLICY_VERDICT = "POLICY_VERDICT";
+    /** The canonical {@code (I, S)} the deterministic policy decided over (schema {@code 1}, KAN-436/KAN-572): what an L1 verifier re-executes. */
+    public static final String POLICY_INPUT = "POLICY_INPUT";
+    /** {@code oracle-reading/1}: the multi-source quotes a decision was priced with (KAN-439). */
+    public static final String ORACLE_READING = "ORACLE_READING";
     public static final String APPROVAL = "APPROVAL";
     public static final String RAG_DOC = "RAG_DOC";
     public static final String MARKET_SNAPSHOT = "MARKET_SNAPSHOT";
@@ -35,5 +39,14 @@ public record ReceiptInput(String type, String hash) {
 
     public static ReceiptInput receipt(String hash) {
         return new ReceiptInput(RECEIPT, hash);
+    }
+
+    /**
+     * Whether {@code type} names the canonical input tree of a deterministic engine — what an L1
+     * receipt stores next to itself and {@code verify} re-executes: {@link #RISK_INPUT} for the risk
+     * engine (KAN-392), {@link #POLICY_INPUT} for the policy engine (KAN-572).
+     */
+    public static boolean isInferenceInput(String type) {
+        return RISK_INPUT.equals(type) || POLICY_INPUT.equals(type);
     }
 }

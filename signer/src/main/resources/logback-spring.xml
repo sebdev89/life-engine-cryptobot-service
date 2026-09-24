@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Logs de la plataforma (KAN-426 · KAN-573, el 7/7 de CryptoBot). Dos salidas, una sola elegida por `lifeengine.logging.format`
+  (env `LOG_FORMAT`): `json` es el default y es lo que leen Promtail/Loki; `text` es para un humano
+  mirando una consola local.
+
+  Cada línea JSON lleva los campos comunes a los servicios de Life Engine:
+    timestamp · level · logger · thread · message
+    service · env · version · commitSha          (identidad del build, fijos por proceso)
+    traceId · spanId                              (Micrometer Tracing → MDC)
+    requestId · correlationId · tenantId          (Reactor Context → MDC, ver LogContext)
+    event · status · errorCode · operationId      (StructuredArguments en los logs que importan)
+
+  Consulta de referencia en Loki:  {service="cryptobot-signer"} | json | errorCode="CB-SIGNER-001"
+-->
+<configuration>
+  <include resource="org/springframework/boot/logging/logback/defaults.xml"/>
+
+  <springProperty scope="context" name="LE_SERVICE" source="spring.application.name" defaultValue="cryptobot-signer"/>
+  <springProperty scope="context" name="LE_ENV" source="lifeengine.deployment.env" defaultValue="local"/>
+  <springProperty scope="context" name="LE_LOG_FORMAT" source="lifeengine.logging.format" defaultValue="json"/>
+
+  <appender name="json" class="ch.qos.logback.core.ConsoleAppender">
+    <encoder class="net.logstash.logback.encoder.LogstashEncoder">
+      <timeZone>UTC</timeZone>
+      <!-- Las propiedades del LoggerContext (LE_*, CONSOLE_LOG_PATTERN…) no son campos del log. -->
+      <includeContext>false</includeContext>
+      <fieldNames>
+        <timestamp>timestamp</timestamp>
+        <version>[ignore]</version>
+        <levelValue>[ignore]</levelValue>
+        <logger>logger</logger>
+        <thread>thread</thread>
+        <stackTrace>stackTrace</stackTrace>
+      </fieldNames>
+      <customFields>{"service":"${LE_SERVICE}","env":"${LE_ENV}"}</customFields>
+      <provider class="io.lifeengine.cryptobot.signer.observability.BuildIdentityJsonProvider"/>
+      <throwableConverter class="net.logstash.logback.stacktrace.ShortenedThrowableConverter">
+        <maxDepthPerThrowable>25</maxDepthPerThrowable>
+        <maxLength>8192</maxLength>
+        <rootCauseFirst>true</rootCauseFirst>
+        <exclude>^sun\.reflect\..*</exclude>
+        <exclude>^java\.lang\.reflect\..*</exclude>
+        <exclude>^reactor\.core\..*</exclude>
+      </throwableConverter>
+    </encoder>
+  </appender>
+
+  <appender name="text" class="ch.qos.logback.core.ConsoleAppender">
+    <encoder>
+      <pattern>${CONSOLE_LOG_PATTERN}</pattern>
+      <charset>${CONSOLE_LOG_CHARSET}</charset>
+    </encoder>
+  </appender>
+
+  <root level="INFO">
+    <appender-ref ref="${LE_LOG_FORMAT}"/>
+  </root>
+</configuration>

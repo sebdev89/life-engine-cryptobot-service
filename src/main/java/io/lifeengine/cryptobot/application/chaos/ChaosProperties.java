@@ -12,12 +12,16 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
  * @param broadcast the mode armed at startup ({@code uncertain | rpc-down | confirm-timeout}, or
  *     empty) — env {@code CRYPTOBOT_CHAOS_BROADCAST}; the endpoint arms/disarms at runtime
  * @param shots how many faulted calls the startup mode covers ({@code -1} = until disarmed)
+ * @param priceOverride KAN-572: price injections armed at startup — env {@code CRYPTOBOT_DEMO_PRICE_OVERRIDE},
+ *     {@code ASSET:SOURCE:key=value[;…]} (see {@link PriceChaos.Override#parse}); the endpoint
+ *     {@code /api/cryptobot/demo/price} arms/disarms at runtime
  */
 @ConfigurationProperties(prefix = "cryptobot.chaos")
-public record ChaosProperties(boolean enabled, String broadcast, Integer shots) {
+public record ChaosProperties(boolean enabled, String broadcast, Integer shots, String priceOverride) {
 
     public ChaosProperties {
         broadcast = broadcast == null ? "" : broadcast.trim();
         shots = shots == null ? 1 : shots;
+        priceOverride = priceOverride == null ? "" : priceOverride.trim();
     }
 }

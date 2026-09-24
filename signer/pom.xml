@@ -37,6 +37,31 @@
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-actuator</artifactId>
         </dependency>
+        <!-- KAN-573: /actuator/prometheus con los common tags de la identidad del build (environment/service/version/commit). -->
+        <dependency>
+            <groupId>io.micrometer</groupId>
+            <artifactId>micrometer-registry-prometheus</artifactId>
+        </dependency>
+        <!-- KAN-573 / KAN-426: logs JSON con campos comunes (service, env, version, commitSha, traceId, spanId,
+             requestId, correlationId, proposalId, errorCode). Mismo patrón que el servicio y que ATP/Dev Agent. -->
+        <dependency>
+            <groupId>net.logstash.logback</groupId>
+            <artifactId>logstash-logback-encoder</artifactId>
+            <version>8.0</version>
+        </dependency>
+        <!-- traceId/spanId en el MDC y traceparent aceptado desde cryptobot-service; export OTLP apagado por default. -->
+        <dependency>
+            <groupId>io.micrometer</groupId>
+            <artifactId>micrometer-tracing-bridge-otel</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>io.opentelemetry</groupId>
+            <artifactId>opentelemetry-exporter-otlp</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>io.micrometer</groupId>
+            <artifactId>context-propagation</artifactId>
+        </dependency>
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-test</artifactId>
@@ -64,7 +89,44 @@
                             <goal>repackage</goal>
                         </goals>
                     </execution>
+                    <!-- KAN-573: META-INF/build-info.properties → `version` en cada línea de log y en los common tags. -->
+                    <execution>
+                        <id>build-info</id>
+                        <goals>
+                            <goal>build-info</goal>
+                        </goals>
+                    </execution>
                 </executions>
+            </plugin>
+            <!-- KAN-573: git.properties (commit) en local/CI; la imagen no tiene .git y CI pasa GIT_COMMIT como
+                 build-arg (KAN-579), que BuildIdentityJsonProvider prefiere. failOnNoGitDirectory=false a propósito. -->
+            <plugin>
+                <groupId>io.github.git-commit-id</groupId>
+                <artifactId>git-commit-id-maven-plugin</artifactId>
+                <version>9.0.1</version>
+                <executions>
+                    <execution>
+                        <id>get-the-git-infos</id>
+                        <goals>
+                            <goal>revision</goal>
+                        </goals>
+                        <phase>initialize</phase>
+                    </execution>
+                </executions>
+                <configuration>
+                    <generateGitPropertiesFile>true</generateGitPropertiesFile>
+                    <failOnNoGitDirectory>false</failOnNoGitDirectory>
+                    <failOnUnableToExtractRepoInfo>false</failOnUnableToExtractRepoInfo>
+                    <offline>true</offline>
+                    <dateFormat>yyyy-MM-dd'T'HH:mm:ss'Z'</dateFormat>
+                    <dateFormatTimeZone>UTC</dateFormatTimeZone>
+                    <includeOnlyProperties>
+                        <property>^git.commit.id.abbrev$</property>
+                        <property>^git.commit.id.full$</property>
+                        <property>^git.commit.time$</property>
+                        <property>^git.branch$</property>
+                    </includeOnlyProperties>
+                </configuration>
             </plugin>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>

@@ -16,6 +16,9 @@ import io.lifeengine.cryptobot.domain.transactions.ProposalTransition;
 import io.lifeengine.cryptobot.infrastructure.persistence.controlplane.ActionProposalRepository;
 import io.lifeengine.cryptobot.infrastructure.persistence.controlplane.DeadLetterRepository;
 import io.lifeengine.cryptobot.observability.CryptobotMetrics;
+import io.lifeengine.cryptobot.observability.ErrorCode;
+import io.lifeengine.cryptobot.observability.LogContext;
+import io.lifeengine.cryptobot.observability.LogFields;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.LinkedHashMap;
@@ -115,11 +118,12 @@ public class ReconciliationService {
         return proposals.findInFlight(cutoff, config.batchSize())
                 .concatMap(p -> reconcile(p)
                         .onErrorResume(ControlPlaneExceptions.StaleProposal.class, ex -> {
-                            log.info("reconciliation_skipped_stale proposalId={}", p.id());
+                            log.info("reconciliation_skipped_stale proposalId={}", p.id(), LogFields.event("reconciliation"), LogFields.status("skipped"));
                             return Mono.just(Result.SKIPPED);
                         })
                         .onErrorResume(ex -> {
-                            log.warn("reconciliation_row_failed proposalId={} error={}", p.id(), ex.toString());
+                            log.warn("reconciliation_row_failed proposalId={} error={}", p.id(), ex.toString(),
+                                    LogFields.event("reconciliation"), LogFields.status("failed"), ErrorCode.RECONCILIATION_ROW_FAILED.kv(), ex);
                             return Mono.just(Result.SKIPPED);
                         }))
                 .count()
@@ -132,7 +136,14 @@ public class ReconciliationService {
     }
 
     public Mono<Result> reconcile(ActionProposal p) {
-        return reconcile(p, false).doOnNext(r -> metrics.reconciliation(r.name()));
+        // KAN-573: el barrido corre sin request; proposalId/operationId entran al MDC por fila (LogContext).
+        // KAN-582: una fila = una muestra del histograma de la etapa reconcile (cryptobot_stage_latency_seconds{stage="reconcile"}).
+        return Mono.defer(() -> {
+                    io.micrometer.core.instrument.Timer.Sample sample = metrics.stageStart();
+                    return reconcile(p, false).doOnNext(r -> metrics.reconciliation(r.name()))
+                            .doFinally(signal -> metrics.stageStop(CryptobotMetrics.Stage.RECONCILE, sample));
+                })
+                .contextWrite(ctx -> LogContext.proposal(ctx, p.id(), p.operationId()));
     }
 
     /**
@@ -220,7 +231,8 @@ public class ReconciliationService {
                     });
                 })
                 .onErrorResume(ex -> {
-                    log.warn("reconciliation_rpc_failed proposalId={} signature={} error={}", p.id(), exec.signature(), ex.toString());
+                    log.warn("reconciliation_rpc_failed proposalId={} signature={} error={}", p.id(), exec.signature(), ex.toString(),
+                            LogFields.event("reconciliation"), LogFields.status("pending"), LogFields.stage("reconciliation"), ErrorCode.SOLANA_RPC.kv());
                     return Mono.just(new Verdict.Pending("RPC unavailable: " + ex.getMessage()));
                 });
     }
@@ -240,7 +252,8 @@ public class ReconciliationService {
     private Mono<Result> expired(ActionProposal p, ExecutionRecord exec, Verdict.Expired e) {
         if (e.mismatch()) {
             metrics.reconciliationMismatch();
-            log.warn("reconciliation_mismatch proposalId={} signature={} reason=submitted-but-never-seen", p.id(), exec.signature());
+            log.warn("reconciliation_mismatch proposalId={} signature={} reason=submitted-but-never-seen", p.id(), exec.signature(),
+                    LogFields.event("reconciliation_mismatch"), LogFields.status("mismatch"), ErrorCode.RECONCILIATION_MISMATCH.kv());
         }
         int retries = exec.retries();
         if (retries >= config.maxRetries()) {
@@ -250,11 +263,13 @@ public class ReconciliationService {
                     "retries", retries, "lastValidBlockHeight", exec.lastValidBlockHeight(), "operationId", p.operationId()));
         }
         log.warn("reconciliation_retry proposalId={} operationId={} retry={} of {} previousSignature={} why={}", p.id(), p.operationId(), retries + 1,
-                config.maxRetries(), exec.signature(), e.detail());
+                config.maxRetries(), exec.signature(), e.detail(),
+                LogFields.event("reconciliation_retry"), LogFields.status("retrying"), ErrorCode.RECONCILIATION_RETRY.kv());
         metrics.tradeReconciled("corrected");
         return execution.retry(p, ACTOR)
                 .doOnNext(after -> log.info("reconciliation_retried proposalId={} operationId={} status={} signature={}", p.id(), p.operationId(), after.status(),
-                        after.execution() == null ? null : after.execution().signature()))
+                        after.execution() == null ? null : after.execution().signature(),
+                        LogFields.event("reconciliation_retried"), LogFields.status(after.status().name().toLowerCase(java.util.Locale.ROOT))))
                 .thenReturn(Result.RETRIED);
     }
 
@@ -269,7 +284,8 @@ public class ReconciliationService {
         String asset = assetOf(p);
         metrics.tradeConfirmed(confirmation, asset);
         metrics.tradeReconciled("corrected");
-        log.info("reconciliation_corrected proposalId={} from={} to=EXECUTED signature={} confirmation={} by={}", p.id(), p.status(), prev.signature(), confirmation, actor);
+        log.info("reconciliation_corrected proposalId={} from={} to=EXECUTED signature={} confirmation={} by={}", p.id(), p.status(), prev.signature(), confirmation, actor,
+                LogFields.event("reconciliation_corrected"), LogFields.status("executed"));
         return proposals.commit(ProposalTransition.from(p, next)
                         .audit(audit.event(p.ownerUserId(), p.walletId(), p.id(), EV_RECONCILED, actor,
                                         ProposalService.payload("from", p.status(), "to", ProposalStatus.EXECUTED, "signature", prev.signature(), "confirmation", confirmation)),
@@ -294,7 +310,8 @@ public class ReconciliationService {
         if (mismatch) {
             metrics.reconciliationMismatch();
         }
-        log.warn("reconciliation_corrected proposalId={} from={} to=FAILED reason={} by={}", p.id(), p.status(), reason, actor);
+        log.warn("reconciliation_corrected proposalId={} from={} to=FAILED reason={} by={}", p.id(), p.status(), reason, actor,
+                LogFields.event("reconciliation_corrected"), LogFields.status("failed"), LogFields.stage("reconciliation"), ErrorCode.SOLANA_TX_FAILED.kv());
         return proposals.commit(ProposalTransition.from(p, next)
                         .audit(audit.event(p.ownerUserId(), p.walletId(), p.id(), EV_RECONCILED, actor,
                                         ProposalService.payload("from", p.status(), "to", ProposalStatus.FAILED, "reason", reason, "mismatch", mismatch)),
@@ -313,7 +330,8 @@ public class ReconciliationService {
                     ProposalService.payload("signature", rec.signature(), "lastValidBlockHeight", rec.lastValidBlockHeight(), "operationId", p.operationId()));
         }
         metrics.tradeReconciled("matched");
-        log.info("reconciliation_pending proposalId={} attempt={} why={}", p.id(), rec.reconciliationAttempts(), why);
+        log.info("reconciliation_pending proposalId={} attempt={} why={}", p.id(), rec.reconciliationAttempts(), why,
+                LogFields.event("reconciliation"), LogFields.status("pending"));
         return proposals.commit(ProposalTransition.from(p, p.withExecution(rec, now))).thenReturn(Result.MATCHED);
     }
 
@@ -330,7 +348,8 @@ public class ReconciliationService {
         payload.put("status", p.status().name());
         payload.put("walletId", p.walletId().toString());
         DeadLetter letter = DeadLetter.of(DeadLetter.Source.RECONCILIATION, p.id(), p.id(), p.ownerUserId(), reason, payload, now);
-        log.error("reconciliation_dead_letter proposalId={} status={} kind={} reason={} — DLQ, human decision required", p.id(), p.status(), kind, reason);
+        log.error("reconciliation_dead_letter proposalId={} status={} kind={} reason={} — DLQ, human decision required", p.id(), p.status(), kind, reason,
+                LogFields.event("dead_letter"), LogFields.status(kind), ErrorCode.DEAD_LETTERED.kv());
         ExecutionRecord prev = p.execution();
         ExecutionRecord rec = prev == null
                 ? new ExecutionRecord(p.status() == ProposalStatus.SUBMITTED ? ExecutionRecord.SUBMITTED : ExecutionRecord.SIGNED, null, null, null, null, null, null, reason, null, null, config.maxAttempts(), now)

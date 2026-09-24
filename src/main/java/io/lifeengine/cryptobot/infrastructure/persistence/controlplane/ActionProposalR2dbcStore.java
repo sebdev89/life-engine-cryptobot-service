@@ -40,8 +40,9 @@ public class ActionProposalR2dbcStore implements ActionProposalRepository {
     @Override
     public Mono<ActionProposal> insert(ActionProposal p) {
         DatabaseClient.GenericExecuteSpec spec = db.sql(
-                        "INSERT INTO action_proposal (id, wallet_id, owner_user_id, status, kind, runtime_run_id, doc, created_at, updated_at, version, operation_id)"
-                                + " VALUES (:id, :wallet, :owner, :status, :kind, :run, :doc, :created, :updated, 0, :op)")
+                        "INSERT INTO action_proposal (id, wallet_id, owner_user_id, status, kind, runtime_run_id, doc, created_at, updated_at, version, operation_id,"
+                                + " intent_hash, execution_signature)"
+                                + " VALUES (:id, :wallet, :owner, :status, :kind, :run, :doc, :created, :updated, 0, :op, :intentHash, :signature)")
                 .bind("id", p.id())
                 .bind("wallet", p.walletId())
                 .bind("owner", p.ownerUserId())
@@ -52,6 +53,7 @@ public class ActionProposalR2dbcStore implements ActionProposalRepository {
                 .bind("updated", p.updatedAt());
         spec = p.runtimeRunId() == null ? spec.bindNull("run", UUID.class) : spec.bind("run", p.runtimeRunId());
         spec = p.operationId() == null ? spec.bindNull("op", UUID.class) : spec.bind("op", p.operationId());
+        spec = bindIdentities(spec, p);
         return spec.fetch().rowsUpdated().then(findByIdAndOwner(p.id(), p.ownerUserId()));
     }
 
@@ -61,7 +63,7 @@ public class ActionProposalR2dbcStore implements ActionProposalRepository {
         long nextVersion = t.expectedVersion() + 1;
         DatabaseClient.GenericExecuteSpec spec = db.sql(
                         "UPDATE action_proposal SET status = :status, runtime_run_id = :run, doc = :doc, updated_at = :updated,"
-                                + " version = :nextVersion, operation_id = :op"
+                                + " version = :nextVersion, operation_id = :op, intent_hash = :intentHash, execution_signature = :signature"
                                 + " WHERE id = :id AND owner_user_id = :owner AND version = :expectedVersion AND status = :expectedStatus")
                 .bind("id", p.id())
                 .bind("owner", p.ownerUserId())
@@ -73,6 +75,7 @@ public class ActionProposalR2dbcStore implements ActionProposalRepository {
                 .bind("expectedStatus", t.expectedStatus().name());
         spec = p.runtimeRunId() == null ? spec.bindNull("run", UUID.class) : spec.bind("run", p.runtimeRunId());
         spec = p.operationId() == null ? spec.bindNull("op", UUID.class) : spec.bind("op", p.operationId());
+        spec = bindIdentities(spec, p);
 
         Mono<Void> update = spec.fetch().rowsUpdated().flatMap(rows -> rows == 1 ? Mono.empty()
                 : Mono.error(new ControlPlaneExceptions.StaleProposal(p.id(), t.expectedStatus() + " v" + t.expectedVersion())));
@@ -82,6 +85,17 @@ public class ActionProposalR2dbcStore implements ActionProposalRepository {
         return tx.transactional(update.then(audit).then(outbox))
                 .onErrorMap(ActionProposalR2dbcStore::isUniqueViolation, ex -> new ControlPlaneExceptions.DuplicateOperation(p.operationId()))
                 .then(findByIdAndOwner(p.id(), p.ownerUserId()));
+    }
+
+    /**
+     * KAN-500 (CB-03/09): the intent hash (KAN-435, as presented in {@code Idempotency-Key}) and the
+     * on-chain signature are columns, written in the same commit as the state they belong to —
+     * {@code intent_hash} with EXECUTING, {@code execution_signature} with SIGNED and every step after.
+     */
+    private static DatabaseClient.GenericExecuteSpec bindIdentities(DatabaseClient.GenericExecuteSpec spec, ActionProposal p) {
+        String signature = p.execution() == null ? null : p.execution().signature();
+        spec = p.intentHash() == null ? spec.bindNull("intentHash", String.class) : spec.bind("intentHash", p.intentHash());
+        return signature == null ? spec.bindNull("signature", String.class) : spec.bind("signature", signature);
     }
 
     private static boolean isUniqueViolation(Throwable ex) {

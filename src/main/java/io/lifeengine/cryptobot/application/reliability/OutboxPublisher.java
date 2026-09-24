@@ -5,6 +5,8 @@ import io.lifeengine.cryptobot.domain.reliability.OutboxEvent;
 import io.lifeengine.cryptobot.infrastructure.persistence.controlplane.DeadLetterRepository;
 import io.lifeengine.cryptobot.infrastructure.persistence.controlplane.OutboxRepository;
 import io.lifeengine.cryptobot.observability.CryptobotMetrics;
+import io.lifeengine.cryptobot.observability.ErrorCode;
+import io.lifeengine.cryptobot.observability.LogFields;
 import jakarta.annotation.PreDestroy;
 import java.time.Clock;
 import java.time.Duration;
@@ -100,7 +102,9 @@ public class OutboxPublisher {
                     int attempt = e.attempts() + 1;
                     String error = ex.toString();
                     if (attempt >= config.maxAttempts()) {
-                        log.error("outbox_event_dead eventId={} type={} aggregateId={} attempts={} error={} — DLQ", e.id(), e.eventType(), e.aggregateId(), attempt, error);
+                        log.error("outbox_event_dead eventId={} type={} aggregateId={} attempts={} error={} — DLQ", e.id(), e.eventType(), e.aggregateId(), attempt, error,
+                                LogFields.event("outbox_dead"), LogFields.status("dead"), ErrorCode.OUTBOX_DEAD.kv(),
+                                LogFields.proposalId(OutboxEvent.AGGREGATE_PROPOSAL.equals(e.aggregateType()) ? e.aggregateId() : null));
                         DeadLetter letter = DeadLetter.of(DeadLetter.Source.OUTBOX, e.id(),
                                 OutboxEvent.AGGREGATE_PROPOSAL.equals(e.aggregateType()) ? e.aggregateId() : null, e.ownerUserId(),
                                 "Outbox delivery failed after " + attempt + " attempts: " + error,
@@ -109,7 +113,8 @@ public class OutboxPublisher {
                         return Mono.just(new OutboxRepository.Outcome.Dead(letter, error));
                     }
                     Instant next = clock.instant().plus(backoff(attempt));
-                    log.warn("outbox_event_retry eventId={} type={} attempt={} nextAttemptAt={} error={}", e.id(), e.eventType(), attempt, next, error);
+                    log.warn("outbox_event_retry eventId={} type={} attempt={} nextAttemptAt={} error={}", e.id(), e.eventType(), attempt, next, error,
+                            LogFields.event("outbox_retry"), LogFields.status("retrying"));
                     return Mono.just(new OutboxRepository.Outcome.Retry(next, error));
                 });
     }

@@ -1,5 +1,7 @@
 package io.lifeengine.cryptobot.integration.signer;
 
+import io.lifeengine.cryptobot.observability.ErrorCode;
+import io.lifeengine.cryptobot.observability.LogFields;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import io.lifeengine.cryptobot.adapters.solana.SolanaCluster;
 import io.lifeengine.cryptobot.integration.validator.ValidatorClient;
@@ -71,7 +73,8 @@ public class SignerClient {
                 .map(Optional::of)
                 .onErrorResume(
                         ex -> {
-                            log.warn("signer_identity_unavailable baseUrl={} error={}", props.baseUrl(), ex.toString());
+                            log.warn("signer_identity_unavailable baseUrl={} error={}", props.baseUrl(), ex.toString(),
+                                    LogFields.event("signer_identity"), LogFields.status("unavailable"), ErrorCode.SIGNER_UNAVAILABLE.kv());
                             return Mono.just(Optional.empty());
                         });
     }
@@ -108,6 +111,8 @@ public class SignerClient {
                 .retrieve()
                 .bodyToMono(SignResponse.class)
                 .timeout(props.timeout())
+                // KAN-500: same rule as ValidatorClient — a 2xx with no body is a refusal, never an empty completion.
+                .switchIfEmpty(Mono.error(new SignerRefused("no answer from the signer (empty response)")))
                 .onErrorMap(WebClientResponseException.class, ex -> new SignerRefused("HTTP " + ex.getStatusCode().value() + " " + ex.getResponseBodyAsString()))
                 .onErrorMap(ex -> !(ex instanceof SignerRefused), ex -> new SignerRefused(ex.getMessage()));
     }

@@ -1,6 +1,11 @@
 package io.lifeengine.cryptobot.application.controlplane;
 
 import io.lifeengine.cryptobot.adapters.solana.Base58;
+import io.lifeengine.cryptobot.domain.oracle.OracleConsensus;
+import io.lifeengine.cryptobot.domain.oracle.OracleLimits;
+import io.lifeengine.cryptobot.domain.oracle.OracleReading;
+import io.lifeengine.cryptobot.domain.oracle.OracleRefusal;
+import io.lifeengine.cryptobot.domain.oracle.PriceOracle;
 import io.lifeengine.cryptobot.domain.policy.DeterministicPolicyEngine;
 import io.lifeengine.cryptobot.domain.policy.PolicyDecision;
 import io.lifeengine.cryptobot.domain.policy.PolicyInput;
@@ -12,7 +17,9 @@ import io.lifeengine.cryptobot.domain.transactions.ActionProposal;
 import io.lifeengine.cryptobot.domain.transactions.ApprovalRecord;
 import io.lifeengine.cryptobot.domain.transactions.ProposalStatus;
 import io.lifeengine.cryptobot.domain.wallet.Wallet;
+import io.lifeengine.cryptobot.integration.signer.SignerClient;
 import io.lifeengine.cryptobot.integration.validator.ValidatorClient;
+import io.lifeengine.cryptobot.observability.CryptobotMetrics;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.Clock;
@@ -39,6 +46,13 @@ import org.springframework.stereotype.Service;
  *       into {@link PolicyDecision#authorization()}; DENY is a blocking violation named
  *       {@link #RULE_AUTHORIZATION}.
  * </ul>
+ * And before either may trust the state, the price-integrity rules (KAN-439 / KAN-572,
+ * {@link #PRICE_RULES}): the prices in {@code S} come from a multi-source consensus under
+ * committed integrity limits — quorum, freshness, deviation between sources, circuit breaker — and
+ * the price the plan was built on agrees with that consensus; otherwise there is no {@code S} and
+ * the answer is a blocking violation named after the check that failed ({@code PRICE_DEVIATION},
+ * {@code PRICE_STALE}, …), with a message a human can read. The reading travels in
+ * {@link PolicyDecision#oracle()} as the state reference of the decision.
  * Today every proposal still waits for the human, whatever the tier says: ALLOW and
  * REQUIRE_SECOND_AGENT are recorded, not acted on (no autonomous execution). The verdict is what
  * the receipt commits to and what the independent validator re-derives before signing (KAN-438).
@@ -66,21 +80,56 @@ public class PolicyEngine {
     public static final String RULE_VALIDATOR = "VALIDATOR_AVAILABLE";
     /** KAN-438: the approval's timelock has elapsed. */
     public static final String RULE_TIMELOCK = "TIMELOCK_ELAPSED";
+    /**
+     * KAN-439 / KAN-572 (paper §22): the price-integrity rules, one per check, so a blocked intent
+     * says <em>which</em> assumption the state violated. Every asset the plan touches must have a
+     * multi-source consensus and the price the plan was built on must agree with it. Otherwise the
+     * state is corrupt or unknown, and {@code CorrectRules + CorruptState ⇏ SafeExecution}: blocked.
+     * <ul>
+     *   <li>{@link #RULE_PRICE_QUORUM} — at least {@code min_sources} independent, valid, distinct
+     *       sources answered (no reading at all, an unknown asset, a single source: not a fact);
+     *   <li>{@link #RULE_PRICE_STALE} — the quorum was lost to observations older than {@code max_age};
+     *   <li>{@link #RULE_PRICE_DEVIATION} — every source used is within {@code max_deviation_bps}
+     *       of the median (one source saying $18 while the others say $180 is refused, not averaged);
+     *   <li>{@link #RULE_PRICE_CIRCUIT_BREAKER} — the median did not move more than {@code max_move_bps}
+     *       against the last accepted consensus inside {@code move_interval};
+     *   <li>{@link #RULE_PRICE_DRIFT} — the price each leg was planned at is within {@code max_move_bps}
+     *       of the fresh median (the "$18 vs $180" check between the snapshot and the world now).
+     * </ul>
+     */
+    public static final String RULE_PRICE_QUORUM = "PRICE_QUORUM";
+    public static final String RULE_PRICE_STALE = "PRICE_STALE";
+    public static final String RULE_PRICE_DEVIATION = "PRICE_DEVIATION";
+    public static final String RULE_PRICE_CIRCUIT_BREAKER = "PRICE_CIRCUIT_BREAKER";
+    public static final String RULE_PRICE_DRIFT = "PRICE_DRIFT";
+    /** The price-integrity rules, in the order they are applied. */
+    public static final List<String> PRICE_RULES = List.of(RULE_PRICE_QUORUM, RULE_PRICE_STALE, RULE_PRICE_DEVIATION, RULE_PRICE_CIRCUIT_BREAKER, RULE_PRICE_DRIFT);
+    /**
+     * KAN-572: the signer's own hard caps, checked here so the human (and the receipt) see them
+     * before the signer would refuse: the destination of the prepared transaction is in the
+     * signer's allowlist, its lamports are under the signer's cap, and the signer is pinned to the
+     * wallet's cluster. The signer re-checks all three on its own bytes; these rules make the
+     * refusal visible one step earlier.
+     */
+    public static final String RULE_SIGNER_DESTINATION = "SIGNER_DESTINATION_ALLOWLISTED";
+    public static final String RULE_SIGNER_MAX_LAMPORTS = "SIGNER_MAX_LAMPORTS";
+    public static final String RULE_SIGNER_CLUSTER = "SIGNER_CLUSTER";
 
     /**
      * What the caller resolved from the authoritative state for this wallet, at evaluation time.
      *
      * @param lastExecutedAt when this wallet last executed anything, for the cooldown
      * @param executedLast24hUsd notional already executed by this wallet in the last 24 h ({@code daily_exposure})
-     * @param pricesAsOf when the snapshot the plan was built on was valued ({@code oracle_age})
+     * @param pricesAsOf when the snapshot the plan was built on was valued (part of {@code oracle_age})
+     * @param oracle the fresh multi-source reading for the plan's assets (KAN-439); {@code null} = unknown ⇒ deny
      */
-    public record WalletState(Optional<Instant> lastExecutedAt, BigDecimal executedLast24hUsd, Instant pricesAsOf) {
+    public record WalletState(Optional<Instant> lastExecutedAt, BigDecimal executedLast24hUsd, Instant pricesAsOf, OracleReading oracle) {
         public WalletState {
             lastExecutedAt = lastExecutedAt == null ? Optional.empty() : lastExecutedAt;
         }
 
-        public static WalletState fresh(Instant pricesAsOf) {
-            return new WalletState(Optional.empty(), BigDecimal.ZERO, pricesAsOf);
+        public static WalletState fresh(Instant pricesAsOf, OracleReading oracle) {
+            return new WalletState(Optional.empty(), BigDecimal.ZERO, pricesAsOf, oracle);
         }
     }
 
@@ -124,9 +173,9 @@ public class PolicyEngine {
      * @param proposal the simulated proposal (plan + simulation + transaction filled in)
      * @param wallet its wallet
      * @param state what the caller knows about the wallet right now
-     * @param signerPublicKey the signer's identity if the signer is reachable, else empty
+     * @param signer the signer's identity (public key, cluster, caps, allowlist) if the signer is reachable, else empty
      */
-    public PolicyDecision evaluate(ActionProposal proposal, Wallet wallet, WalletState state, Optional<String> signerPublicKey) {
+    public PolicyDecision evaluate(ActionProposal proposal, Wallet wallet, WalletState state, Optional<SignerClient.Identity> signer) {
         List<PolicyDecision.Violation> blocking = new ArrayList<>();
         List<PolicyDecision.Violation> execution = new ArrayList<>();
         List<String> applied = new ArrayList<>();
@@ -163,6 +212,10 @@ public class PolicyEngine {
         if (lastExecutedAt.isPresent() && Duration.between(lastExecutedAt.get(), now).compareTo(props.cooldown()) < 0) {
             blocking.add(new PolicyDecision.Violation(RULE_COOLDOWN, "This wallet executed a trade " + Duration.between(lastExecutedAt.get(), now).toSeconds() + "s ago; cooldown is " + props.cooldown().toSeconds() + "s"));
         }
+
+        // --- KAN-439 / KAN-572: the state must be priced by a consensus before any rule may trust it ---
+        applied.addAll(PRICE_RULES);
+        blocking.addAll(priceViolations(proposal, state.oracle()));
 
         // --- the deterministic verdict over (I, S, R_v) -------------------------------------
         applied.add(RULE_AUTHORIZATION);
@@ -205,13 +258,35 @@ public class PolicyEngine {
         }
 
         applied.add(RULE_SIGNER);
-        if (signerPublicKey.isEmpty()) {
+        if (signer.isEmpty()) {
             execution.add(new PolicyDecision.Violation(RULE_SIGNER, "Signer service unavailable or disabled"));
-        } else if (!signerPublicKey.get().equals(wallet.address())) {
+        } else if (signer.get().publicKey() == null || !signer.get().publicKey().equals(wallet.address())) {
             execution.add(new PolicyDecision.Violation(RULE_SIGNER, "The signer does not control this wallet (read-only wallet): paper trade only"));
         }
 
-        return new PolicyDecision(blocking.isEmpty(), blocking.isEmpty() && execution.isEmpty(), blocking, execution, applied, now, verdict, input);
+        // --- KAN-572: the signer's hard caps, visible before the signer would refuse ------------
+        applied.add(RULE_SIGNER_DESTINATION);
+        applied.add(RULE_SIGNER_MAX_LAMPORTS);
+        applied.add(RULE_SIGNER_CLUSTER);
+        if (signer.isPresent()) {
+            SignerClient.Identity id = signer.get();
+            List<String> allowlist = id.allowedDestinations() == null ? List.of() : id.allowedDestinations();
+            String destination = props.rebalanceVault();
+            if (!allowlist.isEmpty() && destination != null && !destination.isBlank() && !allowlist.contains(destination)) {
+                execution.add(new PolicyDecision.Violation(RULE_SIGNER_DESTINATION,
+                        "Destination " + destination + " is not in the signer's allowlist " + allowlist + ": the signer would refuse these bytes"));
+            }
+            if (proposal.transaction() != null && id.maxLamports() > 0 && proposal.transaction().lamports() > id.maxLamports()) {
+                execution.add(new PolicyDecision.Violation(RULE_SIGNER_MAX_LAMPORTS,
+                        "Transaction moves " + proposal.transaction().lamports() + " lamports; the signer's cap is " + id.maxLamports()));
+            }
+            if (id.cluster() != null && !id.cluster().isBlank() && !id.cluster().equalsIgnoreCase(wallet.cluster().id())) {
+                execution.add(new PolicyDecision.Violation(RULE_SIGNER_CLUSTER,
+                        "The signer only signs for " + id.cluster() + "; this wallet is on " + wallet.cluster().id()));
+            }
+        }
+
+        return new PolicyDecision(blocking.isEmpty(), blocking.isEmpty() && execution.isEmpty(), blocking, execution, applied, now, verdict, input, state.oracle());
     }
 
     /**
@@ -251,6 +326,108 @@ public class PolicyEngine {
     }
 
     /**
+     * The data-integrity part of the envelope (KAN-439 / KAN-572) as blocking violations, each
+     * named after the check that failed and worded for a human — empty means the reading may be
+     * trusted for this plan. Pure over its arguments, so it is applied twice with the same code:
+     * at evaluation (blocking rules {@link #PRICE_RULES}) and again at execution with a fresh
+     * reading (the world may have moved, or the breaker may have tripped).
+     *
+     * <ul>
+     *   <li>no reading ⇒ unknown state ⇒ {@link #RULE_PRICE_QUORUM}, nothing else is checked;
+     *   <li>every asset the plan touches (each leg's symbol and its counter asset) must have an
+     *       accepted consensus in the reading — each refusal maps to its rule;
+     *   <li>the price each leg was built on ({@code estimatedUsd / amount}) must be within
+     *       {@code max_move_bps} of the consensus median — {@link #RULE_PRICE_DRIFT}.
+     * </ul>
+     */
+    public List<PolicyDecision.Violation> priceViolations(ActionProposal proposal, OracleReading reading) {
+        List<PolicyDecision.Violation> out = new ArrayList<>();
+        if (reading == null) {
+            out.add(new PolicyDecision.Violation(RULE_PRICE_QUORUM, "No oracle reading: price integrity unknown (fail-closed)"));
+            return out;
+        }
+        List<RebalanceLeg> legs = proposal.plan() == null ? List.of() : proposal.plan().legs();
+        List<String> assets = new ArrayList<>();
+        for (RebalanceLeg leg : legs) {
+            addAsset(assets, leg.symbol());
+            addAsset(assets, leg.counterAsset());
+        }
+        for (String asset : assets) {
+            Optional<OracleConsensus> c = reading.of(asset);
+            if (c.isEmpty()) {
+                out.add(new PolicyDecision.Violation(RULE_PRICE_QUORUM, asset + ": not in the oracle reading"));
+            } else if (!c.get().accepted()) {
+                out.addAll(refusals(c.get(), reading.limits(), reading.readAt()));
+            }
+        }
+        for (RebalanceLeg leg : legs) {
+            Optional<OracleConsensus> c = reading.of(leg.symbol());
+            if (c.isEmpty() || !c.get().accepted() || leg.amount() == null || leg.amount().signum() <= 0 || leg.estimatedUsd() == null) {
+                continue;
+            }
+            BigDecimal planned = leg.estimatedUsd().divide(leg.amount(), 12, RoundingMode.HALF_UP);
+            int drift = PriceOracle.deviationBps(planned, c.get().priceUsd());
+            if (drift > reading.limits().maxMoveBps()) {
+                out.add(new PolicyDecision.Violation(RULE_PRICE_DRIFT, "Plan priced " + leg.symbol() + " at $" + usd(planned)
+                        + " but the oracle median is $" + usd(c.get().priceUsd()) + " (" + drift + " bps apart, limit " + reading.limits().maxMoveBps()
+                        + "): re-create the proposal on a fresh snapshot"));
+            }
+        }
+        return out;
+    }
+
+    /** One violation per refusal of a consensus, named by what failed; the sources and numbers are in the message. */
+    static List<PolicyDecision.Violation> refusals(OracleConsensus c, OracleLimits limits, Instant readAt) {
+        List<PolicyDecision.Violation> out = new ArrayList<>();
+        String asset = c.asset();
+        String sources = c.used().isEmpty() ? "no source" : c.used().stream().map(o -> o.source() + "=$" + usd(o.priceUsd())).toList().toString();
+        for (OracleRefusal r : c.refusals()) {
+            switch (r) {
+                case NO_OBSERVATIONS -> out.add(new PolicyDecision.Violation(RULE_PRICE_QUORUM,
+                        asset + ": no price source answered (quorum is " + limits.minSources() + ")"));
+                case INSUFFICIENT_SOURCES -> {
+                    List<OracleConsensus.Rejected> stale = c.rejected().stream().filter(x -> "STALE".equals(x.reason())).toList();
+                    if (!stale.isEmpty()) {
+                        String ages = stale.stream().map(x -> x.observation().source() + "=$" + usd(x.observation().priceUsd()) + " observed "
+                                + Duration.between(x.observation().observedAt(), readAt).getSeconds() + "s ago").toList().toString();
+                        out.add(new PolicyDecision.Violation(RULE_PRICE_STALE, asset + ": " + c.used().size() + " fresh source(s), quorum is " + limits.minSources()
+                                + "; stale (older than " + limits.maxAgeSeconds() + "s): " + ages + "; fresh: " + sources));
+                    } else {
+                        List<String> rejected = c.rejected().stream().map(x -> x.observation().source() + "=" + x.reason()).toList();
+                        out.add(new PolicyDecision.Violation(RULE_PRICE_QUORUM, asset + ": " + c.used().size() + " usable source(s) " + sources
+                                + ", quorum is " + limits.minSources() + (rejected.isEmpty() ? "" : "; rejected: " + rejected)));
+                    }
+                }
+                case DEVIATION_EXCEEDED -> out.add(new PolicyDecision.Violation(RULE_PRICE_DEVIATION, asset + ": sources disagree — " + sources
+                        + ", median $" + usd(c.priceUsd()) + ", limit " + limits.maxDeviationBps() + " bps: "
+                        + String.join("; ", c.problems().stream().filter(p -> p.contains("bps apart")).toList())));
+                case CIRCUIT_BREAKER -> out.add(new PolicyDecision.Violation(RULE_PRICE_CIRCUIT_BREAKER,
+                        String.join("; ", c.problems().stream().filter(p -> p.contains("moved")).toList())
+                                + " — circuit breaker: no trade until the move settles or the interval passes"));
+            }
+        }
+        if (out.isEmpty()) {
+            // Not accepted without a refusal (no median, no timestamp): still not a fact.
+            out.add(new PolicyDecision.Violation(RULE_PRICE_QUORUM, asset + ": no consensus " + c.problems()));
+        }
+        return out;
+    }
+
+    private static String usd(BigDecimal v) {
+        return v == null ? "?" : v.setScale(4, RoundingMode.HALF_UP).stripTrailingZeros().toPlainString();
+    }
+
+    private static void addAsset(List<String> assets, String symbol) {
+        if (symbol == null || symbol.isBlank()) {
+            return;
+        }
+        String s = symbol.trim().toUpperCase(Locale.ROOT);
+        if (!assets.contains(s)) {
+            assets.add(s);
+        }
+    }
+
+    /**
      * {@code (I, S)} from a rebalance proposal. Nothing is defaulted: a fact the proposal cannot
      * provide stays {@code null} and fails its predicate.
      *
@@ -261,7 +438,8 @@ public class PolicyEngine {
      *   <li>trade value: the whole plan's turnover, cents rounded up.
      *   <li>slippage: the tolerance the executor applies ({@code executor-slippage-bps}); the
      *       intent does not carry one yet (KAN-435 producer).
-     *   <li>oracle age: seconds since the snapshot the plan was priced on.
+     *   <li>oracle age: seconds since the oldest price fact used — the snapshot the plan was priced
+ *       on or the oldest observation behind the fresh consensus, whichever is older (KAN-439).
      *   <li>expiry: epoch seconds on both sides until intents carry a Solana slot.
      *   <li>nonce unused: this proposal has never started executing.
      *   <li>agent permitted: the proposal's owner is the wallet's owner.
@@ -292,7 +470,7 @@ public class PolicyEngine {
 
         BigDecimal executed = state.executedLast24hUsd();
         Long dailyExposureCents = executed == null || executed.signum() < 0 ? null : AuthorizationProperties.tradeCents(executed);
-        Long oracleAge = state.pricesAsOf() == null || state.pricesAsOf().isAfter(now) ? null : Duration.between(state.pricesAsOf(), now).getSeconds();
+        Long oracleAge = oracleAgeSeconds(state, now);
         boolean agentPermitted = proposal.ownerUserId() != null && proposal.ownerUserId().equals(wallet.ownerUserId());
         boolean nonceUnused = proposal.operationId() == null && proposal.execution() == null && !proposal.status().inFlight()
                 && proposal.status() != ProposalStatus.EXECUTED;
@@ -307,43 +485,90 @@ public class PolicyEngine {
         return new PolicyInput(intent, facts);
     }
 
-    /** Re-checked at execution time — the world may have changed since approval. */
+    /**
+     * {@code oracle_age}: the age of the oldest price fact the decision depends on — the snapshot
+     * the plan was built on <em>and</em> the oldest observation behind the fresh consensus
+     * (KAN-439). Either unknown, or an unaccepted reading ⇒ {@code null} ⇒ {@code ORACLE_FRESH} fails.
+     */
+    static Long oracleAgeSeconds(WalletState state, Instant now) {
+        if (state.pricesAsOf() == null || state.pricesAsOf().isAfter(now) || state.oracle() == null) {
+            return null;
+        }
+        Optional<Instant> consensusAsOf = state.oracle().asOf();
+        if (consensusAsOf.isEmpty()) {
+            return null;
+        }
+        Instant oldest = consensusAsOf.get().isBefore(state.pricesAsOf()) ? consensusAsOf.get() : state.pricesAsOf();
+        return oldest.isAfter(now) ? 0L : Duration.between(oldest, now).getSeconds();
+    }
+
+    /**
+     * KAN-582: one failed execution precondition with the bounded reason the 409 is counted under
+     * ({@code cryptobot_execution_refused_total{reason}}). The message is what the caller reads.
+     */
+    public record Refusal(CryptobotMetrics.RefusalReason reason, String message) {}
+
+    /** Re-checked at execution time — the world may have changed since approval. Messages only; see {@link #executionRefusals}. */
     public List<String> executionPreconditions(ActionProposal proposal) {
-        List<String> problems = new ArrayList<>();
+        return executionRefusals(proposal).stream().map(Refusal::message).toList();
+    }
+
+    /**
+     * Re-checked at execution time, with the reason of each failure. Empty ⇒ the proposal may go
+     * to the chain. The most specific reason is the one the metric counts:
+     * {@link #primaryRefusal(List)}.
+     */
+    public List<Refusal> executionRefusals(ActionProposal proposal) {
+        List<Refusal> problems = new ArrayList<>();
         if (proposal.status() != ProposalStatus.APPROVED) {
-            problems.add("Proposal is " + proposal.status() + ", not APPROVED");
+            problems.add(new Refusal(CryptobotMetrics.RefusalReason.STATE, "Proposal is " + proposal.status() + ", not APPROVED"));
         }
         if (!props.executionEnabled()) {
-            problems.add("Emergency stop is active");
+            problems.add(new Refusal(CryptobotMetrics.RefusalReason.POLICY, "Emergency stop is active"));
         }
         if (proposal.policy() == null || !proposal.policy().executable()) {
-            problems.add("Policy marked this proposal as not executable");
+            // A proposal the cooldown rule blocked is "policy" to the caller; to the dashboard it is
+            // the cooldown, which is the one label the issue asks for by name.
+            boolean cooldown = proposal.policy() != null && proposal.policy().violations() != null
+                    && proposal.policy().violations().stream().anyMatch(v -> RULE_COOLDOWN.equals(v.rule()));
+            problems.add(new Refusal(cooldown ? CryptobotMetrics.RefusalReason.COOLDOWN : CryptobotMetrics.RefusalReason.POLICY,
+                    "Policy marked this proposal as not executable"));
         }
         PolicyVerdict verdict = proposal.policy() == null ? null : proposal.policy().authorization();
         if (verdict == null) {
-            problems.add("No policy verdict on this proposal (evaluated before KAN-436): re-create it");
+            problems.add(new Refusal(CryptobotMetrics.RefusalReason.POLICY, "No policy verdict on this proposal (evaluated before KAN-436): re-create it"));
         } else if (verdict.denied()) {
-            problems.add("Policy verdict is DENY: " + verdict.failedPredicates());
+            problems.add(new Refusal(CryptobotMetrics.RefusalReason.POLICY, "Policy verdict is DENY: " + verdict.failedPredicates()));
         } else if (!rules.hash().equals(verdict.policyHash())) {
             // Policy-binding invariant (paper §23): what was approved under R_v does not execute under R_w.
-            problems.add("Policy changed since evaluation (" + verdict.policyHash() + " → " + rules.hash() + "): re-create the proposal");
+            problems.add(new Refusal(CryptobotMetrics.RefusalReason.POLICY,
+                    "Policy changed since evaluation (" + verdict.policyHash() + " → " + rules.hash() + "): re-create the proposal"));
         } else if (proposal.policy().input() == null) {
-            problems.add("No recorded (I, S) on this proposal (evaluated before KAN-438): the validator cannot re-derive it; re-create it");
+            problems.add(new Refusal(CryptobotMetrics.RefusalReason.POLICY,
+                    "No recorded (I, S) on this proposal (evaluated before KAN-438): the validator cannot re-derive it; re-create it"));
+        }
+        if (proposal.policy() != null && proposal.policy().oracle() == null) {
+            problems.add(new Refusal(CryptobotMetrics.RefusalReason.POLICY, "No oracle reading on this proposal (evaluated before KAN-439): re-create it"));
         }
         if (proposal.approval() == null || proposal.approval().decision() != ApprovalRecord.Decision.APPROVED) {
-            problems.add("No approval record");
+            problems.add(new Refusal(CryptobotMetrics.RefusalReason.STATE, "No approval record"));
         } else {
             Instant executableAt = executableAt(proposal);
             Instant now = clock.instant();
             if (executableAt != null && now.isBefore(executableAt)) {
-                problems.add("Timelock: executable at " + executableAt + " (" + Duration.between(now, executableAt).toSeconds()
-                        + "s remaining); cancel it or wait");
+                problems.add(new Refusal(CryptobotMetrics.RefusalReason.TIMELOCK, "Timelock: executable at " + executableAt + " ("
+                        + Duration.between(now, executableAt).toSeconds() + "s remaining); cancel it or wait"));
             }
         }
         if (proposal.expiresAt() != null && clock.instant().isAfter(proposal.expiresAt())) {
-            problems.add("Proposal expired at " + proposal.expiresAt());
+            problems.add(new Refusal(CryptobotMetrics.RefusalReason.STATE, "Proposal expired at " + proposal.expiresAt()));
         }
         return problems;
+    }
+
+    /** The reason the metric counts when several preconditions failed: the first by {@link CryptobotMetrics.RefusalReason} order. */
+    public static CryptobotMetrics.RefusalReason primaryRefusal(List<Refusal> refusals) {
+        return refusals.stream().map(Refusal::reason).min(Comparator.naturalOrder()).orElse(CryptobotMetrics.RefusalReason.STATE);
     }
 
     private boolean allowed(String symbol) {

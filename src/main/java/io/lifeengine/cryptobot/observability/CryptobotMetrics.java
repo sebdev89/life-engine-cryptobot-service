@@ -1,6 +1,7 @@
 package io.lifeengine.cryptobot.observability;
 
 import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.DistributionSummary;
 import io.micrometer.core.instrument.Gauge;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Tags;
@@ -62,6 +63,15 @@ import java.util.concurrent.atomic.AtomicLong;
  *   anchored.receipts             → anchored_receipts_total               receipts stamped by a FINALIZED batch
  *   anchor.pending                → anchor_pending          (gauge)       receipts without a finalized anchor (Endgame §24)
  *   anchor.finality.latency       → anchor_finality_latency_seconds       broadcast → finalized, per batch
+ *   --- KAN-393 (provenance DAG: lineage API + REUSES edge) ---
+ *   artifact.reuse                → artifact_reuse_total{external}       a STRATEGY that declared REUSES over an earlier MARKET_ANALYSIS; external=false until public receipts exist
+ *   provenance.depth              → provenance_depth (distribution)       max depth of the graph a lineage query returned
+ *   --- KAN-582 (HK-5b: the 409 of /execute says WHY, and every stage of the demo path has a histogram) ---
+ *   cryptobot.execution.refused   → cryptobot_execution_refused_total{reason}   mainnet | timelock | policy | state | cooldown | oracle — one per refused
+ *                                                                              POST /execute (409), before any state change; see {@link RefusalReason}
+ *   cryptobot.stage.latency       → cryptobot_stage_latency_seconds{stage}      histogram (_bucket/_sum/_count) per stage of the demo path:
+ *                                                                              simulate | policy | validate | sign | submit | confirm | reconcile;
+ *                                                                              buckets per stage in {@link Stage#buckets()}
  *   --- KAN-353 (glossary usage: fed by GlossaryEventsService from the UI's batched events) ---
  *   cryptobot.glossary.term       → cryptobot_glossary_term_total{term,action}  open | search | copy — one series per (term, action)
  *   cryptobot.glossary.search     → cryptobot_glossary_search_total{hit}        true | false (a search with no result is the product signal)
@@ -107,6 +117,7 @@ public class CryptobotMetrics {
     static final String DEAD_LETTER_OPEN = "cryptobot.dead.letter.open";
     static final String POLICY_VERDICTS = "policy.verdicts";
     static final String POLICY_PREDICATE_FAILED = "policy.predicate.failed";
+    static final String ORACLE_EXECUTION_REFUSED = "oracle.execution.refused";
     static final String SOLANA_RPC_ERRORS = "solana.rpc.errors";
     static final String SOLANA_CONFIRMATION_LATENCY = "solana.confirmation.latency";
     static final String INTELLIGENCE_RECEIPTS = "intelligence.receipts";
@@ -117,6 +128,72 @@ public class CryptobotMetrics {
     static final String ANCHORED_RECEIPTS = "anchored.receipts";
     static final String ANCHOR_PENDING = "anchor.pending";
     static final String ANCHOR_FINALITY_LATENCY = "anchor.finality.latency";
+    static final String ARTIFACT_REUSE = "artifact.reuse";
+    static final String PROVENANCE_DEPTH = "provenance.depth";
+    static final String EXECUTION_REFUSED = "cryptobot.execution.refused";
+    static final String STAGE_LATENCY = "cryptobot.stage.latency";
+
+    /**
+     * KAN-582: why {@code POST /execute} answered 409 before touching the proposal. Bounded and
+     * ordered by specificity: when several preconditions fail at once (a BLOCKED_BY_POLICY proposal
+     * is also "not APPROVED"), the <em>first</em> in this order is the one counted, so the dashboard
+     * says "policy", not "state". {@code COOLDOWN} is a proposal-time blocking rule today
+     * ({@code PolicyEngine.RULE_COOLDOWN}); it is counted here when someone tries to execute a
+     * proposal that rule blocked, so the label exists and reads 0 when it never happened.
+     */
+    public enum RefusalReason {
+        /** Wallet or proposal on mainnet with {@code allow-mainnet=false} (KAN-493). */
+        MAINNET,
+        /** The approval's timelock has not elapsed (paper §19). */
+        TIMELOCK,
+        /** The policy blocked it by cooldown ({@code COOLDOWN} rule on the recorded decision). */
+        COOLDOWN,
+        /** Kill switch, not executable, DENY, policy hash changed, no (I, S) or no oracle reading on the decision. */
+        POLICY,
+        /** The fresh oracle reading refused the trade at execution time (KAN-439). */
+        ORACLE,
+        /** Not APPROVED, in flight under another operation, expired, no approval record, cluster mismatch. */
+        STATE;
+
+        public String label() {
+            return name().toLowerCase(Locale.ROOT);
+        }
+    }
+
+    /**
+     * KAN-582: the stages of the demo path, each with the buckets its latency lives in. Simulation,
+     * policy, validation and signing are local/RPC round-trips (tens of ms to seconds); submit is one
+     * {@code sendTransaction}; confirm waits for the chain (seconds to a couple of minutes);
+     * reconcile is one row of the sweep (an RPC lookup, sometimes a retry).
+     */
+    public enum Stage {
+        SIMULATE(0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10),
+        POLICY(0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5),
+        VALIDATE(0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5),
+        SIGN(0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5),
+        SUBMIT(0.1, 0.25, 0.5, 1, 2.5, 5, 10),
+        CONFIRM(1, 2.5, 5, 10, 15, 30, 60, 90, 120),
+        RECONCILE(0.1, 0.25, 0.5, 1, 2.5, 5, 10, 30, 60);
+
+        private final double[] bucketsSeconds;
+
+        Stage(double... bucketsSeconds) {
+            this.bucketsSeconds = bucketsSeconds;
+        }
+
+        public String label() {
+            return name().toLowerCase(Locale.ROOT);
+        }
+
+        /** Upper bounds of the histogram buckets, in seconds, ascending. */
+        public Duration[] buckets() {
+            Duration[] out = new Duration[bucketsSeconds.length];
+            for (int i = 0; i < bucketsSeconds.length; i++) {
+                out[i] = Duration.ofMillis(Math.round(bucketsSeconds[i] * 1000));
+            }
+            return out;
+        }
+    }
     static final String GLOSSARY_TERM = "cryptobot.glossary.term";
     static final String GLOSSARY_SEARCH = "cryptobot.glossary.search";
 
@@ -218,6 +295,45 @@ public class CryptobotMetrics {
     /** One failed predicate of a DENY verdict; a verdict with three failures increments three series. */
     public void policyPredicateFailed(String predicate) {
         counter(POLICY_PREDICATE_FAILED, "predicate", low(predicate)).increment();
+    }
+
+    // ---- KAN-439: oracle integrity at execution (paper §22) ------------------------------------
+
+    /** The fresh reading right before signing refused the trade: no consensus, breaker tripped, or the plan's price drifted. */
+    public void oracleExecutionRefused() {
+        counter(ORACLE_EXECUTION_REFUSED).increment();
+    }
+
+    // ---- KAN-582: the 409 of /execute, by reason; the demo path, by stage --------------------
+
+    /** {@code POST /execute} refused before any state change; {@code reason} is the most specific one that applied. */
+    public void executionRefused(RefusalReason reason) {
+        counter(EXECUTION_REFUSED, "reason", (reason == null ? RefusalReason.STATE : reason).label()).increment();
+    }
+
+    /** One completed (or failed) pass through a stage of the demo path. */
+    public void stageLatency(Stage stage, Duration elapsed) {
+        stageTimer(stage).record(elapsed == null || elapsed.isNegative() ? Duration.ZERO : elapsed);
+    }
+
+    /** Starts the clock for {@link #stageLatency(Stage, Duration)}; the caller records on completion or error. */
+    public Timer.Sample stageStart() {
+        return Timer.start(registry);
+    }
+
+    /** Stops a {@link #stageStart()} sample against the stage's histogram. */
+    public void stageStop(Stage stage, Timer.Sample sample) {
+        if (sample != null) {
+            sample.stop(stageTimer(stage));
+        }
+    }
+
+    private Timer stageTimer(Stage stage) {
+        return Timer.builder(STAGE_LATENCY)
+                .description("Latency of one stage of the demo path (KAN-582): histogram buckets per stage")
+                .tag("stage", stage.label())
+                .serviceLevelObjectives(stage.buckets())
+                .register(registry);
     }
 
     // ---- Solana ------------------------------------------------------------------------------
@@ -326,6 +442,19 @@ public class CryptobotMetrics {
                 .record(elapsed);
     }
 
+    // ---- KAN-393: provenance DAG ------------------------------------------------------------------
+
+    /** A receipt reused an earlier artifact ({@code REUSES} edge) instead of recomputing it. {@code external}: the artifact came from another tenant (P1). */
+    public void artifactReuse(boolean external) {
+        counter(ARTIFACT_REUSE, "external", Boolean.toString(external)).increment();
+    }
+
+    /** How deep the graph a lineage query returned was (0 = only the roots). */
+    public void provenanceDepth(int depth) {
+        DistributionSummary.builder(PROVENANCE_DEPTH).description("Max depth of a returned lineage graph (KAN-393)")
+                .register(registry).record(Math.max(0, depth));
+    }
+
     // ---- KAN-353: glossary usage (the UI batches, GlossaryEventsService validates) --------------
 
     /**
@@ -396,6 +525,8 @@ public class CryptobotMetrics {
             counter(RECEIPT_ANCHORS, "result", r);
         }
         counter(ANCHORED_RECEIPTS);
+        counter(ARTIFACT_REUSE, "external", "false");
+        DistributionSummary.builder(PROVENANCE_DEPTH).description("Max depth of a returned lineage graph (KAN-393)").register(registry);
         // The funnel and its failure modes also start at 0 for the asset-less series, so the ratio
         // panels divide by something and the "dónde se cae" panel lists every stage.
         for (String r : new String[] {"awaiting_approval", "blocked_by_policy"}) {
@@ -416,6 +547,16 @@ public class CryptobotMetrics {
         counter(POLICY_VERDICTS, "decision", "deny", "escalation", "none");
         counter(POLICY_VERDICTS, "decision", "escalate", "escalation", "require_second_agent");
         counter(POLICY_VERDICTS, "decision", "escalate", "escalation", "require_human_signature");
+        // KAN-439: "0 refused by the oracle at execution" is measured, not missing.
+        counter(ORACLE_EXECUTION_REFUSED);
+        // KAN-582: every reason of the 409 at 0, and every stage histogram registered with its buckets,
+        // so "Mainnet bloqueado · 409" reads a real series and the latency row is never "No data".
+        for (RefusalReason r : RefusalReason.values()) {
+            counter(EXECUTION_REFUSED, "reason", r.label());
+        }
+        for (Stage s : Stage.values()) {
+            stageTimer(s);
+        }
         // KAN-353: the "búsquedas sin resultado" panel reads 0, not "No data", before the first search.
         counter(GLOSSARY_SEARCH, "hit", "true");
         counter(GLOSSARY_SEARCH, "hit", "false");

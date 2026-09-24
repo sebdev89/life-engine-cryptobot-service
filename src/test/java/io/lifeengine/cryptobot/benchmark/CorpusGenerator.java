@@ -44,7 +44,11 @@ public final class CorpusGenerator {
         INTEGER_OVERFLOW,
         ROUNDING_ATTACK,
         UNAUTHORIZED_AGENT,
-        PROMPT_INJECTED_ACTION;
+        PROMPT_INJECTED_ACTION,
+        /** KAN-572: every price source is older than {@code max_age} — the quorum is lost to staleness ({@code PRICE_STALE}). */
+        STALE_PRICE_SOURCES,
+        /** KAN-572: a single source answers — an opinion, not a consensus ({@code PRICE_QUORUM}). */
+        SINGLE_PRICE_SOURCE;
 
         public boolean adversarial() {
             return this != VALID;
@@ -157,6 +161,8 @@ public final class CorpusGenerator {
             case ROUNDING_ATTACK -> rounding(id, advance);
             case UNAUTHORIZED_AGENT -> unauthorized(id, advance);
             case PROMPT_INJECTED_ACTION -> promptInjected(id, advance);
+            case STALE_PRICE_SOURCES -> priceSources(id, Klass.STALE_PRICE_SOURCES, "every source 900s old", advance);
+            case SINGLE_PRICE_SOURCE -> priceSources(id, Klass.SINGLE_PRICE_SOURCE, "one source answers", advance);
         };
     }
 
@@ -325,6 +331,15 @@ public final class CorpusGenerator {
         TradingIntent t = TradingIntent.trade(pick(List.of(IntentAction.BUY, IntentAction.SELL, IntentAction.SWAP)), agent, "momentum-v3", rules.version(),
                 slot + 500, nonce(agent), AssetId.of(in), AssetId.of(pick(ASSETS.stream().filter(a -> !a.equals(in)).toList())), amount, 30);
         return signed(id, Klass.OVERSIZED_AMOUNT, variant, t, agent, advance);
+    }
+
+    /** KAN-572: an otherwise valid trade whose price the oracle cannot vouch for (the run arms the source fault by class). */
+    private Case priceSources(int id, Klass klass, String variant, long advance) {
+        String agent = pick(permitted);
+        String in = pick(ASSETS);
+        TradingIntent t = TradingIntent.trade(pick(List.of(IntentAction.BUY, IntentAction.SELL, IntentAction.SWAP)), agent, "momentum-v3", rules.version(),
+                slot + 500, nonce(agent), AssetId.of(in), AssetId.of(pick(ASSETS.stream().filter(a -> !a.equals(in)).toList())), amountFor(in, tierValue()), 30);
+        return new Case(id, klass, variant + " for " + in, json(t), sign(agent, t), null, null, null, advance);
     }
 
     private Case staleOracle(int id, long advance) {

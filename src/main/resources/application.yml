@@ -1,8 +1,14 @@
 spring:
   application:
+    # `cryptobot-service` y no `life-engine-cryptobot-service`: es el valor del label `service` de las
+    # métricas que ya consultan los tableros de deploy/observability (service=~"cryptobot|cryptobot-service").
     name: cryptobot-service
   main:
     web-application-type: reactive
+  reactor:
+    # KAN-573: el Reactor Context se proyecta al MDC alrededor de cada operador (LogContext). Sin
+    # esto, traceId/requestId/tenantId/proposalId salen vacíos en cualquier hilo que no sea el del filtro.
+    context-propagation: auto
 
   # R2DBC is the runtime data plane (used by application services & controllers).
   r2dbc:
@@ -88,11 +94,61 @@ cryptobot:
       devnet-url: ${CRYPTOBOT_SOLANA_DEVNET_RPC:https://api.devnet.solana.com}
       mainnet-url: ${CRYPTOBOT_SOLANA_MAINNET_RPC:https://api.mainnet-beta.solana.com}
       timeout: ${CRYPTOBOT_SOLANA_RPC_TIMEOUT:8s}
+  # ---- Price oracle (KAN-439, paper §22): ≥2 independent keyless sources, median, freshness, deviation
+  # bound, circuit breaker. No consensus ⇒ the portfolio view falls back to the static prices below
+  # (labelled "fallback-static") and the policy DENIES every proposal: CorrectRules + CorruptState ⇏ SafeExecution.
   marketdata:
     jupiter-enabled: ${CRYPTOBOT_JUPITER_ENABLED:true}
     jupiter-base-url: ${CRYPTOBOT_JUPITER_BASE_URL:https://lite-api.jup.ag}
     timeout: 6s
-    # Stale-but-honest prices used only when Jupiter is unreachable; the snapshot says "fallback-static".
+    pyth:
+      enabled: ${CRYPTOBOT_PYTH_ENABLED:true}
+      base-url: ${CRYPTOBOT_PYTH_BASE_URL:https://hermes.pyth.network}
+      # symbol → Hermes price-feed id (hex). Only the policy's allowed assets are pinned here; a symbol
+      # without a feed is simply not observed by Pyth (the other sources still have to reach quorum).
+      feeds:
+        SOL: ef0d8b6fda2ceba41da15d4095d1da392a0d2f8ed0c6c7bc0f4cfac8c280b56d
+        USDC: eaa020c61cc479712813461ce153894a96a6c00b21ed0cfc2798d1f9a9e9c94a
+        USDT: 2b89b9dc8fdf9f34709a5b106b472f0f39bb6ca9ce04b0fd7f2e971688e2e53b
+    coingecko:
+      enabled: ${CRYPTOBOT_COINGECKO_ENABLED:true}
+      base-url: ${CRYPTOBOT_COINGECKO_BASE_URL:https://api.coingecko.com}
+      # symbol → CoinGecko coin id. Unknown ids are ignored by the API.
+      ids:
+        SOL: solana
+        USDC: usd-coin
+        USDT: tether
+        JUP: jupiter-exchange-solana
+        BONK: bonk
+        MSOL: msol
+        JITOSOL: jito-staked-sol
+        RAY: raydium
+        WIF: dogwifcoin
+        PYTH: pyth-network
+        JTO: jito-governance-token
+    # KAN-572: Coinbase spot, keyless, one exchange — the source that keeps the quorum when Pyth answers 401
+    # (its public endpoint needs a key since 2026-09) and CoinGecko's public tier lags.
+    coinbase:
+      enabled: ${CRYPTOBOT_COINBASE_ENABLED:true}
+      base-url: ${CRYPTOBOT_COINBASE_BASE_URL:https://api.coinbase.com}
+      products:
+        SOL: SOL-USD
+        USDC: USDC-USD
+        USDT: USDT-USD
+        JUP: JUP-USD
+        BONK: BONK-USD
+        RAY: RAY-USD
+        WIF: WIF-USD
+        PYTH: PYTH-USD
+        JTO: JTO-USD
+    # The integrity assumptions of the execution envelope. Their hash travels in every decision.
+    oracle:
+      min-sources: ${CRYPTOBOT_ORACLE_MIN_SOURCES:2}          # quorum; never below 2
+      max-age: ${CRYPTOBOT_ORACLE_MAX_AGE:300s}               # an observation older than this is not a fact (CoinGecko's public tier lags 1–3 min)
+      max-deviation-bps: ${CRYPTOBOT_ORACLE_MAX_DEVIATION_BPS:100}   # every source within 1 % of the median
+      max-move-bps: ${CRYPTOBOT_ORACLE_MAX_MOVE_BPS:1000}     # breaker: 10 % vs the last accepted consensus…
+      move-interval: ${CRYPTOBOT_ORACLE_MOVE_INTERVAL:5m}     # …younger than this; also the plan-vs-oracle drift bound
+    # Stale-but-honest prices used only when there is no consensus; the snapshot says "fallback-static".
     fallback-prices:
       SOL: 100
       USDC: 1
@@ -227,6 +283,9 @@ cryptobot:
     # PUT /api/cryptobot/demo/chaos {"broadcast":"rpc-down","shots":-1}; shots -1 = until disarmed.
     broadcast: ${CRYPTOBOT_CHAOS_BROADCAST:}
     shots: ${CRYPTOBOT_CHAOS_SHOTS:1}
+    # KAN-572: adversarial price armed at startup, e.g. "SOL:pyth-hermes:factor=0.1" (one source −90 % ⇒ PRICE_DEVIATION),
+    # "SOL:*:age=900" (every source 15 min old ⇒ PRICE_STALE). Runtime: PUT /api/cryptobot/demo/price.
+    price-override: ${CRYPTOBOT_DEMO_PRICE_OVERRIDE:}
   # ---- Business metrics (KAN-425): /actuator/prometheus, names in observability/CryptobotMetrics ----
   metrics:
     # Extra values allowed in the `asset` label, on top of policy.allowed-assets and monitoring.symbols.
@@ -246,6 +305,9 @@ cryptobot:
     signing-key: ${CRYPTOBOT_RECEIPT_SIGNING_KEY:}
     salt-secret: ${CRYPTOBOT_RECEIPT_SALT_SECRET:}
     price-table-version: ${CRYPTOBOT_RECEIPT_PRICE_TABLE:none}
+    # KAN-393: a STRATEGY may declare REUSES over the wallet's latest MARKET_ANALYSIS of the same asset
+    # if it is younger than this (Endgame §19 step 3). PT0S disables reuse.
+    reuse-window: ${CRYPTOBOT_RECEIPT_REUSE_WINDOW:1h}
   # ---- Anchoring on Solana devnet (KAN-394, Endgame §11) ----
   # One SPL Memo transaction per batch: `ir/1 root=<sha256> n=<count> ts=<…>`, signed by the isolated
   # signer (which re-derives the memo from the bytes and only signs it on devnet). Receipts carry the
@@ -266,6 +328,10 @@ lifeengine:
   # never hardcoded per environment (KAN-199 / §2.2).
   deployment:
     env: ${APP_ENV:local}
+  # KAN-573 / KAN-426: `json` (default, lo que lee Promtail/Loki) o `text` (una consola con un humano).
+  # Ver logback-spring.xml.
+  logging:
+    format: ${LOG_FORMAT:json}
   security:
     jwt:
       secret: ${JWT_SECRET:}
@@ -285,6 +351,18 @@ management:
     web:
       exposure:
         include: health, prometheus, metrics, info
+  # KAN-573: el tracer siempre está activo para que cada línea de log lleve traceId/spanId (y para
+  # propagar traceparent hacia Runtime, signer y validator). Exportar a un collector es una decisión
+  # por entorno: MANAGEMENT_OTLP_TRACING_EXPORT_ENABLED=true + OTEL_EXPORTER_OTLP_ENDPOINT. Apagado por
+  # default: sin collector no se intenta nada contra localhost:4318.
+  tracing:
+    sampling:
+      probability: ${OTEL_TRACES_SAMPLER_PROBABILITY:1.0}
+  otlp:
+    tracing:
+      endpoint: ${OTEL_EXPORTER_OTLP_ENDPOINT:http://localhost:4318/v1/traces}
+      export:
+        enabled: ${MANAGEMENT_OTLP_TRACING_EXPORT_ENABLED:false}
   # BuildIdentityConfig owns /actuator/info in the exact shape of LIFE-OPS-02 §2.2. The stock env/git/build
   # contributors are disabled so they cannot pollute or reshape that contract (KAN-199).
   info:
@@ -317,8 +395,8 @@ identity:
     commit-time: ${GIT_COMMIT_TIME:}
 
 logging:
-  pattern:
-    console: "%d{yyyy-MM-dd HH:mm:ss.SSS} %5p marketReviewId=%X{marketReviewId:-} runtimeRunId=%X{runtimeRunId:-} [%t] %logger{36} - %msg%n"
+  # KAN-573: el formato lo decide logback-spring.xml (json | text); el pattern plano con
+  # marketReviewId/runtimeRunId que había acá nunca se llenaba (nadie escribía ese MDC).
   level:
     root: INFO
     io.lifeengine.cryptobot: INFO

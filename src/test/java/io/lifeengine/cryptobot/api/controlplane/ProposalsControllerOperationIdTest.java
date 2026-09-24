@@ -26,6 +26,15 @@ class ProposalsControllerOperationIdTest {
         assertThat(fromHash.toString()).isEqualTo("877dcaf9-6566-ba02-b058-d41c01af02ff");
     }
 
+    /** KAN-500: the hash itself is what gets persisted (action_proposal.intent_hash), canonical lower-case; a UUID key has none. */
+    @Test
+    void intentHashOfIsCanonicalOrNull() {
+        assertThat(ProposalsController.intentHashOf(HASH)).isEqualTo(HASH);
+        assertThat(ProposalsController.intentHashOf(HASH.toUpperCase())).isEqualTo(HASH);
+        assertThat(ProposalsController.intentHashOf(UUID.randomUUID().toString())).isNull();
+        assertThatThrownBy(() -> ProposalsController.intentHashOf("sha256:zz")).isInstanceOf(IllegalArgumentException.class);
+    }
+
     @Test
     void malformedKeysAreIllegalArguments() {
         assertThatThrownBy(() -> ProposalsController.operationIdOf("sha256:zz")).isInstanceOf(IllegalArgumentException.class);

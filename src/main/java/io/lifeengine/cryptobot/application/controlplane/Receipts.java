@@ -6,6 +6,11 @@ import io.lifeengine.cryptobot.application.receipt.ReceiptDraft;
 import io.lifeengine.cryptobot.application.receipt.TenantSalts;
 import io.lifeengine.cryptobot.domain.advisor.AdvisorAnswer;
 import io.lifeengine.cryptobot.domain.intent.JsonCanonicalizer;
+import io.lifeengine.cryptobot.domain.oracle.OracleConsensus;
+import io.lifeengine.cryptobot.domain.oracle.OracleReading;
+import io.lifeengine.cryptobot.domain.policy.DeterministicPolicyEngine;
+import io.lifeengine.cryptobot.domain.policy.PolicyDecision;
+import io.lifeengine.cryptobot.domain.policy.PolicyVerdict;
 import io.lifeengine.cryptobot.domain.portfolio.PortfolioDiff;
 import io.lifeengine.cryptobot.domain.portfolio.PortfolioSnapshot;
 import io.lifeengine.cryptobot.domain.portfolio.Position;
@@ -57,6 +62,11 @@ import org.springframework.stereotype.Component;
  *   <li>{@code risk-decision/1} — the discrete verdict of the deterministic risk engine (action, buckets, reasons, signals
  *       in integer units). No text, no timestamp. L1: the canonical input ({@code risk-input/1}) is declared as a
  *       {@code RISK_INPUT} and stored next to the receipt, so {@code verify} re-executes the engine (KAN-392).
+ *   <li>{@code policy-verdict/1} — the Decision Receipt (KAN-572): the policy layer's verdict over the simulated
+ *       proposal, ALLOW / ESCALATE / DENY with the failed predicates under {@code R_v} ({@code H_R}). L1: the canonical
+ *       {@code (I, S)} is declared as a {@code POLICY_INPUT} and stored next to the receipt, so {@code verify} re-runs
+ *       the policy engine. The hard rules that fired (allowlist, limits, cooldown, price integrity, signer caps) travel
+ *       as signed {@code params} — {@code rule.<NAME>} = the message a human reads — and decide {@code params.status}.
  *   <li>{@code user-text-commitment/1} — {@code H(salt_tenant ‖ 0x00 ‖ text)}: the question never leaves.
  *   <li>{@code advisor-answer/1} — the structured answer the LLM returned.
  *   <li>{@code rebalance-plan/1} — the legs, weights before/after, turnover. Deterministic planner: L1.
@@ -168,6 +178,91 @@ public class Receipts {
         return report.decision();
     }
 
+    // ---- 2b. RISK_DECISION — the policy layer's Decision Receipt (KAN-572) -----------------------
+
+    static final String ENGINE_POLICY = DeterministicPolicyEngine.ID;
+    public static final String POLICY_VERDICT_SCHEMA = "policy-verdict/1";
+
+    /**
+     * Issued for every proposal the policy decided, allowed or blocked (parents: the STRATEGY it
+     * VALIDATES and the SIMULATION it derives from). Kind {@code RISK_DECISION}, agent
+     * {@code policy-engine@R_v}. L1: the engine is {@code (policy-engine, R_v, H_R)}, the input the
+     * canonical {@code (I, S)} ({@code POLICY_INPUT}), the output the verdict ({@code policy-verdict/1});
+     * {@code verify} re-runs {@code DeterministicPolicyEngine.evaluate} on the stored input. The
+     * named rules — what blocked, with the message — are signed params, not re-executed: they depend
+     * on live state (cooldown clock, signer identity, quotes) that the receipt names by hash
+     * ({@code ORACLE_READING}) rather than re-fetches.
+     *
+     * @return empty when the decision has no recorded {@code (I, S)} or verdict (rows persisted before KAN-438)
+     */
+    public java.util.Optional<ReceiptDraft> policyDecision(Wallet wallet, ActionProposal proposal, String strategyReceipt, String simulationReceipt) {
+        PolicyDecision d = proposal.policy();
+        if (d == null || d.authorization() == null || d.input() == null) {
+            return java.util.Optional.empty();
+        }
+        PolicyVerdict v = d.authorization();
+        String tenant = tenantOf(wallet.ownerUserId());
+        List<ReceiptInput> inputs = new ArrayList<>();
+        inputs.add(new ReceiptInput(ReceiptInput.POLICY_INPUT, d.input().hash()));
+        if (d.oracle() != null) {
+            inputs.add(new ReceiptInput(ReceiptInput.ORACLE_READING, d.oracle().quotesHash()));
+        }
+        if (proposal.transaction() != null) {
+            inputs.add(new ReceiptInput(ReceiptInput.TRANSACTION, messageHash(proposal.transaction())));
+        }
+        List<String> parents = new ArrayList<>();
+        if (strategyReceipt != null) {
+            parents.add(strategyReceipt);
+        }
+        if (simulationReceipt != null) {
+            parents.add(simulationReceipt);
+        }
+        Map<String, Object> params = new LinkedHashMap<>();
+        params.put("status", proposal.status().name());
+        params.put("allowed", d.allowed());
+        params.put("executable", d.executable());
+        params.put("decision", v.decision().name());
+        params.put("tier", v.tier().name());
+        params.put("escalation", v.escalation().name());
+        params.put("policyVersion", v.policyVersion());
+        params.put("failedPredicates", String.join(",", v.failedPredicates().stream().map(Enum::name).toList()));
+        params.put("rulesApplied", String.join(",", d.rulesApplied()));
+        params.put("blockedBy", String.join(",", d.violations().stream().map(PolicyDecision.Violation::rule).distinct().toList()));
+        params.put("notExecutableBy", String.join(",", d.executionViolations().stream().map(PolicyDecision.Violation::rule).distinct().toList()));
+        for (PolicyDecision.Violation x : d.violations()) {
+            params.merge("rule." + x.rule(), "BLOCKED: " + x.message(), (a, b) -> a + " | " + b);
+        }
+        for (PolicyDecision.Violation x : d.executionViolations()) {
+            params.merge("rule." + x.rule(), "NOT_EXECUTABLE: " + x.message(), (a, b) -> a + " | " + b);
+        }
+        if (d.oracle() != null) {
+            OracleReading r = d.oracle();
+            params.put("oracle.accepted", r.accepted());
+            params.put("oracle.limitsHash", r.limitsHash());
+            params.put("oracle.minSources", r.limits().minSources());
+            params.put("oracle.maxAgeSeconds", (int) Math.min(Integer.MAX_VALUE, r.limits().maxAgeSeconds()));
+            params.put("oracle.maxDeviationBps", r.limits().maxDeviationBps());
+            params.put("oracle.maxMoveBps", r.limits().maxMoveBps());
+            for (OracleConsensus c : r.assets()) {
+                params.put("oracle." + c.asset(), c.accepted()
+                        ? "median $" + dec(c.priceUsd()) + " from " + String.join("+", c.sources()) + " (" + c.quotesHash() + ")"
+                        : "REFUSED " + c.refusals() + " " + c.problems() + " (" + c.quotesHash() + ")");
+            }
+        }
+        ReceiptBody body = new ReceiptBody(null, ReceiptKind.RISK_DECISION, tenant, wallet.ownerUserId().toString(), ENGINE_POLICY + "@" + v.policyVersion(),
+                parents, inputs, null, null, new ReceiptBody.Engine(ENGINE_POLICY, v.policyVersion(), v.policyHash()), runtimeRef(proposal.runtimeRunId()), params,
+                new ReceiptBody.Output(v.hash(), POLICY_VERDICT_SCHEMA, "action_proposal:" + proposal.id() + "#policy"),
+                new ReceiptBody.Compute(null, null, 1, null), null, ReproducibilityLevel.L1_REPRODUCIBLE,
+                d.evaluatedAt() == null ? clock.instant() : d.evaluatedAt(), clock.instant(), "policy:" + proposal.id(),
+                new ReceiptBody.Refs(wallet.id().toString(), proposal.id().toString(), proposal.snapshotId() == null ? null : proposal.snapshotId().toString()));
+        ReceiptDraft draft = ReceiptDraft.of(body)
+                .withInference(DeterministicInference.unbound(tenant, ENGINE_POLICY, v.policyVersion(), v.policyHash(), d.input().canonicalMap(), v.canonicalMap()));
+        if (strategyReceipt != null) {
+            draft = draft.withRole(strategyReceipt, ReceiptEdge.Role.VALIDATES);
+        }
+        return java.util.Optional.of(draft);
+    }
+
     // ---- 3. HUMAN_IDEA ---------------------------------------------------------------------------
 
     public ReceiptDraft humanIdea(Wallet wallet, UUID messageId, String question, Instant askedAt, String snapshotReceipt) {
@@ -264,6 +359,10 @@ public class Receipts {
         if (proposal.policy() != null && proposal.policy().authorization() != null) {
             inputs.add(new ReceiptInput(ReceiptInput.POLICY_VERDICT, proposal.policy().authorization().hash()));
         }
+        if (proposal.policy() != null && proposal.policy().oracle() != null) {
+            // KAN-439: the state reference — the quotes the decision was priced with, under the committed limits.
+            inputs.add(new ReceiptInput(ReceiptInput.ORACLE_READING, proposal.policy().oracle().quotesHash()));
+        }
         if (proposal.approval() != null) {
             inputs.add(new ReceiptInput(ReceiptInput.APPROVAL, hash(ordered("decision", proposal.approval().decision().name(), "by", proposal.approval().by(),
                     "at", proposal.approval().at().toString()))));
@@ -290,8 +389,9 @@ public class Receipts {
         }
         Long wallMs = startedAt == null ? null : Math.max(0, clock.instant().toEpochMilli() - startedAt.toEpochMilli());
         String nonce = "exec:" + (proposal.operationId() == null ? proposal.id() : proposal.operationId());
+        // KAN-500: the run that advised this trade (when the proposal came out of the advisor) travels to the EXECUTION receipt too.
         ReceiptBody body = new ReceiptBody(null, ReceiptKind.EXECUTION, tenantOf(proposal.ownerUserId()), proposal.ownerUserId().toString(), AGENT_EXECUTION,
-                parents, inputs, null, null, null, runtimeRef(null), Map.of("cluster", proposal.cluster()),
+                parents, inputs, null, null, null, runtimeRef(proposal.runtimeRunId()), Map.of("cluster", proposal.cluster()),
                 new ReceiptBody.Output(hash(out), "execution/1", "action_proposal:" + proposal.id() + "#execution"),
                 new ReceiptBody.Compute(null, null, 1, wallMs), null, ReproducibilityLevel.L0_SIGNED, startedAt == null ? clock.instant() : startedAt,
                 clock.instant(), nonce, new ReceiptBody.Refs(proposal.walletId().toString(), proposal.id().toString(), proposal.snapshotId() == null ? null : proposal.snapshotId().toString()));

@@ -146,7 +146,8 @@ public class ReceiptService {
     /**
      * An L1 receipt and the trees stored next to it must agree before anything is written: the
      * body's {@code engine} is the inference's, the body's output hash is the output tree's hash,
-     * and the body declares the input tree's hash as a {@code RISK_INPUT}. Otherwise the stored
+     * and the body declares the input tree's hash as a {@code RISK_INPUT} (risk engine) or a
+     * {@code POLICY_INPUT} (policy engine, KAN-572). Otherwise the stored
      * row could never reproduce the receipt, and issuing it would be issuing a false L1 claim.
      */
     private static void requireConsistent(ReceiptBody body, DeterministicInference inference) {
@@ -165,9 +166,9 @@ public class ReceiptService {
             throw new IllegalArgumentException("receipt output hash is not the hash of the inference output");
         }
         String inputHash = DeterministicInference.hashOf(inference.input());
-        boolean declared = body.inputs().stream().anyMatch(i -> ReceiptInput.RISK_INPUT.equals(i.type()) && i.hash().equals(inputHash));
+        boolean declared = body.inputs().stream().anyMatch(i -> ReceiptInput.isInferenceInput(i.type()) && i.hash().equals(inputHash));
         if (!declared || !inference.inputHash().equals(inputHash)) {
-            throw new IllegalArgumentException("receipt does not declare the inference input as RISK_INPUT");
+            throw new IllegalArgumentException("receipt does not declare the inference input as RISK_INPUT or POLICY_INPUT");
         }
     }
 

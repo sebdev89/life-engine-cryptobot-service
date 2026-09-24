@@ -13,11 +13,25 @@
     <properties>
         <java.version>21</java.version>
         <spring.boot.version>3.4.2</spring.boot.version>
+        <!-- KAN-604/KAN-500: pinned to the same line life-engine-auth and life-engine-runtime use. -->
+        <testcontainers.version>1.21.4</testcontainers.version>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     </properties>
 
     <dependencyManagement>
         <dependencies>
+            <!--
+              KAN-500: the Testcontainers BOM is imported BEFORE Spring Boot's dependencies so its newer
+              versions win over Boot 3.4.2's bundled 1.20.4, whose docker-java speaks API 1.32 and is
+              refused by Docker Engine 25+ ("client version 1.32 is too old"). Same pin as life-engine-runtime.
+            -->
+            <dependency>
+                <groupId>org.testcontainers</groupId>
+                <artifactId>testcontainers-bom</artifactId>
+                <version>${testcontainers.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
             <dependency>
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-dependencies</artifactId>
@@ -48,6 +62,31 @@
         <dependency>
             <groupId>io.micrometer</groupId>
             <artifactId>micrometer-registry-prometheus</artifactId>
+        </dependency>
+        <!--
+          KAN-573 / KAN-426: logs JSON con campos comunes (service, env, version, commitSha, traceId, spanId,
+          requestId, correlationId, tenantId, proposalId, operationId, runtimeRunId, errorCode…). Mismo
+          patrón que ATP/Dev Agent. 8.0 es la línea para logback 1.5 (Spring Boot 3.4).
+        -->
+        <dependency>
+            <groupId>net.logstash.logback</groupId>
+            <artifactId>logstash-logback-encoder</artifactId>
+            <version>8.0</version>
+        </dependency>
+        <!-- traceId/spanId en el MDC (y en cada línea JSON). La exportación OTLP se enciende por entorno con
+             MANAGEMENT_OTLP_TRACING_EXPORT_ENABLED=true + OTEL_EXPORTER_OTLP_ENDPOINT; apagada, el tracer sólo genera ids. -->
+        <dependency>
+            <groupId>io.micrometer</groupId>
+            <artifactId>micrometer-tracing-bridge-otel</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>io.opentelemetry</groupId>
+            <artifactId>opentelemetry-exporter-otlp</artifactId>
+        </dependency>
+        <!-- Propagación del Reactor Context al MDC (LogContext + spring.reactor.context-propagation=auto). -->
+        <dependency>
+            <groupId>io.micrometer</groupId>
+            <artifactId>context-propagation</artifactId>
         </dependency>
         <dependency>
             <groupId>io.jsonwebtoken</groupId>
@@ -106,6 +145,42 @@
             <groupId>com.squareup.okhttp3</groupId>
             <artifactId>mockwebserver</artifactId>
             <version>4.12.0</version>
+            <scope>test</scope>
+        </dependency>
+        <!--
+          KAN-604 — Testcontainers Postgres for the R2DBC stores the in-memory replica cannot prove
+          (optimistic lock, unique operation_id, FOR UPDATE SKIP LOCKED): *IT classes under
+          infrastructure/persistence/controlplane, run explicitly (-Dtest=…IT), never by plain
+          `mvnw test` (Surefire's default include patterns do not match *IT). Needs Docker; the
+          le-ci runner has it (KAN-296: contention between parallel Testcontainers jobs shows up as
+          "bind: address already in use" — retry, it is not a code regression).
+          KAN-500: the same Testcontainers Postgres backs the in-process chain E2E (ChainE2EIT,
+          profile e2e-chain), which migrates and runs on its own throwaway instance.
+        -->
+        <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>postgresql</artifactId>
+            <version>${testcontainers.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <version>${testcontainers.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <!--
+          Without this, spring-boot-dependencies' own dependencyManagement (3.4.2 pins testcontainers
+          to 1.20.4) wins for the *transitive* `org.testcontainers:testcontainers` core artifact even
+          though `postgresql`/`junit-jupiter` above are pinned to 1.21.4 — a mixed 1.20.4/1.21.4
+          graph whose docker-java client mis-negotiates the daemon's API version ("client version
+          1.32 is too old"; verified locally against Docker Engine 29.7.2, API 1.55). Pinning the
+          core artifact explicitly keeps the whole Testcontainers graph on one version.
+        -->
+        <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>testcontainers</artifactId>
+            <version>${testcontainers.version}</version>
             <scope>test</scope>
         </dependency>
     </dependencies>
@@ -219,6 +294,51 @@
                                 <include>**/e2e/*IT.java</include>
                             </includes>
                             <trimStackTrace>false</trimStackTrace>
+                        </configuration>
+                        <executions>
+                            <execution>
+                                <goals>
+                                    <goal>integration-test</goal>
+                                    <goal>verify</goal>
+                                </goals>
+                            </execution>
+                        </executions>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+
+        <!--
+          KAN-500 — the whole chain in one JVM-driven test, nothing stubbed inside the service:
+          real Spring context on the real R2DBC stores (Postgres via Testcontainers, or CRYPTOBOT_IT_PG_*),
+          cryptobot-validator and cryptobot-signer as real processes (their jars must be packaged first),
+          Solana RPC and Runtime mocked at the HTTP level. Surefire never picks *IT up; Failsafe does, here:
+            ./mvnw -f validator/pom.xml -DskipTests package && ./mvnw -f signer/pom.xml -DskipTests package
+            ./mvnw -Pe2e-chain verify
+        -->
+        <profile>
+            <id>e2e-chain</id>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-surefire-plugin</artifactId>
+                        <configuration>
+                            <skip>true</skip>
+                        </configuration>
+                    </plugin>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-failsafe-plugin</artifactId>
+                        <version>3.5.2</version>
+                        <configuration>
+                            <includes>
+                                <include>**/e2e/chain/*IT.java</include>
+                            </includes>
+                            <trimStackTrace>false</trimStackTrace>
+                            <!-- `verify` runs after spring-boot:repackage turned target/*.jar into a BOOT-INF fat jar
+                                 that is not a classpath entry; the IT needs the plain classes. -->
+                            <classesDirectory>${project.build.outputDirectory}</classesDirectory>
                         </configuration>
                         <executions>
                             <execution>
