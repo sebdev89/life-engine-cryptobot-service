@@ -38,6 +38,8 @@ class CryptobotMetricsTest {
         m.solanaRpcError("sendTransaction", "devnet", "rpc");
         m.solanaConfirmationLatency(Duration.ofSeconds(2), "confirmed", "devnet");
         m.intelligenceReceipt("issued");
+        m.glossaryTerm("PDA", "open");
+        m.glossarySearch(false);
 
         String scrape = prom.scrape();
         assertThat(scrape)
@@ -59,9 +61,40 @@ class CryptobotMetricsTest {
                 .contains("solana_confirmation_latency_seconds_count{")
                 .contains("intelligence_receipts_total{")
                 .contains("deterministic_inference_total")
-                .contains("deterministic_mismatch_total");
+                .contains("deterministic_mismatch_total")
+                // KAN-353: the names the glossary dashboard queries
+                .contains("cryptobot_glossary_term_total{")
+                .contains("cryptobot_glossary_search_total{");
         // Label values are lower-case and bounded: the enum name went in, the label came out normalised.
         assertThat(scrape).contains("result=\"awaiting_approval\"").contains("result=\"approved\"").contains("stage=\"onchain\"");
+        assertThat(scrape).contains("term=\"PDA\"").contains("hit=\"false\"");
+    }
+
+    @Test
+    @DisplayName("KAN-353: the term label is capped — past MAX_GLOSSARY_TERMS distinct terms, new ones are 'other'")
+    void glossaryTermLabelIsCapped() {
+        for (int i = 0; i < CryptobotMetrics.MAX_GLOSSARY_TERMS; i++) {
+            metrics.glossaryTerm("term-" + i, "open");
+        }
+        metrics.glossaryTerm("one too many", "open");
+        metrics.glossaryTerm("and another", "copy");
+        metrics.glossaryTerm("term-7", "copy"); // already seen: keeps its own series, any action
+
+        long termSeries = registry.getMeters().stream()
+                .map(Meter::getId)
+                .filter(id -> id.getName().equals("cryptobot.glossary.term"))
+                .flatMap(id -> id.getTags().stream())
+                .filter(t -> t.getKey().equals("term"))
+                .map(Tag::getValue)
+                .distinct()
+                .count();
+        assertThat(termSeries).isEqualTo(CryptobotMetrics.MAX_GLOSSARY_TERMS + 1); // + "other"
+        assertThat(registry.get("cryptobot.glossary.term").tag("term", "other").tag("action", "open").counter().count()).isEqualTo(1);
+        assertThat(registry.get("cryptobot.glossary.term").tag("term", "other").tag("action", "copy").counter().count()).isEqualTo(1);
+        assertThat(registry.get("cryptobot.glossary.term").tag("term", "term-7").tag("action", "copy").counter().count()).isEqualTo(1);
+        assertThat(registry.find("cryptobot.glossary.term").tag("term", "one too many").counter()).isNull();
+        // search hit/miss exist at 0 before the first search (placeholders)
+        assertThat(registry.get("cryptobot.glossary.search").tag("hit", "false").counter().count()).isZero();
     }
 
     @Test
