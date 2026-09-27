@@ -2,17 +2,17 @@ package io.lifeengine.cryptobot.application.controlplane;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import io.lifeengine.cryptobot.adapters.solana.SolanaCluster;
+import io.lifeengine.cryptobot.solana.rpc.SolanaCluster;
 import io.lifeengine.cryptobot.application.receipt.ReceiptService;
-import io.lifeengine.cryptobot.domain.advisor.AdvisorMessage;
-import io.lifeengine.cryptobot.domain.receipt.Digests;
-import io.lifeengine.cryptobot.domain.receipt.IntelligenceReceipt;
-import io.lifeengine.cryptobot.domain.receipt.ReceiptBody;
-import io.lifeengine.cryptobot.domain.receipt.ReceiptKind;
-import io.lifeengine.cryptobot.domain.receipt.ReceiptSigningKey;
-import io.lifeengine.cryptobot.domain.receipt.ReproducibilityLevel;
-import io.lifeengine.cryptobot.domain.strategy.RebalanceIntent;
-import io.lifeengine.cryptobot.domain.wallet.Wallet;
+import io.lifeengine.cryptobot.trading.advisor.AdvisorMessage;
+import io.lifeengine.cryptobot.core.receipts.Digests;
+import io.lifeengine.cryptobot.core.receipts.IntelligenceReceipt;
+import io.lifeengine.cryptobot.core.receipts.ReceiptBody;
+import io.lifeengine.cryptobot.core.receipts.ReceiptKind;
+import io.lifeengine.cryptobot.core.receipts.ReceiptSigningKey;
+import io.lifeengine.cryptobot.core.receipts.ReproducibilityLevel;
+import io.lifeengine.cryptobot.trading.strategy.RebalanceIntent;
+import io.lifeengine.cryptobot.core.wallet.Wallet;
 import io.lifeengine.cryptobot.testsupport.InMemoryControlPlaneRepositories;
 import java.math.BigDecimal;
 import java.time.Clock;

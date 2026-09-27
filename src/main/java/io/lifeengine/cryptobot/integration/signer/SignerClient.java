@@ -3,7 +3,7 @@ package io.lifeengine.cryptobot.integration.signer;
 import io.lifeengine.cryptobot.observability.ErrorCode;
 import io.lifeengine.cryptobot.observability.LogFields;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
-import io.lifeengine.cryptobot.adapters.solana.SolanaCluster;
+import io.lifeengine.cryptobot.solana.rpc.SolanaCluster;
 import io.lifeengine.cryptobot.integration.validator.ValidatorClient;
 import java.util.List;
 import java.util.Map;

@@ -7,23 +7,23 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
-import io.lifeengine.cryptobot.adapters.solana.SolanaCluster;
-import io.lifeengine.cryptobot.adapters.solana.SolanaRpcClient;
-import io.lifeengine.cryptobot.adapters.solana.tx.SolanaKeypair;
+import io.lifeengine.cryptobot.solana.rpc.SolanaCluster;
+import io.lifeengine.cryptobot.solana.rpc.SolanaRpcClient;
+import io.lifeengine.cryptobot.solana.tx.SolanaKeypair;
 import io.lifeengine.cryptobot.application.oracle.PriceOracleService;
 import io.lifeengine.cryptobot.application.receipt.ReceiptService;
 import io.lifeengine.cryptobot.application.receipt.TenantSalts;
-import io.lifeengine.cryptobot.domain.receipt.IntelligenceReceipt;
-import io.lifeengine.cryptobot.domain.receipt.ReceiptSigningKey;
-import io.lifeengine.cryptobot.domain.policy.PolicyDecision;
-import io.lifeengine.cryptobot.domain.strategy.RebalanceLeg;
-import io.lifeengine.cryptobot.domain.strategy.RebalancePlan;
-import io.lifeengine.cryptobot.domain.transactions.ActionProposal;
-import io.lifeengine.cryptobot.domain.transactions.ApprovalRecord;
-import io.lifeengine.cryptobot.domain.transactions.PreparedTransaction;
-import io.lifeengine.cryptobot.domain.transactions.ProposalStatus;
-import io.lifeengine.cryptobot.domain.transactions.ProposalTransition;
-import io.lifeengine.cryptobot.domain.wallet.Wallet;
+import io.lifeengine.cryptobot.core.receipts.IntelligenceReceipt;
+import io.lifeengine.cryptobot.core.receipts.ReceiptSigningKey;
+import io.lifeengine.cryptobot.core.policy.PolicyDecision;
+import io.lifeengine.cryptobot.trading.strategy.RebalanceLeg;
+import io.lifeengine.cryptobot.trading.strategy.RebalancePlan;
+import io.lifeengine.cryptobot.core.execution.ActionProposal;
+import io.lifeengine.cryptobot.core.execution.ApprovalRecord;
+import io.lifeengine.cryptobot.core.execution.PreparedTransaction;
+import io.lifeengine.cryptobot.core.execution.ProposalStatus;
+import io.lifeengine.cryptobot.core.execution.ProposalTransition;
+import io.lifeengine.cryptobot.core.wallet.Wallet;
 import io.lifeengine.cryptobot.infrastructure.persistence.controlplane.ActionProposalRepository;
 import io.lifeengine.cryptobot.integration.signer.SignerClient;
 import io.lifeengine.cryptobot.integration.validator.ValidatorClient;
@@ -77,7 +77,7 @@ final class ExecutionHarness {
 
     ExecutionHarness() {
         InMemoryControlPlaneRepositories.reset();
-        wallet = new Wallet(UUID.randomUUID(), Fixtures.OWNER, keypair.publicKeyBase58(), SolanaCluster.DEVNET, "demo", now, now);
+        wallet = new Wallet(UUID.randomUUID(), Fixtures.OWNER, keypair.publicKeyBase58(), SolanaCluster.DEVNET.toNetwork(), "demo", now, now);
         byte[] message = "fake-solana-message".getBytes(StandardCharsets.UTF_8);
         tx = new PreparedTransaction("devnet", wallet.address(), Fixtures.VAULT, 2_000_000_000L, "blockhash", 1000,
                 Base64.getEncoder().encodeToString(message), Base64.getEncoder().encodeToString(message), "transfer 2 SOL");
@@ -105,7 +105,7 @@ final class ExecutionHarness {
 
         // KAN-493: mainnet fail-closed by default here too; the wallet above is on devnet.
         service = new ExecutionService(proposals, wallets, simulation, policy, signer, validator, rpc, oracle, audit, metrics, executionReceipts,
-                io.lifeengine.cryptobot.adapters.solana.ExecutionProperties.failClosed());
+                io.lifeengine.cryptobot.solana.rpc.ExecutionProperties.failClosed());
     }
 
     /** The signer signs the real message with the wallet key; returns the transaction id (base58 of the signature). */
@@ -118,7 +118,7 @@ final class ExecutionHarness {
         System.arraycopy(message, 0, wire, 65, message.length);
         when(signer.sign(eq(approved.id()), anyString(), eq(wallet.address()), eq(SolanaCluster.DEVNET), any()))
                 .thenReturn(Mono.just(new SignerClient.SignResponse(Base64.getEncoder().encodeToString(wire), keypair.publicKeyBase58(), null)));
-        return io.lifeengine.cryptobot.adapters.solana.Base58.encode(sig);
+        return io.lifeengine.cryptobot.solana.rpc.Base58.encode(sig);
     }
 
     /**
@@ -142,11 +142,11 @@ final class ExecutionHarness {
                     return Mono.just(new SignerClient.SignResponse(Base64.getEncoder().encodeToString(wire), keypair.publicKeyBase58(), null));
                 });
         when(simulation.prepareTransfer(eq(wallet), anyLong())).thenReturn(Mono.just(tx)).thenReturn(Mono.just(tx2));
-        return io.lifeengine.cryptobot.adapters.solana.Base58.encode(keypair.sign(Base64.getDecoder().decode(tx2.messageBase64())));
+        return io.lifeengine.cryptobot.solana.rpc.Base58.encode(keypair.sign(Base64.getDecoder().decode(tx2.messageBase64())));
     }
 
     String signatureOf(PreparedTransaction t) {
-        return io.lifeengine.cryptobot.adapters.solana.Base58.encode(keypair.sign(Base64.getDecoder().decode(t.messageBase64())));
+        return io.lifeengine.cryptobot.solana.rpc.Base58.encode(keypair.sign(Base64.getDecoder().decode(t.messageBase64())));
     }
 
     /** What a happy validator answers: ESCALATE (human signature tier), an attestation for the message. */

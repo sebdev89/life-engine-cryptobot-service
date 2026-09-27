@@ -1,18 +1,18 @@
 package io.lifeengine.cryptobot.application.reliability;
 
-import io.lifeengine.cryptobot.adapters.solana.SolanaCluster;
-import io.lifeengine.cryptobot.adapters.solana.SolanaRpcClient;
+import io.lifeengine.cryptobot.solana.rpc.SolanaCluster;
+import io.lifeengine.cryptobot.solana.rpc.SolanaRpcClient;
 import io.lifeengine.cryptobot.application.controlplane.AuditService;
 import io.lifeengine.cryptobot.application.controlplane.ControlPlaneExceptions;
 import io.lifeengine.cryptobot.application.controlplane.ExecutionReceipts;
 import io.lifeengine.cryptobot.application.controlplane.ExecutionService;
 import io.lifeengine.cryptobot.application.controlplane.ProposalService;
-import io.lifeengine.cryptobot.domain.reliability.DeadLetter;
-import io.lifeengine.cryptobot.domain.reliability.TradeEvents;
-import io.lifeengine.cryptobot.domain.transactions.ActionProposal;
-import io.lifeengine.cryptobot.domain.transactions.ExecutionRecord;
-import io.lifeengine.cryptobot.domain.transactions.ProposalStatus;
-import io.lifeengine.cryptobot.domain.transactions.ProposalTransition;
+import io.lifeengine.cryptobot.core.reliability.DeadLetter;
+import io.lifeengine.cryptobot.core.reliability.TradeEvents;
+import io.lifeengine.cryptobot.core.execution.ActionProposal;
+import io.lifeengine.cryptobot.core.execution.ExecutionRecord;
+import io.lifeengine.cryptobot.core.execution.ProposalStatus;
+import io.lifeengine.cryptobot.core.execution.ProposalTransition;
 import io.lifeengine.cryptobot.infrastructure.persistence.controlplane.ActionProposalRepository;
 import io.lifeengine.cryptobot.infrastructure.persistence.controlplane.DeadLetterRepository;
 import io.lifeengine.cryptobot.observability.CryptobotMetrics;

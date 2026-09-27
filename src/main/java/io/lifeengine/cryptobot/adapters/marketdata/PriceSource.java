@@ -1,6 +1,6 @@
 package io.lifeengine.cryptobot.adapters.marketdata;
 
-import io.lifeengine.cryptobot.domain.oracle.PriceObservation;
+import io.lifeengine.cryptobot.core.oracle.PriceObservation;
 import java.util.List;
 import java.util.Map;
 import reactor.core.publisher.Mono;

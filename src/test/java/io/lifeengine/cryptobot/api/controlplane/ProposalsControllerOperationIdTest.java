@@ -3,7 +3,7 @@ package io.lifeengine.cryptobot.api.controlplane;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-import io.lifeengine.cryptobot.domain.intent.IntentHash;
+import io.lifeengine.cryptobot.core.intent.IntentHash;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 

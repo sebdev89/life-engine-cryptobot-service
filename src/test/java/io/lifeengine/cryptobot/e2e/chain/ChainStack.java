@@ -2,9 +2,9 @@ package io.lifeengine.cryptobot.e2e.chain;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import io.lifeengine.cryptobot.adapters.solana.Base58;
-import io.lifeengine.cryptobot.adapters.solana.tx.SolanaKeypair;
-import io.lifeengine.cryptobot.domain.policy.PolicyRules;
+import io.lifeengine.cryptobot.solana.rpc.Base58;
+import io.lifeengine.cryptobot.solana.tx.SolanaKeypair;
+import io.lifeengine.cryptobot.core.policy.PolicyRules;
 import java.io.IOException;
 import java.net.ServerSocket;
 import java.net.URI;

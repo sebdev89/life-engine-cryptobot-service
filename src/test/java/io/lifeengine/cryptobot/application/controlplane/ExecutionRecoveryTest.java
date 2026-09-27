@@ -8,19 +8,19 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-import io.lifeengine.cryptobot.adapters.solana.SolanaCluster;
-import io.lifeengine.cryptobot.adapters.solana.SolanaRpcClient;
-import io.lifeengine.cryptobot.adapters.solana.SolanaRpcException;
+import io.lifeengine.cryptobot.solana.rpc.SolanaCluster;
+import io.lifeengine.cryptobot.solana.rpc.SolanaRpcClient;
+import io.lifeengine.cryptobot.solana.rpc.SolanaRpcException;
 import io.lifeengine.cryptobot.application.reliability.DeadLetterService;
 import io.lifeengine.cryptobot.application.reliability.ReconciliationService;
 import io.lifeengine.cryptobot.application.reliability.ReliabilityProperties;
-import io.lifeengine.cryptobot.domain.reliability.DeadLetter;
-import io.lifeengine.cryptobot.domain.reliability.OutboxEvent;
-import io.lifeengine.cryptobot.domain.reliability.TradeEvents;
-import io.lifeengine.cryptobot.domain.transactions.ActionProposal;
-import io.lifeengine.cryptobot.domain.transactions.AuditEvent;
-import io.lifeengine.cryptobot.domain.transactions.ExecutionRecord;
-import io.lifeengine.cryptobot.domain.transactions.ProposalStatus;
+import io.lifeengine.cryptobot.core.reliability.DeadLetter;
+import io.lifeengine.cryptobot.core.reliability.OutboxEvent;
+import io.lifeengine.cryptobot.core.reliability.TradeEvents;
+import io.lifeengine.cryptobot.core.execution.ActionProposal;
+import io.lifeengine.cryptobot.core.execution.AuditEvent;
+import io.lifeengine.cryptobot.core.execution.ExecutionRecord;
+import io.lifeengine.cryptobot.core.execution.ProposalStatus;
 import io.lifeengine.cryptobot.testsupport.InMemoryControlPlaneRepositories;
 import java.net.ConnectException;
 import java.time.Duration;
@@ -319,7 +319,7 @@ class ExecutionRecoveryTest {
         h.service.execute(h.wallet.ownerUserId(), h.approved.id(), "op", UUID.randomUUID()).block();
         ActionProposal stale = h.current();
         // Somebody else (the human's resolve, say) closed the row between the read and the retry.
-        h.repo.commit(io.lifeengine.cryptobot.domain.transactions.ProposalTransition.from(stale,
+        h.repo.commit(io.lifeengine.cryptobot.core.execution.ProposalTransition.from(stale,
                 stale.withExecution(stale.execution().withStatus(ExecutionRecord.FAILED, null, null, "closed"), Instant.now()).withStatus(ProposalStatus.FAILED, Instant.now()))).block();
 
         assertThatThrownBy(() -> reconciliation.reconcile(stale).block()).isInstanceOf(ControlPlaneExceptions.StaleProposal.class);

@@ -148,6 +148,17 @@
             <scope>test</scope>
         </dependency>
         <!--
+          KAN-595 (TAE phase 1, audit §21) — ArchUnit enforces the core/solana/trading package
+          boundaries mechanically, so a future PR that reintroduces a forbidden dependency fails
+          CI instead of relying on review.
+        -->
+        <dependency>
+            <groupId>com.tngtech.archunit</groupId>
+            <artifactId>archunit-junit5</artifactId>
+            <version>1.3.0</version>
+            <scope>test</scope>
+        </dependency>
+        <!--
           KAN-604 — Testcontainers Postgres for the R2DBC stores the in-memory replica cannot prove
           (optimistic lock, unique operation_id, FOR UPDATE SKIP LOCKED): *IT classes under
           infrastructure/persistence/controlplane, run explicitly (-Dtest=…IT), never by plain

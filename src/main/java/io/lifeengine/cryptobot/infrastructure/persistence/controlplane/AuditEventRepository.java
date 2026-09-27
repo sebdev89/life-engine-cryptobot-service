@@ -1,6 +1,6 @@
 package io.lifeengine.cryptobot.infrastructure.persistence.controlplane;
 
-import io.lifeengine.cryptobot.domain.transactions.AuditEvent;
+import io.lifeengine.cryptobot.core.execution.AuditEvent;
 import java.util.UUID;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;

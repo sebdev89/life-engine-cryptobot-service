@@ -3,7 +3,7 @@ package io.lifeengine.cryptobot.infrastructure.persistence.controlplane;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import io.lifeengine.cryptobot.domain.reliability.OutboxEvent;
+import io.lifeengine.cryptobot.core.reliability.OutboxEvent;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.PreparedStatement;

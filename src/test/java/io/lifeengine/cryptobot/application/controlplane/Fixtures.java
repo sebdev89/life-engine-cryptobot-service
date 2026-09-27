@@ -1,15 +1,15 @@
 package io.lifeengine.cryptobot.application.controlplane;
 
 import io.lifeengine.cryptobot.adapters.marketdata.TokenRegistry;
-import io.lifeengine.cryptobot.adapters.solana.SolanaCluster;
-import io.lifeengine.cryptobot.domain.oracle.OracleConsensus;
-import io.lifeengine.cryptobot.domain.oracle.OracleLimits;
-import io.lifeengine.cryptobot.domain.oracle.OracleReading;
-import io.lifeengine.cryptobot.domain.oracle.PriceObservation;
-import io.lifeengine.cryptobot.domain.oracle.PriceOracle;
-import io.lifeengine.cryptobot.domain.portfolio.PortfolioSnapshot;
-import io.lifeengine.cryptobot.domain.portfolio.Position;
-import io.lifeengine.cryptobot.domain.wallet.Wallet;
+import io.lifeengine.cryptobot.solana.rpc.SolanaCluster;
+import io.lifeengine.cryptobot.core.oracle.OracleConsensus;
+import io.lifeengine.cryptobot.core.oracle.OracleLimits;
+import io.lifeengine.cryptobot.core.oracle.OracleReading;
+import io.lifeengine.cryptobot.core.oracle.PriceObservation;
+import io.lifeengine.cryptobot.core.oracle.PriceOracle;
+import io.lifeengine.cryptobot.trading.portfolio.PortfolioSnapshot;
+import io.lifeengine.cryptobot.trading.portfolio.Position;
+import io.lifeengine.cryptobot.core.wallet.Wallet;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.Instant;
@@ -31,7 +31,7 @@ final class Fixtures {
 
     static Wallet wallet(SolanaCluster cluster) {
         Instant now = NOW;
-        return new Wallet(UUID.randomUUID(), OWNER, ADDRESS, cluster, "demo", now, now);
+        return new Wallet(UUID.randomUUID(), OWNER, ADDRESS, cluster.toNetwork(), "demo", now, now);
     }
 
     /** KAN-439: an accepted two-source reading for SOL and USDC, priced {@code solPrice} / $1, observed at {@code at}. */

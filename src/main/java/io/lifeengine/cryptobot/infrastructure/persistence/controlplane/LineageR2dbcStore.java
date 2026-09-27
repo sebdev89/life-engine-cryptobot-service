@@ -1,6 +1,6 @@
 package io.lifeengine.cryptobot.infrastructure.persistence.controlplane;
 
-import io.lifeengine.cryptobot.domain.receipt.ReceiptEdge;
+import io.lifeengine.cryptobot.core.receipts.ReceiptEdge;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Comparator;

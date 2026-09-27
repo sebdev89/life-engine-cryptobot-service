@@ -1,6 +1,6 @@
 package io.lifeengine.cryptobot.application.reliability;
 
-import io.lifeengine.cryptobot.domain.reliability.OutboxEvent;
+import io.lifeengine.cryptobot.core.reliability.OutboxEvent;
 import reactor.core.publisher.Mono;
 
 /**

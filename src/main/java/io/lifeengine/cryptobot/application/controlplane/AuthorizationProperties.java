@@ -1,6 +1,6 @@
 package io.lifeengine.cryptobot.application.controlplane;
 
-import io.lifeengine.cryptobot.domain.policy.PolicyRules;
+import io.lifeengine.cryptobot.core.policy.PolicyRules;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.Duration;

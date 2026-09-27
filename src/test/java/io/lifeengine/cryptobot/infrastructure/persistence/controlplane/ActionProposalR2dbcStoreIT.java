@@ -5,11 +5,11 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.lifeengine.cryptobot.application.controlplane.ControlPlaneExceptions;
-import io.lifeengine.cryptobot.domain.reliability.OutboxEvent;
-import io.lifeengine.cryptobot.domain.transactions.ActionProposal;
-import io.lifeengine.cryptobot.domain.transactions.AuditEvent;
-import io.lifeengine.cryptobot.domain.transactions.ProposalStatus;
-import io.lifeengine.cryptobot.domain.transactions.ProposalTransition;
+import io.lifeengine.cryptobot.core.reliability.OutboxEvent;
+import io.lifeengine.cryptobot.core.execution.ActionProposal;
+import io.lifeengine.cryptobot.core.execution.AuditEvent;
+import io.lifeengine.cryptobot.core.execution.ProposalStatus;
+import io.lifeengine.cryptobot.core.execution.ProposalTransition;
 import io.r2dbc.postgresql.PostgresqlConnectionConfiguration;
 import io.r2dbc.postgresql.PostgresqlConnectionFactory;
 import java.time.Instant;

@@ -1,6 +1,7 @@
 package io.lifeengine.cryptobot.api.controlplane;
 
-import io.lifeengine.cryptobot.adapters.solana.SolanaRpcClient;
+import io.lifeengine.cryptobot.solana.rpc.SolanaCluster;
+import io.lifeengine.cryptobot.solana.rpc.SolanaRpcClient;
 import io.lifeengine.cryptobot.application.controlplane.AdvisorService;
 import io.lifeengine.cryptobot.application.controlplane.PortfolioService;
 import io.lifeengine.cryptobot.application.controlplane.ProposalService;
@@ -71,15 +72,15 @@ public class WalletsController {
             @AuthenticationPrincipal CryptobotPrincipal principal) {
         CryptobotPrincipal p = Principals.require(principal);
         return wallets.require(p.userId(), walletId)
-                .flatMap(w -> rpc.getSignaturesForAddress(w.cluster(), w.address(), limit)
-                        .map(list -> list.stream().map(s -> ControlPlaneDtos.activity(s, w.cluster().explorerTxUrl(s.signature()))).toList()));
+                .flatMap(w -> rpc.getSignaturesForAddress(SolanaCluster.from(w.cluster()), w.address(), limit)
+                        .map(list -> list.stream().map(s -> ControlPlaneDtos.activity(s, SolanaCluster.from(w.cluster()).explorerTxUrl(s.signature()))).toList()));
     }
 
     @PostMapping(path = "/{walletId}/ask", consumes = "application/json")
     public Mono<ControlPlaneDtos.AskResponse> ask(@PathVariable UUID walletId, @RequestBody ControlPlaneDtos.AskRequest req, @AuthenticationPrincipal CryptobotPrincipal principal) {
         CryptobotPrincipal p = Principals.require(principal);
         return wallets.require(p.userId(), walletId).flatMap(w -> {
-            Mono<io.lifeengine.cryptobot.domain.transactions.ActionProposal> ctx = req.proposalId() == null
+            Mono<io.lifeengine.cryptobot.core.execution.ActionProposal> ctx = req.proposalId() == null
                     ? Mono.empty() : proposals.require(p.userId(), req.proposalId());
             return ctx.map(java.util.Optional::of).defaultIfEmpty(java.util.Optional.empty())
                     .flatMap(opt -> advisor.ask(w, Principals.actor(p), req.question(), opt.orElse(null), p.rawToken()))
@@ -105,12 +106,12 @@ public class WalletsController {
         }
         return wallets.require(p.userId(), walletId)
                 .flatMap(w -> proposals.createRebalance(w, Principals.actor(p),
-                        new io.lifeengine.cryptobot.domain.strategy.RebalanceIntent(req.targetWeights(), req.counterAsset()), req.reasoningSummary(), req.runtimeRunId()))
+                        new io.lifeengine.cryptobot.trading.strategy.RebalanceIntent(req.targetWeights(), req.counterAsset()), req.reasoningSummary(), req.runtimeRunId()))
                 .map(pr -> new ControlPlaneDtos.ProposalView(pr, List.of()));
     }
 
     @GetMapping("/{walletId}/proposals")
-    public Flux<io.lifeengine.cryptobot.domain.transactions.ActionProposal> proposals(@PathVariable UUID walletId, @RequestParam(defaultValue = "20") int limit, @AuthenticationPrincipal CryptobotPrincipal principal) {
+    public Flux<io.lifeengine.cryptobot.core.execution.ActionProposal> proposals(@PathVariable UUID walletId, @RequestParam(defaultValue = "20") int limit, @AuthenticationPrincipal CryptobotPrincipal principal) {
         CryptobotPrincipal p = Principals.require(principal);
         return wallets.require(p.userId(), walletId).flatMapMany(w -> proposals.listForWallet(w.id(), limit));
     }

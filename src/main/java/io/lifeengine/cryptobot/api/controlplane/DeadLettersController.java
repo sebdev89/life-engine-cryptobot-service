@@ -1,7 +1,7 @@
 package io.lifeengine.cryptobot.api.controlplane;
 
 import io.lifeengine.cryptobot.application.reliability.DeadLetterService;
-import io.lifeengine.cryptobot.domain.reliability.DeadLetter;
+import io.lifeengine.cryptobot.core.reliability.DeadLetter;
 import io.lifeengine.cryptobot.security.CryptobotPrincipal;
 import java.util.List;
 import java.util.UUID;

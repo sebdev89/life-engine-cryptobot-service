@@ -2,9 +2,9 @@ package io.lifeengine.cryptobot.application.reliability;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import io.lifeengine.cryptobot.domain.reliability.DeadLetter;
-import io.lifeengine.cryptobot.domain.reliability.OutboxEvent;
-import io.lifeengine.cryptobot.domain.reliability.TradeEvents;
+import io.lifeengine.cryptobot.core.reliability.DeadLetter;
+import io.lifeengine.cryptobot.core.reliability.OutboxEvent;
+import io.lifeengine.cryptobot.core.reliability.TradeEvents;
 import io.lifeengine.cryptobot.observability.CryptobotMetrics;
 import io.lifeengine.cryptobot.testsupport.InMemoryControlPlaneRepositories;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;

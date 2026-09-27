@@ -4,21 +4,21 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
 
-import io.lifeengine.cryptobot.adapters.solana.SolanaCluster;
+import io.lifeengine.cryptobot.solana.rpc.SolanaCluster;
 import io.lifeengine.cryptobot.application.oracle.PriceOracleService;
 import io.lifeengine.cryptobot.application.receipt.ReceiptService;
 import io.lifeengine.cryptobot.application.receipt.TenantSalts;
-import io.lifeengine.cryptobot.domain.policy.PolicyDecision;
-import io.lifeengine.cryptobot.domain.policy.PolicyInput;
-import io.lifeengine.cryptobot.domain.policy.PolicyPredicate;
-import io.lifeengine.cryptobot.domain.policy.PolicyVerdict;
-import io.lifeengine.cryptobot.domain.receipt.ReceiptSigningKey;
-import io.lifeengine.cryptobot.domain.reliability.TradeEvents;
-import io.lifeengine.cryptobot.domain.strategy.RebalanceLeg;
-import io.lifeengine.cryptobot.domain.strategy.RebalancePlan;
-import io.lifeengine.cryptobot.domain.transactions.ActionProposal;
-import io.lifeengine.cryptobot.domain.transactions.ProposalStatus;
-import io.lifeengine.cryptobot.domain.wallet.Wallet;
+import io.lifeengine.cryptobot.core.policy.PolicyDecision;
+import io.lifeengine.cryptobot.core.policy.PolicyInput;
+import io.lifeengine.cryptobot.core.policy.PolicyPredicate;
+import io.lifeengine.cryptobot.core.policy.PolicyVerdict;
+import io.lifeengine.cryptobot.core.receipts.ReceiptSigningKey;
+import io.lifeengine.cryptobot.core.reliability.TradeEvents;
+import io.lifeengine.cryptobot.trading.strategy.RebalanceLeg;
+import io.lifeengine.cryptobot.trading.strategy.RebalancePlan;
+import io.lifeengine.cryptobot.core.execution.ActionProposal;
+import io.lifeengine.cryptobot.core.execution.ProposalStatus;
+import io.lifeengine.cryptobot.core.wallet.Wallet;
 import io.lifeengine.cryptobot.infrastructure.persistence.controlplane.ActionProposalRepository;
 import io.lifeengine.cryptobot.integration.signer.SignerClient;
 import io.lifeengine.cryptobot.integration.validator.ValidatorClient;
@@ -58,7 +58,7 @@ class ProposalServiceTimelockTest {
 
     ProposalServiceTimelockTest() {
         InMemoryControlPlaneRepositories.reset();
-        wallet = new Wallet(UUID.randomUUID(), Fixtures.OWNER, "wallet", SolanaCluster.DEVNET, "demo", NOW, NOW);
+        wallet = new Wallet(UUID.randomUUID(), Fixtures.OWNER, "wallet", SolanaCluster.DEVNET.toNetwork(), "demo", NOW, NOW);
         ReceiptService receipts = new ReceiptService(InMemoryControlPlaneRepositories.receipts(), ReceiptSigningKey.generate("test-key"), metrics);
         Receipts receiptOf = new Receipts(new TenantSalts("test-salt-secret".getBytes(StandardCharsets.UTF_8)),
                 null, new com.fasterxml.jackson.databind.ObjectMapper());
@@ -121,7 +121,7 @@ class ProposalServiceTimelockTest {
 
         assertThat(cancelled.status()).isEqualTo(ProposalStatus.REJECTED);
         assertThat(cancelled.approval().by()).isEqualTo("human");
-        assertThat(cancelled.approval().decision()).isEqualTo(io.lifeengine.cryptobot.domain.transactions.ApprovalRecord.Decision.APPROVED);
+        assertThat(cancelled.approval().decision()).isEqualTo(io.lifeengine.cryptobot.core.execution.ApprovalRecord.Decision.APPROVED);
         assertThat(InMemoryControlPlaneRepositories.AUDIT.stream().filter(e -> p.id().equals(e.proposalId())).map(e -> e.eventType()).toList())
                 .containsExactly(ProposalService.EV_APPROVED, ProposalService.EV_CANCELLED);
         assertThat(InMemoryControlPlaneRepositories.AUDIT.stream().filter(e -> ProposalService.EV_CANCELLED.equals(e.eventType())).findFirst().orElseThrow().payload())

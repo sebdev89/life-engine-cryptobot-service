@@ -1,7 +1,7 @@
 package io.lifeengine.cryptobot.infrastructure.persistence.controlplane;
 
-import io.lifeengine.cryptobot.domain.receipt.IntelligenceReceipt;
-import io.lifeengine.cryptobot.domain.receipt.ReceiptBody;
+import io.lifeengine.cryptobot.core.receipts.IntelligenceReceipt;
+import io.lifeengine.cryptobot.core.receipts.ReceiptBody;
 import io.r2dbc.postgresql.codec.Json;
 import io.r2dbc.spi.Row;
 import java.nio.charset.StandardCharsets;

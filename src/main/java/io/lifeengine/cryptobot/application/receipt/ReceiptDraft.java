@@ -1,8 +1,8 @@
 package io.lifeengine.cryptobot.application.receipt;
 
-import io.lifeengine.cryptobot.domain.receipt.DeterministicInference;
-import io.lifeengine.cryptobot.domain.receipt.ReceiptBody;
-import io.lifeengine.cryptobot.domain.receipt.ReceiptEdge;
+import io.lifeengine.cryptobot.core.receipts.DeterministicInference;
+import io.lifeengine.cryptobot.core.receipts.ReceiptBody;
+import io.lifeengine.cryptobot.core.receipts.ReceiptEdge;
 import java.util.Map;
 
 /**

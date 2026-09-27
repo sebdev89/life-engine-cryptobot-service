@@ -1,11 +1,11 @@
 package io.lifeengine.cryptobot.application.chaos;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import io.lifeengine.cryptobot.adapters.solana.ExecutionProperties;
-import io.lifeengine.cryptobot.adapters.solana.SolanaCluster;
-import io.lifeengine.cryptobot.adapters.solana.SolanaRpcClient;
-import io.lifeengine.cryptobot.adapters.solana.SolanaRpcException;
-import io.lifeengine.cryptobot.adapters.solana.SolanaRpcProperties;
+import io.lifeengine.cryptobot.solana.rpc.ExecutionProperties;
+import io.lifeengine.cryptobot.solana.rpc.SolanaCluster;
+import io.lifeengine.cryptobot.solana.rpc.SolanaRpcClient;
+import io.lifeengine.cryptobot.solana.rpc.SolanaRpcException;
+import io.lifeengine.cryptobot.solana.rpc.SolanaRpcProperties;
 import io.lifeengine.cryptobot.observability.CryptobotMetrics;
 import java.net.ConnectException;
 import java.util.concurrent.TimeoutException;

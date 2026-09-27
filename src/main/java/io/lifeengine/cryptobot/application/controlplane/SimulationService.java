@@ -1,15 +1,16 @@
 package io.lifeengine.cryptobot.application.controlplane;
 
-import io.lifeengine.cryptobot.adapters.solana.Base58;
-import io.lifeengine.cryptobot.adapters.solana.SolanaRpcClient;
-import io.lifeengine.cryptobot.adapters.solana.tx.LegacyTransaction;
-import io.lifeengine.cryptobot.adapters.solana.tx.SystemProgram;
-import io.lifeengine.cryptobot.domain.portfolio.PortfolioSnapshot;
-import io.lifeengine.cryptobot.domain.strategy.RebalanceLeg;
-import io.lifeengine.cryptobot.domain.strategy.RebalancePlan;
-import io.lifeengine.cryptobot.domain.transactions.PreparedTransaction;
-import io.lifeengine.cryptobot.domain.transactions.SimulationOutcome;
-import io.lifeengine.cryptobot.domain.wallet.Wallet;
+import io.lifeengine.cryptobot.solana.rpc.Base58;
+import io.lifeengine.cryptobot.solana.rpc.SolanaCluster;
+import io.lifeengine.cryptobot.solana.rpc.SolanaRpcClient;
+import io.lifeengine.cryptobot.solana.tx.LegacyTransaction;
+import io.lifeengine.cryptobot.solana.tx.SystemProgram;
+import io.lifeengine.cryptobot.trading.portfolio.PortfolioSnapshot;
+import io.lifeengine.cryptobot.trading.strategy.RebalanceLeg;
+import io.lifeengine.cryptobot.trading.strategy.RebalancePlan;
+import io.lifeengine.cryptobot.core.execution.PreparedTransaction;
+import io.lifeengine.cryptobot.core.execution.SimulationOutcome;
+import io.lifeengine.cryptobot.core.wallet.Wallet;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.util.List;
@@ -57,7 +58,7 @@ public class SimulationService {
             return Mono.just(new Simulated(new SimulationOutcome(economic, onchain), null));
         }
         return prepareTransfer(wallet, lamports)
-                .flatMap(tx -> rpc.simulateTransaction(wallet.cluster(), tx.unsignedTransactionBase64(), false)
+                .flatMap(tx -> rpc.simulateTransaction(SolanaCluster.from(wallet.cluster()), tx.unsignedTransactionBase64(), false)
                         .map(r -> new Simulated(new SimulationOutcome(economic,
                                 new SimulationOutcome.Onchain(r.ok(), r.error(), r.unitsConsumed(), r.logs(), wallet.cluster().id())), tx))
                         .onErrorResume(ex -> {
@@ -69,7 +70,7 @@ public class SimulationService {
 
     /** Builds a fresh unsigned {@code SystemProgram.transfer(wallet → vault, lamports)} with a current blockhash. */
     public Mono<PreparedTransaction> prepareTransfer(Wallet wallet, long lamports) {
-        return rpc.getLatestBlockhash(wallet.cluster())
+        return rpc.getLatestBlockhash(SolanaCluster.from(wallet.cluster()))
                 .map(bh -> {
                     LegacyTransaction tx = new LegacyTransaction(wallet.address(), bh.blockhash(),
                             List.of(SystemProgram.transfer(wallet.address(), policy.rebalanceVault(), lamports)));

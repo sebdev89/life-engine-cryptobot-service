@@ -2,7 +2,7 @@ package io.lifeengine.cryptobot.application.controlplane;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import io.lifeengine.cryptobot.domain.policy.PolicyRules;
+import io.lifeengine.cryptobot.core.policy.PolicyRules;
 import org.junit.jupiter.api.Test;
 
 /**

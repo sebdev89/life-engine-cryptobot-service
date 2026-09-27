@@ -1,6 +1,6 @@
 package io.lifeengine.cryptobot.adapters.marketdata;
 
-import io.lifeengine.cryptobot.domain.oracle.OracleLimits;
+import io.lifeengine.cryptobot.core.oracle.OracleLimits;
 import java.math.BigDecimal;
 import java.time.Duration;
 import java.util.Map;

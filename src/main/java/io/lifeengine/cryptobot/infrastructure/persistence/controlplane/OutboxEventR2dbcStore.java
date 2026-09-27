@@ -1,6 +1,6 @@
 package io.lifeengine.cryptobot.infrastructure.persistence.controlplane;
 
-import io.lifeengine.cryptobot.domain.reliability.OutboxEvent;
+import io.lifeengine.cryptobot.core.reliability.OutboxEvent;
 import io.r2dbc.postgresql.codec.Json;
 import io.r2dbc.spi.Row;
 import java.time.Instant;

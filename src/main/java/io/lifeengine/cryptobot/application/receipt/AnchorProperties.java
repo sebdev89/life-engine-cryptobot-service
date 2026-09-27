@@ -1,6 +1,6 @@
 package io.lifeengine.cryptobot.application.receipt;
 
-import io.lifeengine.cryptobot.adapters.solana.SolanaCluster;
+import io.lifeengine.cryptobot.solana.rpc.SolanaCluster;
 import java.time.Duration;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 

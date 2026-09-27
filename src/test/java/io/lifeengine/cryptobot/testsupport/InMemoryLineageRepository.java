@@ -1,7 +1,7 @@
 package io.lifeengine.cryptobot.testsupport;
 
-import io.lifeengine.cryptobot.domain.receipt.IntelligenceReceipt;
-import io.lifeengine.cryptobot.domain.receipt.ReceiptEdge;
+import io.lifeengine.cryptobot.core.receipts.IntelligenceReceipt;
+import io.lifeengine.cryptobot.core.receipts.ReceiptEdge;
 import io.lifeengine.cryptobot.infrastructure.persistence.controlplane.LineageRepository;
 import java.util.ArrayDeque;
 import java.util.ArrayList;

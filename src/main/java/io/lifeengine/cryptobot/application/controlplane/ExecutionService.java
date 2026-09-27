@@ -1,20 +1,20 @@
 package io.lifeengine.cryptobot.application.controlplane;
 
-import io.lifeengine.cryptobot.adapters.solana.Base58;
-import io.lifeengine.cryptobot.adapters.solana.ExecutionProperties;
-import io.lifeengine.cryptobot.adapters.solana.MainnetDisabledException;
-import io.lifeengine.cryptobot.adapters.solana.SolanaCluster;
-import io.lifeengine.cryptobot.adapters.solana.SolanaRpcClient;
-import io.lifeengine.cryptobot.adapters.solana.SolanaRpcException;
-import io.lifeengine.cryptobot.adapters.solana.tx.SolanaKeypair;
+import io.lifeengine.cryptobot.solana.rpc.Base58;
+import io.lifeengine.cryptobot.solana.rpc.ExecutionProperties;
+import io.lifeengine.cryptobot.solana.rpc.MainnetDisabledException;
+import io.lifeengine.cryptobot.solana.rpc.SolanaCluster;
+import io.lifeengine.cryptobot.solana.rpc.SolanaRpcClient;
+import io.lifeengine.cryptobot.solana.rpc.SolanaRpcException;
+import io.lifeengine.cryptobot.solana.tx.SolanaKeypair;
 import io.lifeengine.cryptobot.application.oracle.PriceOracleService;
-import io.lifeengine.cryptobot.domain.reliability.TradeEvents;
-import io.lifeengine.cryptobot.domain.transactions.ActionProposal;
-import io.lifeengine.cryptobot.domain.transactions.ExecutionRecord;
-import io.lifeengine.cryptobot.domain.transactions.PreparedTransaction;
-import io.lifeengine.cryptobot.domain.transactions.ProposalStatus;
-import io.lifeengine.cryptobot.domain.transactions.ProposalTransition;
-import io.lifeengine.cryptobot.domain.wallet.Wallet;
+import io.lifeengine.cryptobot.core.reliability.TradeEvents;
+import io.lifeengine.cryptobot.core.execution.ActionProposal;
+import io.lifeengine.cryptobot.core.execution.ExecutionRecord;
+import io.lifeengine.cryptobot.core.execution.PreparedTransaction;
+import io.lifeengine.cryptobot.core.execution.ProposalStatus;
+import io.lifeengine.cryptobot.core.execution.ProposalTransition;
+import io.lifeengine.cryptobot.core.wallet.Wallet;
 import io.lifeengine.cryptobot.integration.signer.SignerClient;
 import io.lifeengine.cryptobot.integration.validator.ValidatorClient;
 import io.lifeengine.cryptobot.observability.CryptobotMetrics;
@@ -198,6 +198,7 @@ public class ExecutionService {
      * the signer is asked. No flag ⇒ no mainnet, whatever the policy said.
      */
     private Mono<Wallet> requireClusterAllowed(ActionProposal p, Wallet wallet) {
+        SolanaCluster walletCluster = SolanaCluster.from(wallet.cluster());
         SolanaCluster proposalCluster;
         try {
             proposalCluster = SolanaCluster.parse(p.cluster());
@@ -205,16 +206,16 @@ public class ExecutionService {
             metrics.executionRefused(CryptobotMetrics.RefusalReason.STATE);
             return Mono.error(new ControlPlaneExceptions.Conflict("Proposal " + p.id() + " is on an unknown cluster: " + p.cluster()));
         }
-        SolanaCluster refused = !execution.permits(wallet.cluster()) ? wallet.cluster() : !execution.permits(proposalCluster) ? proposalCluster : null;
+        SolanaCluster refused = !execution.permits(walletCluster) ? walletCluster : !execution.permits(proposalCluster) ? proposalCluster : null;
         if (refused != null) {
             metrics.executionRefused(CryptobotMetrics.RefusalReason.MAINNET);
-            log.warn("execution_mainnet_disabled proposalId={} walletCluster={} proposalCluster={}", p.id(), wallet.cluster().id(), p.cluster(),
+            log.warn("execution_mainnet_disabled proposalId={} walletCluster={} proposalCluster={}", p.id(), walletCluster.id(), p.cluster(),
                     LogFields.event("execution_refused"), LogFields.status("refused"), ErrorCode.MAINNET_DISABLED.kv());
             return Mono.error(new MainnetDisabledException("execute", refused));
         }
-        if (proposalCluster != wallet.cluster()) {
+        if (proposalCluster != walletCluster) {
             metrics.executionRefused(CryptobotMetrics.RefusalReason.STATE);
-            return Mono.error(new ControlPlaneExceptions.Conflict("Proposal " + p.id() + " was prepared for " + p.cluster() + "; the wallet is on " + wallet.cluster().id()));
+            return Mono.error(new ControlPlaneExceptions.Conflict("Proposal " + p.id() + " was prepared for " + p.cluster() + "; the wallet is on " + walletCluster.id()));
         }
         return Mono.just(wallet);
     }
@@ -287,7 +288,7 @@ public class ExecutionService {
                 //     from live config — bind it to what was actually approved before anything downstream sees it.
                 .flatMap(tx -> requireDestinationBound(executing, tx))
                 // 2. Re-simulate the exact bytes that will be signed.
-                .flatMap(tx -> rpc.simulateTransaction(wallet.cluster(), tx.unsignedTransactionBase64(), false)
+                .flatMap(tx -> rpc.simulateTransaction(SolanaCluster.from(wallet.cluster()), tx.unsignedTransactionBase64(), false)
                         .flatMap(sim -> sim.ok() ? Mono.just(tx)
                                 : Mono.error(new ControlPlaneExceptions.Conflict("Pre-flight simulation failed: " + sim.error())))))
                 // 3. Independent validation (KAN-438, paper §20): a separate process re-derives the verdict
@@ -304,7 +305,7 @@ public class ExecutionService {
                         .map(att -> new Attested(tx, att))))
                 // 4. Sign in the isolated signer (which checks the attestation itself), then verify the signature ourselves.
                 .doOnNext(a -> stage.set(CryptobotMetrics.FailureStage.SIGN))
-                .flatMap(a -> timed(CryptobotMetrics.Stage.SIGN, () -> signer.sign(executing.id(), a.tx().unsignedTransactionBase64(), wallet.address(), wallet.cluster(), a.attestation().attestation())
+                .flatMap(a -> timed(CryptobotMetrics.Stage.SIGN, () -> signer.sign(executing.id(), a.tx().unsignedTransactionBase64(), wallet.address(), SolanaCluster.from(wallet.cluster()), a.attestation().attestation())
                         .map(resp -> verifySigned(a.tx(), resp, wallet, a.attestation()))))
                 // 5. Persist the signature BEFORE broadcasting: from here on a crash is reconcilable.
                 .flatMap(signed -> persistSigned(executing, signed, wallet, actor, retry).map(s -> new Step(s, signed)))
@@ -360,7 +361,7 @@ public class ExecutionService {
 
     private Mono<ActionProposal> persistSigned(ActionProposal executing, Signed signed, Wallet wallet, String actor, boolean retry) {
         Instant now = clock.instant();
-        String explorer = wallet.cluster().explorerTxUrl(signed.signature());
+        String explorer = SolanaCluster.from(wallet.cluster()).explorerTxUrl(signed.signature());
         ExecutionRecord prev = executing.execution();
         ExecutionRecord rec = retry
                 ? prev.retriedWith(signed.signature(), explorer, signed.signer(), signed.tx().recentBlockhash(), signed.tx().lastValidBlockHeight())
@@ -390,7 +391,7 @@ public class ExecutionService {
 
     private Mono<ActionProposal> broadcast(ActionProposal signedP, Signed signed, Wallet wallet, String actor, String asset) {
         long lamports = signedP.transaction().lamports();
-        return timed(CryptobotMetrics.Stage.SUBMIT, () -> rpc.sendTransaction(wallet.cluster(), signed.signedBase64())
+        return timed(CryptobotMetrics.Stage.SUBMIT, () -> rpc.sendTransaction(SolanaCluster.from(wallet.cluster()), signed.signedBase64())
                 .flatMap(sig -> {
                     if (!sig.equals(signed.signature())) {
                         log.warn("execution_signature_mismatch proposalId={} expected={} returned={}", signedP.id(), signed.signature(), sig);
@@ -405,7 +406,7 @@ public class ExecutionService {
                             .publish(ProposalService.tradeEvent(next, TradeEvents.SUBMITTED, submitted,
                                     ProposalService.payload("signature", sig, "explorerUrl", next.execution().explorerUrl(), "lamports", lamports))));
                 }))
-                .flatMap(s -> timed(CryptobotMetrics.Stage.CONFIRM, () -> confirm(wallet.cluster(), s.execution().signature()))
+                .flatMap(s -> timed(CryptobotMetrics.Stage.CONFIRM, () -> confirm(SolanaCluster.from(wallet.cluster()), s.execution().signature()))
                         .doOnNext(status -> metrics.solanaConfirmationLatency(
                                 Duration.between(s.execution().submittedAt(), clock.instant()), confirmationResult(status), wallet.cluster().id()))
                         .flatMap(status -> finish(s, status, actor, asset))

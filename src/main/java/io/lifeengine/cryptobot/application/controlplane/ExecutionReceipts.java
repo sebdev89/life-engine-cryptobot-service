@@ -1,8 +1,8 @@
 package io.lifeengine.cryptobot.application.controlplane;
 
 import io.lifeengine.cryptobot.application.receipt.ReceiptService;
-import io.lifeengine.cryptobot.domain.transactions.ActionProposal;
-import io.lifeengine.cryptobot.domain.transactions.ProposalStatus;
+import io.lifeengine.cryptobot.core.execution.ActionProposal;
+import io.lifeengine.cryptobot.core.execution.ProposalStatus;
 import io.lifeengine.cryptobot.observability.CryptobotMetrics;
 import java.time.Instant;
 import java.util.Optional;

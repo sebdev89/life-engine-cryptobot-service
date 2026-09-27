@@ -1,11 +1,11 @@
 package io.lifeengine.cryptobot.benchmark;
 
-import io.lifeengine.cryptobot.domain.intent.AssetId;
-import io.lifeengine.cryptobot.domain.intent.IntentAction;
-import io.lifeengine.cryptobot.domain.intent.IntentHash;
-import io.lifeengine.cryptobot.domain.intent.JsonCanonicalizer;
-import io.lifeengine.cryptobot.domain.intent.TradingIntent;
-import io.lifeengine.cryptobot.domain.policy.PolicyRules;
+import io.lifeengine.cryptobot.core.intent.AssetId;
+import io.lifeengine.cryptobot.core.intent.IntentAction;
+import io.lifeengine.cryptobot.core.intent.IntentHash;
+import io.lifeengine.cryptobot.core.intent.JsonCanonicalizer;
+import io.lifeengine.cryptobot.core.intent.TradingIntent;
+import io.lifeengine.cryptobot.core.policy.PolicyRules;
 import java.math.BigInteger;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -671,7 +671,7 @@ public final class CorpusGenerator {
     private Case rawSigned(int id, Klass klass, String variant, Map<String, Object> f, String signer, long advance) {
         byte[] sig;
         try {
-            TradingIntent parsed = io.lifeengine.cryptobot.domain.intent.IntentSchema.parse(Json.writeStable(f));
+            TradingIntent parsed = io.lifeengine.cryptobot.core.intent.IntentSchema.parse(Json.writeStable(f));
             sig = sign(signer, parsed);
         } catch (RuntimeException notParseable) {
             sig = new byte[64];

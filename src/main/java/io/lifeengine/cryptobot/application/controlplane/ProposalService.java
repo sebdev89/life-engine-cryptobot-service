@@ -3,21 +3,21 @@ package io.lifeengine.cryptobot.application.controlplane;
 import io.lifeengine.cryptobot.application.oracle.PriceOracleService;
 import io.lifeengine.cryptobot.application.receipt.ReceiptDraft;
 import io.lifeengine.cryptobot.application.receipt.ReceiptService;
-import io.lifeengine.cryptobot.domain.oracle.OracleReading;
-import io.lifeengine.cryptobot.domain.policy.PolicyDecision;
-import io.lifeengine.cryptobot.domain.policy.PolicyVerdict;
-import io.lifeengine.cryptobot.domain.receipt.ReceiptEdge;
-import io.lifeengine.cryptobot.domain.reliability.OutboxEvent;
-import io.lifeengine.cryptobot.domain.reliability.TradeEvents;
-import io.lifeengine.cryptobot.domain.risk.RiskReport;
-import io.lifeengine.cryptobot.domain.strategy.RebalanceIntent;
-import io.lifeengine.cryptobot.domain.strategy.RebalanceLeg;
-import io.lifeengine.cryptobot.domain.strategy.RebalancePlan;
-import io.lifeengine.cryptobot.domain.transactions.ActionProposal;
-import io.lifeengine.cryptobot.domain.transactions.ApprovalRecord;
-import io.lifeengine.cryptobot.domain.transactions.ProposalStatus;
-import io.lifeengine.cryptobot.domain.transactions.ProposalTransition;
-import io.lifeengine.cryptobot.domain.wallet.Wallet;
+import io.lifeengine.cryptobot.core.oracle.OracleReading;
+import io.lifeengine.cryptobot.core.policy.PolicyDecision;
+import io.lifeengine.cryptobot.core.policy.PolicyVerdict;
+import io.lifeengine.cryptobot.core.receipts.ReceiptEdge;
+import io.lifeengine.cryptobot.core.reliability.OutboxEvent;
+import io.lifeengine.cryptobot.core.reliability.TradeEvents;
+import io.lifeengine.cryptobot.trading.risk.RiskReport;
+import io.lifeengine.cryptobot.trading.strategy.RebalanceIntent;
+import io.lifeengine.cryptobot.trading.strategy.RebalanceLeg;
+import io.lifeengine.cryptobot.trading.strategy.RebalancePlan;
+import io.lifeengine.cryptobot.core.execution.ActionProposal;
+import io.lifeengine.cryptobot.core.execution.ApprovalRecord;
+import io.lifeengine.cryptobot.core.execution.ProposalStatus;
+import io.lifeengine.cryptobot.core.execution.ProposalTransition;
+import io.lifeengine.cryptobot.core.wallet.Wallet;
 import io.lifeengine.cryptobot.infrastructure.persistence.controlplane.ActionProposalRepository;
 import io.lifeengine.cryptobot.integration.signer.SignerClient;
 import io.lifeengine.cryptobot.integration.validator.ValidatorClient;
@@ -148,9 +148,9 @@ public class ProposalService {
                 return Mono.error(new ControlPlaneExceptions.InvalidRequest("NOOP", "Portfolio is already within the requested targets"));
             }
             metrics.strategyCreated("proposed", assetOf(plan));
-            io.lifeengine.cryptobot.domain.portfolio.PortfolioSnapshot projected = planner.project(view.snapshot(), plan);
+            io.lifeengine.cryptobot.trading.portfolio.PortfolioSnapshot projected = planner.project(view.snapshot(), plan);
             RiskReport riskAfter = riskEngine.evaluate(projected, null);
-            if (riskAfter.overall() == io.lifeengine.cryptobot.domain.risk.RiskSeverity.HIGH) {
+            if (riskAfter.overall() == io.lifeengine.cryptobot.trading.risk.RiskSeverity.HIGH) {
                 // KAN-573: riesgo alto del portfolio resultante — no bloquea por sí solo (la policy decide), pero se busca en Loki.
                 log.warn("proposal_risk_high wallet={} score={} findings={}", wallet.id(), riskAfter.score(),
                         riskAfter.findings().stream().map(f -> f.code()).toList(),
@@ -204,7 +204,7 @@ public class ProposalService {
     /** A simulated proposal and the receipts it descends from — what the Decision Receipt (KAN-572) points at. */
     private record Simulated(ActionProposal proposal, String strategyReceipt, String simulationReceipt) {}
 
-    private Mono<Simulated> simulate(ActionProposal p, Wallet wallet, io.lifeengine.cryptobot.domain.portfolio.PortfolioSnapshot snapshot, String strategyReceipt) {
+    private Mono<Simulated> simulate(ActionProposal p, Wallet wallet, io.lifeengine.cryptobot.trading.portfolio.PortfolioSnapshot snapshot, String strategyReceipt) {
         Instant started = clock.instant();
         return simulation.simulate(wallet, snapshot, p.plan())
                 .flatMap(sim -> {

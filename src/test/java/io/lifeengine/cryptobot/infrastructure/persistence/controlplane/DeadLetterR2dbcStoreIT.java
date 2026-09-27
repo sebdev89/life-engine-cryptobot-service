@@ -3,7 +3,7 @@ package io.lifeengine.cryptobot.infrastructure.persistence.controlplane;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import io.lifeengine.cryptobot.domain.reliability.DeadLetter;
+import io.lifeengine.cryptobot.core.reliability.DeadLetter;
 import io.r2dbc.postgresql.PostgresqlConnectionConfiguration;
 import io.r2dbc.postgresql.PostgresqlConnectionFactory;
 import java.time.Instant;

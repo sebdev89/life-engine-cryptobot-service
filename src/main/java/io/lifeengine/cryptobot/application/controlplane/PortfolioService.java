@@ -2,14 +2,15 @@ package io.lifeengine.cryptobot.application.controlplane;
 
 import io.lifeengine.cryptobot.adapters.marketdata.PriceProvider;
 import io.lifeengine.cryptobot.adapters.marketdata.TokenRegistry;
-import io.lifeengine.cryptobot.adapters.solana.SolanaRpcClient;
+import io.lifeengine.cryptobot.solana.rpc.SolanaCluster;
+import io.lifeengine.cryptobot.solana.rpc.SolanaRpcClient;
 import io.lifeengine.cryptobot.application.receipt.ReceiptService;
-import io.lifeengine.cryptobot.domain.portfolio.PortfolioChange;
-import io.lifeengine.cryptobot.domain.portfolio.PortfolioDiff;
-import io.lifeengine.cryptobot.domain.portfolio.PortfolioSnapshot;
-import io.lifeengine.cryptobot.domain.portfolio.Position;
-import io.lifeengine.cryptobot.domain.risk.RiskReport;
-import io.lifeengine.cryptobot.domain.wallet.Wallet;
+import io.lifeengine.cryptobot.trading.portfolio.PortfolioChange;
+import io.lifeengine.cryptobot.trading.portfolio.PortfolioDiff;
+import io.lifeengine.cryptobot.trading.portfolio.PortfolioSnapshot;
+import io.lifeengine.cryptobot.trading.portfolio.Position;
+import io.lifeengine.cryptobot.trading.risk.RiskReport;
+import io.lifeengine.cryptobot.core.wallet.Wallet;
 import io.lifeengine.cryptobot.infrastructure.persistence.controlplane.PortfolioSnapshotRepository;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
@@ -73,9 +74,10 @@ public class PortfolioService {
      * exactly one receipt of each kind.
      */
     public Mono<PortfolioView> refresh(Wallet wallet) {
-        Mono<Long> lamports = rpc.getBalanceLamports(wallet.cluster(), wallet.address());
-        Mono<List<SolanaRpcClient.TokenAccountBalance>> tokens = rpc.getTokenAccountsByOwner(wallet.cluster(), wallet.address());
-        Mono<Integer> txCount = rpc.getSignaturesForAddress(wallet.cluster(), wallet.address(), 20)
+        SolanaCluster cluster = SolanaCluster.from(wallet.cluster());
+        Mono<Long> lamports = rpc.getBalanceLamports(cluster, wallet.address());
+        Mono<List<SolanaRpcClient.TokenAccountBalance>> tokens = rpc.getTokenAccountsByOwner(cluster, wallet.address());
+        Mono<Integer> txCount = rpc.getSignaturesForAddress(cluster, wallet.address(), 20)
                 .map(List::size)
                 .onErrorReturn(0);
         return Mono.zip(lamports, tokens, txCount)

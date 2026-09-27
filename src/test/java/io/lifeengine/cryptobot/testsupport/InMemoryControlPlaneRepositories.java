@@ -1,20 +1,20 @@
 package io.lifeengine.cryptobot.testsupport;
 
-import io.lifeengine.cryptobot.adapters.solana.SolanaCluster;
-import io.lifeengine.cryptobot.domain.advisor.AdvisorMessage;
+import io.lifeengine.cryptobot.core.Network;
+import io.lifeengine.cryptobot.trading.advisor.AdvisorMessage;
 import io.lifeengine.cryptobot.application.controlplane.ControlPlaneExceptions;
-import io.lifeengine.cryptobot.domain.portfolio.PortfolioSnapshot;
-import io.lifeengine.cryptobot.domain.receipt.DeterministicInference;
-import io.lifeengine.cryptobot.domain.receipt.IntelligenceReceipt;
-import io.lifeengine.cryptobot.domain.receipt.ReceiptArtifact;
-import io.lifeengine.cryptobot.domain.receipt.ReceiptEdge;
-import io.lifeengine.cryptobot.domain.receipt.ReceiptKind;
-import io.lifeengine.cryptobot.domain.reliability.DeadLetter;
-import io.lifeengine.cryptobot.domain.reliability.OutboxEvent;
-import io.lifeengine.cryptobot.domain.transactions.ActionProposal;
-import io.lifeengine.cryptobot.domain.transactions.AuditEvent;
-import io.lifeengine.cryptobot.domain.transactions.ProposalTransition;
-import io.lifeengine.cryptobot.domain.wallet.Wallet;
+import io.lifeengine.cryptobot.trading.portfolio.PortfolioSnapshot;
+import io.lifeengine.cryptobot.core.receipts.DeterministicInference;
+import io.lifeengine.cryptobot.core.receipts.IntelligenceReceipt;
+import io.lifeengine.cryptobot.core.receipts.ReceiptArtifact;
+import io.lifeengine.cryptobot.core.receipts.ReceiptEdge;
+import io.lifeengine.cryptobot.core.receipts.ReceiptKind;
+import io.lifeengine.cryptobot.core.reliability.DeadLetter;
+import io.lifeengine.cryptobot.core.reliability.OutboxEvent;
+import io.lifeengine.cryptobot.core.execution.ActionProposal;
+import io.lifeengine.cryptobot.core.execution.AuditEvent;
+import io.lifeengine.cryptobot.core.execution.ProposalTransition;
+import io.lifeengine.cryptobot.core.wallet.Wallet;
 import io.lifeengine.cryptobot.infrastructure.persistence.controlplane.ActionProposalRepository;
 import io.lifeengine.cryptobot.infrastructure.persistence.controlplane.AdvisorMessageRepository;
 import io.lifeengine.cryptobot.infrastructure.persistence.controlplane.AuditEventRepository;
@@ -98,7 +98,7 @@ public final class InMemoryControlPlaneRepositories {
             }
 
             @Override
-            public Mono<Wallet> findByOwnerAndAddress(UUID ownerUserId, String address, SolanaCluster cluster) {
+            public Mono<Wallet> findByOwnerAndAddress(UUID ownerUserId, String address, Network cluster) {
                 return Flux.fromIterable(WALLETS.values())
                         .filter(w -> w.ownerUserId().equals(ownerUserId) && w.address().equals(address) && w.cluster() == cluster)
                         .next();

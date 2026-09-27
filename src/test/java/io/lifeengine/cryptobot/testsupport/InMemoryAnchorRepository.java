@@ -1,7 +1,7 @@
 package io.lifeengine.cryptobot.testsupport;
 
-import io.lifeengine.cryptobot.domain.receipt.IntelligenceReceipt;
-import io.lifeengine.cryptobot.domain.receipt.ReceiptAnchor;
+import io.lifeengine.cryptobot.core.receipts.IntelligenceReceipt;
+import io.lifeengine.cryptobot.core.receipts.ReceiptAnchor;
 import io.lifeengine.cryptobot.infrastructure.persistence.controlplane.AnchorRepository;
 import java.util.ArrayList;
 import java.util.Comparator;
