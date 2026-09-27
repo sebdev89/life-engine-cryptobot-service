@@ -349,6 +349,28 @@ class AnchorServiceTest {
     }
 
     @Test
+    @DisplayName("AnchorPort.anchor(root, count): signs and broadcasts an explicit root without touching the persisted batch flow")
+    void anchorPortSignsAndBroadcastsAnExplicitRoot() {
+        String root = Digests.sha256("port-root");
+        io.lifeengine.cryptobot.core.ports.ChainExecutionPort.Submission submission = service.anchor(root, 5).block();
+
+        assertThat(submission.signature()).isNotBlank();
+        verify(signer).signAnchor(eq(root), eq(5), anyString(), eq(signerKey.publicKeyBase58()));
+        verify(rpc).sendTransaction(eq(SolanaCluster.DEVNET), anyString());
+        // Nothing was persisted: this is the port's generic primitive, not the sweep's write path.
+        assertThat(InMemoryAnchorRepository.ANCHORS).isEmpty();
+    }
+
+    @Test
+    @DisplayName("AnchorPort.anchor(root, count): a signer refusal propagates as an error, nothing broadcast")
+    void anchorPortPropagatesSignerRefusal() {
+        doReturn(Mono.error(new SignerClient.SignerRefused("HTTP 403 {\"reason\":\"memo_format\"}"))).when(signer).signAnchor(anyString(), anyInt(), anyString(), anyString());
+        String root = Digests.sha256("port-root-refused");
+        assertThatThrownBy(() -> service.anchor(root, 2).block()).isInstanceOf(SignerClient.SignerRefused.class);
+        verify(rpc, never()).sendTransaction(any(), anyString());
+    }
+
+    @Test
     @DisplayName("the memo is the only thing that leaves: root, count, time — and the text the signer sees is byte-identical")
     void memoContent() {
         issueThree();

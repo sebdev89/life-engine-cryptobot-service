@@ -9,6 +9,8 @@ import io.lifeengine.cryptobot.solana.tx.LegacyTransaction;
 import io.lifeengine.cryptobot.solana.tx.MemoProgram;
 import io.lifeengine.cryptobot.solana.tx.SolanaKeypair;
 import io.lifeengine.cryptobot.application.controlplane.ControlPlaneExceptions;
+import io.lifeengine.cryptobot.core.ports.AnchorPort;
+import io.lifeengine.cryptobot.core.ports.ChainExecutionPort;
 import io.lifeengine.cryptobot.core.receipts.AnchorMemo;
 import io.lifeengine.cryptobot.core.receipts.Digests;
 import io.lifeengine.cryptobot.core.receipts.IntelligenceReceipt;
@@ -57,7 +59,7 @@ import reactor.core.publisher.Mono;
  * </ul>
  */
 @Service
-public class AnchorService {
+public class AnchorService implements AnchorPort {
 
     private static final Logger log = LoggerFactory.getLogger(AnchorService.class);
 
@@ -221,6 +223,36 @@ public class AnchorService {
                     metrics.receiptAnchor("failed");
                     return anchors.update(anchor.failedAttempt(ex.getMessage(), now));
                 });
+    }
+
+    /**
+     * ({@link AnchorPort}) — The same build-sign-broadcast steps as {@link #submit}, over
+     * an explicit root/count instead of a persisted {@link ReceiptAnchor}. Devnet only (the signer
+     * refuses anything else, same guard as {@link #submit}). Nothing is persisted here: {@link
+     * #submit} keeps owning the batch bookkeeping ({@code ReceiptAnchor} rows, retries, {@link
+     * #settle}) unchanged; this is the port's generic primitive for a caller that only wants "sign
+     * and broadcast this root", not the sweep's write path.
+     */
+    @Override
+    public Mono<ChainExecutionPort.Submission> anchor(String root, int count) {
+        SolanaCluster cluster = props.solanaCluster();
+        AnchorMemo memo = new AnchorMemo(root, count, clock.instant());
+        return signer.identity()
+                .flatMap(id -> id.map(Mono::just).orElseGet(() -> Mono.error(new SignerClient.SignerRefused("signer unavailable or disabled"))))
+                .flatMap(identity -> {
+                    if (!"devnet".equalsIgnoreCase(identity.cluster())) {
+                        return Mono.error(new SignerClient.SignerRefused("signer is not on devnet: " + identity.cluster()));
+                    }
+                    String feePayer = identity.publicKey();
+                    return rpc.getLatestBlockhash(cluster).flatMap(bh -> {
+                        LegacyTransaction tx = new LegacyTransaction(feePayer, bh.blockhash(), List.of(MemoProgram.memo(memo.text())));
+                        return signer.signAnchor(memo.root(), memo.count(), tx.unsignedBase64(), feePayer)
+                                .map(resp -> new Signed(feePayer, resp.signedTransactionBase64(), verifySigned(tx, resp, feePayer), bh));
+                    });
+                })
+                .flatMap(signed -> rpc.sendTransaction(cluster, signed.signedBase64())
+                        .doOnNext(sig -> log.info("anchor_port_submitted root={} tx={} explorer={}", root, sig, cluster.explorerTxUrl(sig)))
+                        .map(ChainExecutionPort.Submission::new));
     }
 
     private record Signed(String feePayer, String signedBase64, String signature, SolanaRpcClient.LatestBlockhash blockhash) {}

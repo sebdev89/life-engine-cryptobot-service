@@ -24,15 +24,21 @@ import org.junit.jupiter.api.Test;
  *       {@code trading} today.
  * </ul>
  *
- * <p><b>What this does not yet check</b> ("chain ports", depends on this story): {@code
- * ExecutionService}, {@code SimulationService}, {@code PolicyEngine} and {@code ProposalService}
- * still live in {@code application.controlplane} and still import {@code solana.rpc}/{@code
- * solana.tx}/{@code integration.signer}/{@code integration.validator} directly (audit gap G9) —
- * they are not yet inside {@code core}, precisely because moving them there without the
- * {@code ChainSimulationPort}/{@code ChainExecutionPort}/{@code ChainObservationPort} ports an internal ticket
- * introduces would make this test fail for real (the point of writing it now). Once an internal ticket moves
- * them, this test's rules make them honest without changing a single assertion here — a class
- * either belongs in {@code core} and complies, or it stays out.
+ * <p><b>What this does not yet check</b>: {@code ExecutionService}, {@code SimulationService},
+ * {@code PolicyEngine} and {@code ProposalService} still live in {@code application.controlplane}
+ * and still import {@code solana.rpc}/{@code solana.tx}/{@code integration.signer}/{@code
+ * integration.validator} directly (audit gap G9) — they are not inside {@code core}. The chain-ports change
+ * introduced {@code core.ports} ({@code ChainSimulationPort}/{@code ChainExecutionPort}/{@code
+ * ChainObservationPort}/{@code AssetPort}/{@code AnchorPort}, implemented by {@code
+ * SolanaChainAdapter}/{@code AnchorService}) but deliberately left these four callers where they
+ * are: {@code PolicyEngine} and {@code ProposalService} depend directly on {@code trading.strategy}
+ * (e.g. {@code RebalanceLeg}) the same way {@code ActionProposal} does — moving them into {@code
+ * core} today would either fail this test for real or need the same kind of documented exception,
+ * which is exactly the canonical-intent rewrite (gap G2) owns, not a mechanical ports PR.
+ * Wiring {@code ExecutionService}/{@code SimulationService}/{@code AnchorService} onto the new
+ * ports without relocating them is future work (proposal: {@code
+ * cryptobot-execution-uses-chain-ports.md}); this test's rules do not need to change for that
+ * either way — a class either belongs in {@code core} and complies, or it stays out.
  */
 class ModuleBoundariesTest {
 
@@ -115,9 +121,10 @@ class ModuleBoundariesTest {
                 .should().dependOnClassesThat()
                 .haveFullyQualifiedName("io.lifeengine.cryptobot.integration.signer.SignerClient")
                 .because("(audit §21): 'the signer client is reachable only from core.signing'."
-                        + " Today nothing in core/solana/trading calls it (ExecutionService, the one caller,"
-                        + " is still in application.controlplane); an internal ticket is what moves it into core.signing"
-                        + " without breaking this rule.");
+                        + " Still nothing in core/solana/trading calls it (ExecutionService, the one caller,"
+                        + " is still in application.controlplane, deliberately — core.ports was introduced"
+                        + " without relocating it); moving it into core.signing without breaking this rule is"
+                        + " future work, tracked with the chain-ports-callers proposal.");
         rule.check(classes);
     }
 }
