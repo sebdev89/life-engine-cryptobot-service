@@ -197,6 +197,22 @@ cryptobot:
   # the readiness gate (CB-13). policy.execution-cluster below stays devnet regardless (belt and braces).
   execution:
     allow-mainnet: ${CRYPTOBOT_ALLOW_MAINNET:false}
+  # ── El programa on-chain intent-authority (KAN-752) ────────────────────────────────────────
+  # APAGADO por defecto y a propósito: el programa todavía no está desplegado en devnet, así que no
+  # hay dirección a la que invocar. Con enabled=false el comportamiento es exactamente el de hoy y
+  # el nivel 4 del paper se verifica sólo en los tests. Encenderlo exige el program-id: un
+  # enabled=true sin dirección hace fallar el ARRANQUE, no el primer request — el modo de falla más
+  # caro de este sistema es el que aparece después de la aprobación humana.
+  #
+  # El program-id es público (es una dirección, no un secreto) y sale del deploy:
+  #   programs/intent-authority/scripts/deploy-devnet.sh
+  authority:
+    enabled: ${CRYPTOBOT_AUTHORITY_ENABLED:false}
+    program-id: ${CRYPTOBOT_AUTHORITY_PROGRAM_ID:}
+    policy-version: ${CRYPTOBOT_AUTHORITY_POLICY_VERSION:1}
+    # Ventana de expiración (I2) en slots. ~60 s a 400 ms/slot: alcanza para la aprobación humana y
+    # la firma, y es corta para un replay.
+    valid-slots: ${CRYPTOBOT_AUTHORITY_VALID_SLOTS:150}
   policy:
     # Emergency stop. false ⇒ nothing is ever signed or broadcast; proposals still work as paper trades.
     execution-enabled: ${CRYPTOBOT_EXECUTION_ENABLED:true}
