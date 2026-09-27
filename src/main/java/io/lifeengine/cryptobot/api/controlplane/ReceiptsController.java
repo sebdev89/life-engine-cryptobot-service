@@ -15,6 +15,7 @@ import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -90,5 +91,22 @@ public class ReceiptsController {
             @AuthenticationPrincipal CryptobotPrincipal principal) {
         CryptobotPrincipal p = Principals.require(principal);
         return wallets.require(p.userId(), walletId).flatMapMany(w -> receipts.forWallet(w.id(), limit));
+    }
+
+    /**
+     * KAN-597 (TAE fase 2, mandato §28 gap G15/G7): the receipt in the request body, not looked up
+     * by hash — "anyone can check a signature offline" (class javadoc) taken literally: a caller
+     * that only has what a receipt handed them (its body, its signature, optionally the canonical
+     * bytes and the anchor) can verify it without ever having stored anything with this service.
+     * {@code body} is required; everything else is optional (see {@link
+     * ControlPlaneDtos.VerifyReceiptRequest}). No owner scoping on the candidate itself — there is
+     * no stored row to own — but the caller must still authenticate, same as every other {@code
+     * /api/cryptobot/**} route.
+     */
+    @PostMapping(path = "/receipts/verify", consumes = "application/json")
+    public Mono<ReceiptVerification> verifyByBody(@RequestBody ControlPlaneDtos.VerifyReceiptRequest req, @AuthenticationPrincipal CryptobotPrincipal principal) {
+        Principals.require(principal);
+        IntelligenceReceipt candidate = receipts.reconstruct(req.body(), req.canonical(), req.signature(), req.keyId(), req.anchor());
+        return Mono.zip(receipts.verify(candidate), anchors.inclusion(candidate)).map(t -> new ReceiptVerification(t.getT1(), t.getT2()));
     }
 }

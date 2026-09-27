@@ -98,7 +98,14 @@ class RouteContractTest {
             "POST /api/cryptobot/receipts/{receiptHash}/verify",
             "GET /api/cryptobot/proposals/{proposalId}/receipts",
             "GET /api/cryptobot/wallets/{walletId}/receipts",
-            "GET /api/cryptobot/health");
+            "GET /api/cryptobot/health",
+            // KAN-597 (TAE fase 2, mandato §28): additive only — every route above is unchanged.
+            "POST /api/cryptobot/intents",
+            "POST /api/cryptobot/intents/{id}/approve",
+            "POST /api/cryptobot/intents/{id}/execute",
+            "GET /api/cryptobot/executions/{id}",
+            "GET /api/cryptobot/executions/{id}/receipt",
+            "POST /api/cryptobot/receipts/verify");
 
     @Test
     @DisplayName("todas las rutas /api/cryptobot/** siguen siendo exactamente las mismas (método + patrón)")
