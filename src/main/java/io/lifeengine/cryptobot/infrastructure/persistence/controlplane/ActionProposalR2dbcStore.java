@@ -1,9 +1,9 @@
 package io.lifeengine.cryptobot.infrastructure.persistence.controlplane;
 
 import io.lifeengine.cryptobot.application.controlplane.ControlPlaneExceptions;
-import io.lifeengine.cryptobot.domain.transactions.ActionProposal;
-import io.lifeengine.cryptobot.domain.transactions.ProposalStatus;
-import io.lifeengine.cryptobot.domain.transactions.ProposalTransition;
+import io.lifeengine.cryptobot.core.execution.ActionProposal;
+import io.lifeengine.cryptobot.core.execution.ProposalStatus;
+import io.lifeengine.cryptobot.core.execution.ProposalTransition;
 import io.r2dbc.postgresql.codec.Json;
 import io.r2dbc.spi.R2dbcDataIntegrityViolationException;
 import io.r2dbc.spi.Row;

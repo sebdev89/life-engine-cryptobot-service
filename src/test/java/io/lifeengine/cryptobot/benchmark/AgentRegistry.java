@@ -1,6 +1,6 @@
 package io.lifeengine.cryptobot.benchmark;
 
-import io.lifeengine.cryptobot.adapters.solana.tx.SolanaKeypair;
+import io.lifeengine.cryptobot.solana.tx.SolanaKeypair;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;

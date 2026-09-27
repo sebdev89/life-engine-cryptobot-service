@@ -1,7 +1,7 @@
 package io.lifeengine.cryptobot.infrastructure.persistence.controlplane;
 
-import io.lifeengine.cryptobot.domain.transactions.ActionProposal;
-import io.lifeengine.cryptobot.domain.transactions.ProposalTransition;
+import io.lifeengine.cryptobot.core.execution.ActionProposal;
+import io.lifeengine.cryptobot.core.execution.ProposalTransition;
 import java.time.Instant;
 import java.util.UUID;
 import reactor.core.publisher.Flux;

@@ -1,7 +1,7 @@
 package io.lifeengine.cryptobot.api.controlplane;
 
 import io.lifeengine.cryptobot.application.receipt.AnchorService;
-import io.lifeengine.cryptobot.domain.receipt.ReceiptAnchor;
+import io.lifeengine.cryptobot.core.receipts.ReceiptAnchor;
 import io.lifeengine.cryptobot.security.CryptobotPrincipal;
 import java.util.List;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;

@@ -1,11 +1,11 @@
 package io.lifeengine.cryptobot.application.controlplane;
 
 import io.lifeengine.cryptobot.adapters.marketdata.TokenRegistry;
-import io.lifeengine.cryptobot.domain.portfolio.PortfolioSnapshot;
-import io.lifeengine.cryptobot.domain.portfolio.Position;
-import io.lifeengine.cryptobot.domain.strategy.RebalanceIntent;
-import io.lifeengine.cryptobot.domain.strategy.RebalanceLeg;
-import io.lifeengine.cryptobot.domain.strategy.RebalancePlan;
+import io.lifeengine.cryptobot.trading.portfolio.PortfolioSnapshot;
+import io.lifeengine.cryptobot.trading.portfolio.Position;
+import io.lifeengine.cryptobot.trading.strategy.RebalanceIntent;
+import io.lifeengine.cryptobot.trading.strategy.RebalanceLeg;
+import io.lifeengine.cryptobot.trading.strategy.RebalancePlan;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.util.ArrayList;

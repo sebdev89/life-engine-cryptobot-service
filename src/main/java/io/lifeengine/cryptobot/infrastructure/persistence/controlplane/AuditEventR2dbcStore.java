@@ -1,6 +1,6 @@
 package io.lifeengine.cryptobot.infrastructure.persistence.controlplane;
 
-import io.lifeengine.cryptobot.domain.transactions.AuditEvent;
+import io.lifeengine.cryptobot.core.execution.AuditEvent;
 import io.r2dbc.postgresql.codec.Json;
 import java.util.UUID;
 import org.springframework.context.annotation.Profile;

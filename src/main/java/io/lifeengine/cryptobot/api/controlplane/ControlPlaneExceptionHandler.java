@@ -2,8 +2,8 @@ package io.lifeengine.cryptobot.api.controlplane;
 
 import io.lifeengine.cryptobot.application.controlplane.ControlPlaneExceptions;
 import io.lifeengine.cryptobot.domain.RuntimeUnreachableException;
-import io.lifeengine.cryptobot.adapters.solana.MainnetDisabledException;
-import io.lifeengine.cryptobot.adapters.solana.SolanaRpcException;
+import io.lifeengine.cryptobot.solana.rpc.MainnetDisabledException;
+import io.lifeengine.cryptobot.solana.rpc.SolanaRpcException;
 import io.lifeengine.cryptobot.observability.ErrorCode;
 import io.lifeengine.cryptobot.observability.LogFields;
 import org.slf4j.Logger;

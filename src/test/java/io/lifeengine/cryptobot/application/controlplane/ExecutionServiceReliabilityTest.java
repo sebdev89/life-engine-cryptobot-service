@@ -10,15 +10,15 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-import io.lifeengine.cryptobot.adapters.solana.SolanaCluster;
-import io.lifeengine.cryptobot.adapters.solana.SolanaRpcClient;
-import io.lifeengine.cryptobot.adapters.solana.SolanaRpcException;
+import io.lifeengine.cryptobot.solana.rpc.SolanaCluster;
+import io.lifeengine.cryptobot.solana.rpc.SolanaRpcClient;
+import io.lifeengine.cryptobot.solana.rpc.SolanaRpcException;
 import io.lifeengine.cryptobot.application.reliability.ReconciliationService;
 import io.lifeengine.cryptobot.application.reliability.ReliabilityProperties;
-import io.lifeengine.cryptobot.domain.reliability.TradeEvents;
-import io.lifeengine.cryptobot.domain.transactions.ActionProposal;
-import io.lifeengine.cryptobot.domain.transactions.ExecutionRecord;
-import io.lifeengine.cryptobot.domain.transactions.ProposalStatus;
+import io.lifeengine.cryptobot.core.reliability.TradeEvents;
+import io.lifeengine.cryptobot.core.execution.ActionProposal;
+import io.lifeengine.cryptobot.core.execution.ExecutionRecord;
+import io.lifeengine.cryptobot.core.execution.ProposalStatus;
 import io.lifeengine.cryptobot.testsupport.InMemoryControlPlaneRepositories;
 import java.time.Clock;
 import java.time.Duration;
@@ -67,10 +67,10 @@ class ExecutionServiceReliabilityTest {
         // KAN-391: one attempt ⇒ one EXECUTION receipt (nonce = the operation id), signed, with the chain's answer hashed in.
         assertThat(h.receipts()).hasSize(1);
         var receipt = h.receipts().get(0);
-        assertThat(receipt.kind()).isEqualTo(io.lifeengine.cryptobot.domain.receipt.ReceiptKind.EXECUTION);
+        assertThat(receipt.kind()).isEqualTo(io.lifeengine.cryptobot.core.receipts.ReceiptKind.EXECUTION);
         assertThat(receipt.body().nonce()).isEqualTo("exec:" + op);
-        assertThat(receipt.body().inputs()).extracting(io.lifeengine.cryptobot.domain.receipt.ReceiptInput::type)
-                .contains(io.lifeengine.cryptobot.domain.receipt.ReceiptInput.TRANSACTION, io.lifeengine.cryptobot.domain.receipt.ReceiptInput.APPROVAL);
+        assertThat(receipt.body().inputs()).extracting(io.lifeengine.cryptobot.core.receipts.ReceiptInput::type)
+                .contains(io.lifeengine.cryptobot.core.receipts.ReceiptInput.TRANSACTION, io.lifeengine.cryptobot.core.receipts.ReceiptInput.APPROVAL);
         assertThat(receipt.canonicalJson()).doesNotContain(sig); // the signature is hashed inside output.hash, never listed in clear
         assertThat(h.receiptService.verify(receipt).block().valid()).isTrue();
         assertThat(h.count("intelligence.receipts", "result", "issued")).isEqualTo(1);
@@ -151,7 +151,7 @@ class ExecutionServiceReliabilityTest {
         // KAN-391: the reconciler left the EXECUTION receipt the interrupted path could not; the replay did not mint a second one.
         assertThat(h.receipts()).hasSize(1);
         assertThat(h.receipts().get(0).body().nonce()).isEqualTo("exec:" + op);
-        assertThat(h.receipts().get(0).body().reproducibility()).isEqualTo(io.lifeengine.cryptobot.domain.receipt.ReproducibilityLevel.L0_SIGNED);
+        assertThat(h.receipts().get(0).body().reproducibility()).isEqualTo(io.lifeengine.cryptobot.core.receipts.ReproducibilityLevel.L0_SIGNED);
     }
 
     @Test
@@ -180,7 +180,7 @@ class ExecutionServiceReliabilityTest {
     @Test
     @DisplayName("EXECUTING without a signature (crashed before signing) reconciles to FAILED: nothing reached the chain")
     void crashBeforeSigningFails() {
-        ActionProposal executing = h.repo.commit(io.lifeengine.cryptobot.domain.transactions.ProposalTransition.from(h.approved,
+        ActionProposal executing = h.repo.commit(io.lifeengine.cryptobot.core.execution.ProposalTransition.from(h.approved,
                 h.approved.withOperation(UUID.randomUUID(), h.now).withStatus(ProposalStatus.EXECUTING, h.now))).block();
 
         assertThat(reconciliation.reconcile(executing).block()).isEqualTo(ReconciliationService.Result.CORRECTED);
@@ -193,7 +193,7 @@ class ExecutionServiceReliabilityTest {
         assertThat(h.outboxTypes()).containsExactly(TradeEvents.FAILED);
         // KAN-391: a refused execution is a decision too — it leaves a FAILED EXECUTION receipt.
         assertThat(h.receipts()).hasSize(1);
-        assertThat(h.receipts().get(0).kind()).isEqualTo(io.lifeengine.cryptobot.domain.receipt.ReceiptKind.EXECUTION);
+        assertThat(h.receipts().get(0).kind()).isEqualTo(io.lifeengine.cryptobot.core.receipts.ReceiptKind.EXECUTION);
         assertThat(h.receipts().get(0).body().output().schema()).isEqualTo("execution/1");
     }
 

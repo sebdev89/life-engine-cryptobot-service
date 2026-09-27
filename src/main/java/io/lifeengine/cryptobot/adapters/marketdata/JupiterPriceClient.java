@@ -2,7 +2,7 @@ package io.lifeengine.cryptobot.adapters.marketdata;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import io.lifeengine.cryptobot.domain.oracle.PriceObservation;
+import io.lifeengine.cryptobot.core.oracle.PriceObservation;
 import java.math.BigDecimal;
 import java.time.Clock;
 import java.time.Instant;

@@ -1,6 +1,6 @@
 package io.lifeengine.cryptobot.infrastructure.snapshot;
 
-import io.lifeengine.cryptobot.adapters.solana.Base58;
+import io.lifeengine.cryptobot.solana.rpc.Base58;
 import io.lifeengine.cryptobot.application.MarketSnapshotProvider;
 import io.lifeengine.cryptobot.domain.MarketSnapshot;
 import io.lifeengine.cryptobot.infrastructure.solana.SolanaMarketProperties;

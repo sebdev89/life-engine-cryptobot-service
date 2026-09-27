@@ -1,6 +1,6 @@
 package io.lifeengine.cryptobot.application.receipt;
 
-import io.lifeengine.cryptobot.domain.receipt.ReceiptSigningKey;
+import io.lifeengine.cryptobot.core.receipts.ReceiptSigningKey;
 import java.nio.charset.StandardCharsets;
 import java.security.SecureRandom;
 import java.util.Base64;

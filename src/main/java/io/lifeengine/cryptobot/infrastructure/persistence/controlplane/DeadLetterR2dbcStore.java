@@ -1,6 +1,6 @@
 package io.lifeengine.cryptobot.infrastructure.persistence.controlplane;
 
-import io.lifeengine.cryptobot.domain.reliability.DeadLetter;
+import io.lifeengine.cryptobot.core.reliability.DeadLetter;
 import io.r2dbc.postgresql.codec.Json;
 import io.r2dbc.spi.Row;
 import java.time.Instant;

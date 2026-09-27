@@ -1,6 +1,6 @@
 package io.lifeengine.cryptobot.application.controlplane;
 
-import io.lifeengine.cryptobot.domain.transactions.AuditEvent;
+import io.lifeengine.cryptobot.core.execution.AuditEvent;
 import io.lifeengine.cryptobot.infrastructure.persistence.controlplane.AuditEventRepository;
 import java.time.Clock;
 import java.util.Map;

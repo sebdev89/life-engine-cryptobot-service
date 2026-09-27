@@ -3,11 +3,11 @@ package io.lifeengine.cryptobot.application.controlplane;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import io.lifeengine.cryptobot.adapters.marketdata.TokenRegistry;
-import io.lifeengine.cryptobot.domain.portfolio.PortfolioDiff;
-import io.lifeengine.cryptobot.domain.portfolio.PortfolioSnapshot;
-import io.lifeengine.cryptobot.domain.risk.RiskFinding;
-import io.lifeengine.cryptobot.domain.risk.RiskReport;
-import io.lifeengine.cryptobot.domain.risk.RiskSeverity;
+import io.lifeengine.cryptobot.trading.portfolio.PortfolioDiff;
+import io.lifeengine.cryptobot.trading.portfolio.PortfolioSnapshot;
+import io.lifeengine.cryptobot.trading.risk.RiskFinding;
+import io.lifeengine.cryptobot.trading.risk.RiskReport;
+import io.lifeengine.cryptobot.trading.risk.RiskSeverity;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.List;

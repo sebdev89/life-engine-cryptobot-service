@@ -1,6 +1,6 @@
 package io.lifeengine.cryptobot.infrastructure.persistence.controlplane;
 
-import io.lifeengine.cryptobot.domain.receipt.ReceiptAnchor;
+import io.lifeengine.cryptobot.core.receipts.ReceiptAnchor;
 import java.util.List;
 import java.util.UUID;
 import reactor.core.publisher.Flux;

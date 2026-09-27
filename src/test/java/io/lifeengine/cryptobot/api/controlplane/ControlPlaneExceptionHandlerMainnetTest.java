@@ -2,8 +2,8 @@ package io.lifeengine.cryptobot.api.controlplane;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import io.lifeengine.cryptobot.adapters.solana.MainnetDisabledException;
-import io.lifeengine.cryptobot.adapters.solana.SolanaCluster;
+import io.lifeengine.cryptobot.solana.rpc.MainnetDisabledException;
+import io.lifeengine.cryptobot.solana.rpc.SolanaCluster;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;

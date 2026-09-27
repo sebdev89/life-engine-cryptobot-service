@@ -8,10 +8,10 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-import io.lifeengine.cryptobot.adapters.solana.SolanaCluster;
-import io.lifeengine.cryptobot.adapters.solana.SolanaRpcClient;
-import io.lifeengine.cryptobot.domain.transactions.ActionProposal;
-import io.lifeengine.cryptobot.domain.transactions.ProposalStatus;
+import io.lifeengine.cryptobot.solana.rpc.SolanaCluster;
+import io.lifeengine.cryptobot.solana.rpc.SolanaRpcClient;
+import io.lifeengine.cryptobot.core.execution.ActionProposal;
+import io.lifeengine.cryptobot.core.execution.ProposalStatus;
 import io.lifeengine.cryptobot.integration.validator.ValidatorClient;
 import io.lifeengine.cryptobot.observability.CryptobotMetrics;
 import java.time.Instant;
@@ -129,8 +129,8 @@ class ExecutionServiceInvariantsTest {
             // the wallet's own cluster to mainnet (with the same failClosed() ExecutionProperties the
             // harness wires by default) is enough to exercise the gate without rebuilding the whole
             // real-PolicyEngine scaffolding ExecutionServiceMainnetGateTest already has.
-            io.lifeengine.cryptobot.domain.wallet.Wallet mainnetWallet = new io.lifeengine.cryptobot.domain.wallet.Wallet(
-                    h.wallet.id(), h.wallet.ownerUserId(), h.wallet.address(), SolanaCluster.MAINNET_BETA, h.wallet.label(),
+            io.lifeengine.cryptobot.core.wallet.Wallet mainnetWallet = new io.lifeengine.cryptobot.core.wallet.Wallet(
+                    h.wallet.id(), h.wallet.ownerUserId(), h.wallet.address(), SolanaCluster.MAINNET_BETA.toNetwork(), h.wallet.label(),
                     h.wallet.createdAt(), h.wallet.updatedAt());
             when(h.wallets.require(eq(h.wallet.ownerUserId()), eq(h.wallet.id()))).thenReturn(Mono.just(mainnetWallet));
             // The recorded proposal's own cluster is "devnet" (ExecutionHarness); requireClusterAllowed
@@ -143,7 +143,7 @@ class ExecutionServiceInvariantsTest {
 
             org.assertj.core.api.Assertions.assertThatThrownBy(exec::block)
                     .as("iteration %d", i)
-                    .isInstanceOf(io.lifeengine.cryptobot.adapters.solana.MainnetDisabledException.class);
+                    .isInstanceOf(io.lifeengine.cryptobot.solana.rpc.MainnetDisabledException.class);
             verify(h.rpc, never()).sendTransaction(any(), anyString());
             verify(h.validator, never()).authorize(any(), any());
             verify(h.signer, never()).sign(any(), anyString(), anyString(), any(), any());

@@ -60,6 +60,46 @@ class PrometheusMeterNamesTest {
             "cryptobot_stage_latency_seconds_count",
             "cryptobot_stage_latency_seconds_sum");
 
+    /**
+     * KAN-595 (TAE phase 1, audit §21 item 4, §13): the full 27-series set the two dashboards
+     * ({@code life-engine-cryptobot-demo.json}, {@code -negocio.json}) and the 3 alert rules query,
+     * per {@code CryptobotMetrics}'s own naming table — the audit's list, verbatim. A subset of
+     * {@link #DEMO_SERIES} above (which this list also repeats) plus the market/risk/strategy funnel,
+     * the legacy {@code trade_reconciled_total}, the outbox gauges, the policy predicate breakdown,
+     * the Solana RPC/confirmation series and the receipt/anchor/determinism series — none of them
+     * pinned before this story.
+     */
+    static final List<String> DASHBOARD_SERIES = List.of(
+            "market_analysis_total",
+            "risk_analysis_total",
+            "strategies_total",
+            "approvals_total",
+            "trade_requested_total",
+            "trade_submitted_total",
+            "trade_confirmed_total",
+            "trade_failed_total",
+            "trade_reconciled_total",
+            "reconciliation_mismatch_total",
+            "duplicate_trade_suppressed_total",
+            "outbox_pending",
+            "outbox_failed",
+            "dlq_size",
+            "cryptobot_reconciliation_total",
+            "cryptobot_dead_letter_total",
+            "cryptobot_dead_letter_open",
+            "policy_verdicts_total",
+            "policy_predicate_failed_total",
+            "solana_rpc_errors_total",
+            "solana_confirmation_latency_seconds_count",
+            "intelligence_receipts_total",
+            "deterministic_inference_total",
+            "deterministic_mismatch_total",
+            "validator_attestations_total",
+            "receipt_anchors_total",
+            "anchored_receipts_total",
+            "anchor_pending",
+            "anchor_finality_latency_seconds_count");
+
     @Autowired private WebTestClient webTestClient;
     @Autowired private CryptobotMetrics metrics;
     @Autowired private MeterRegistry registry;
@@ -134,6 +174,37 @@ class PrometheusMeterNamesTest {
         // 12 s in confirm: inside the 15 s bucket, outside the 10 s one.
         assertThat(value(bucket(scrape, "confirm", "15"))).isEqualTo(1.0);
         assertThat(value(bucket(scrape, "confirm", "10"))).isEqualTo(0.0);
+    }
+
+    @Test
+    @DisplayName("KAN-595: las 27 series de los dos dashboards (demo + negocio) y las 3 alertas existen en el scrape")
+    void dashboardSeriesAreScraped() {
+        // A few series are only registered on first use (not in CryptobotMetrics#registerPlaceholders):
+        // trigger them once so this test proves they exist under the names the dashboards query,
+        // not just that the code compiles.
+        metrics.marketAnalysis("completed", "SOL");
+        metrics.riskAnalysis("LOW");
+        metrics.strategyCreated("proposed", "SOL");
+        metrics.solanaRpcError("getBalance", "devnet", "rpc");
+        metrics.solanaConfirmationLatency(java.time.Duration.ofSeconds(2), "confirmed", "devnet");
+        metrics.anchorFinalityLatency(java.time.Duration.ofSeconds(5));
+        metrics.policyPredicateFailed("ASSET_ALLOWED");
+
+        String scrape = webTestClient.get().uri("/actuator/prometheus").exchange().expectStatus().isOk()
+                .expectBody(String.class).returnResult().getResponseBody();
+        assertThat(scrape).isNotNull();
+
+        List<String> names = scrape.lines()
+                .filter(line -> !line.isBlank() && !line.startsWith("#"))
+                .map(METER_NAME::matcher)
+                .filter(java.util.regex.Matcher::find)
+                .map(m -> m.group(1))
+                .distinct()
+                .toList();
+        assertThat(names)
+                .as("las 27 series que life-engine-cryptobot-demo.json, -negocio.json y las 3 alertas consultan"
+                        + " (audit TAE §13) siguen existiendo bajo el mismo nombre tras el movimiento de paquetes de KAN-595")
+                .contains(DASHBOARD_SERIES.toArray(String[]::new));
     }
 
     private static String bucket(String scrape, String stage, String le) {

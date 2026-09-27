@@ -1,7 +1,7 @@
 package io.lifeengine.cryptobot.infrastructure.persistence.controlplane;
 
-import io.lifeengine.cryptobot.adapters.solana.SolanaCluster;
-import io.lifeengine.cryptobot.domain.wallet.Wallet;
+import io.lifeengine.cryptobot.core.Network;
+import io.lifeengine.cryptobot.core.wallet.Wallet;
 import java.util.UUID;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
@@ -12,7 +12,7 @@ public interface WalletRepository {
 
     Mono<Wallet> findByIdAndOwner(UUID id, UUID ownerUserId);
 
-    Mono<Wallet> findByOwnerAndAddress(UUID ownerUserId, String address, SolanaCluster cluster);
+    Mono<Wallet> findByOwnerAndAddress(UUID ownerUserId, String address, Network cluster);
 
     Flux<Wallet> findByOwner(UUID ownerUserId);
 }

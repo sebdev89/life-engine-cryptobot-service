@@ -1,7 +1,7 @@
 package io.lifeengine.cryptobot.infrastructure.persistence.controlplane;
 
-import io.lifeengine.cryptobot.adapters.solana.SolanaCluster;
-import io.lifeengine.cryptobot.domain.wallet.Wallet;
+import io.lifeengine.cryptobot.core.Network;
+import io.lifeengine.cryptobot.core.wallet.Wallet;
 import io.r2dbc.spi.Row;
 import java.time.Instant;
 import java.util.UUID;
@@ -47,7 +47,7 @@ public class WalletR2dbcStore implements WalletRepository {
     }
 
     @Override
-    public Mono<Wallet> findByOwnerAndAddress(UUID ownerUserId, String address, SolanaCluster cluster) {
+    public Mono<Wallet> findByOwnerAndAddress(UUID ownerUserId, String address, Network cluster) {
         return db.sql("SELECT " + COLS + " FROM wallet WHERE owner_user_id = :owner AND address = :address AND cluster = :cluster")
                 .bind("owner", ownerUserId)
                 .bind("address", address)
@@ -69,7 +69,7 @@ public class WalletR2dbcStore implements WalletRepository {
                 row.get("id", UUID.class),
                 row.get("owner_user_id", UUID.class),
                 row.get("address", String.class),
-                SolanaCluster.parse(row.get("cluster", String.class)),
+                Network.parse(row.get("cluster", String.class)),
                 row.get("label", String.class),
                 row.get("created_at", Instant.class),
                 row.get("updated_at", Instant.class));

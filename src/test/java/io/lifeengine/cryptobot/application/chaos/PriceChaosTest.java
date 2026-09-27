@@ -3,11 +3,11 @@ package io.lifeengine.cryptobot.application.chaos;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-import io.lifeengine.cryptobot.domain.oracle.OracleConsensus;
-import io.lifeengine.cryptobot.domain.oracle.OracleLimits;
-import io.lifeengine.cryptobot.domain.oracle.OracleRefusal;
-import io.lifeengine.cryptobot.domain.oracle.PriceObservation;
-import io.lifeengine.cryptobot.domain.oracle.PriceOracle;
+import io.lifeengine.cryptobot.core.oracle.OracleConsensus;
+import io.lifeengine.cryptobot.core.oracle.OracleLimits;
+import io.lifeengine.cryptobot.core.oracle.OracleRefusal;
+import io.lifeengine.cryptobot.core.oracle.PriceObservation;
+import io.lifeengine.cryptobot.core.oracle.PriceOracle;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.List;

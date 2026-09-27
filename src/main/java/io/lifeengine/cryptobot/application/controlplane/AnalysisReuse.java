@@ -2,11 +2,11 @@ package io.lifeengine.cryptobot.application.controlplane;
 
 import io.lifeengine.cryptobot.application.receipt.ReceiptProperties;
 import io.lifeengine.cryptobot.application.receipt.ReceiptService;
-import io.lifeengine.cryptobot.domain.advisor.AdvisorMessage;
-import io.lifeengine.cryptobot.domain.receipt.IntelligenceReceipt;
-import io.lifeengine.cryptobot.domain.receipt.ReceiptKind;
-import io.lifeengine.cryptobot.domain.strategy.RebalanceIntent;
-import io.lifeengine.cryptobot.domain.wallet.Wallet;
+import io.lifeengine.cryptobot.trading.advisor.AdvisorMessage;
+import io.lifeengine.cryptobot.core.receipts.IntelligenceReceipt;
+import io.lifeengine.cryptobot.core.receipts.ReceiptKind;
+import io.lifeengine.cryptobot.trading.strategy.RebalanceIntent;
+import io.lifeengine.cryptobot.core.wallet.Wallet;
 import io.lifeengine.cryptobot.infrastructure.persistence.controlplane.AdvisorMessageRepository;
 import java.time.Clock;
 import java.time.Duration;

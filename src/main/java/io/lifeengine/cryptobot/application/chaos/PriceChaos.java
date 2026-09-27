@@ -1,6 +1,6 @@
 package io.lifeengine.cryptobot.application.chaos;
 
-import io.lifeengine.cryptobot.domain.oracle.PriceObservation;
+import io.lifeengine.cryptobot.core.oracle.PriceObservation;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.Instant;

@@ -1,12 +1,12 @@
 package io.lifeengine.cryptobot.infrastructure.persistence.controlplane;
 
 import io.lifeengine.cryptobot.application.controlplane.ControlPlaneExceptions;
-import io.lifeengine.cryptobot.domain.receipt.DeterministicInference;
-import io.lifeengine.cryptobot.domain.receipt.IntelligenceReceipt;
-import io.lifeengine.cryptobot.domain.receipt.ReceiptArtifact;
-import io.lifeengine.cryptobot.domain.receipt.ReceiptBody;
-import io.lifeengine.cryptobot.domain.receipt.ReceiptEdge;
-import io.lifeengine.cryptobot.domain.receipt.ReceiptKind;
+import io.lifeengine.cryptobot.core.receipts.DeterministicInference;
+import io.lifeengine.cryptobot.core.receipts.IntelligenceReceipt;
+import io.lifeengine.cryptobot.core.receipts.ReceiptArtifact;
+import io.lifeengine.cryptobot.core.receipts.ReceiptBody;
+import io.lifeengine.cryptobot.core.receipts.ReceiptEdge;
+import io.lifeengine.cryptobot.core.receipts.ReceiptKind;
 import io.r2dbc.postgresql.codec.Json;
 import io.r2dbc.spi.R2dbcDataIntegrityViolationException;
 import io.r2dbc.spi.Row;

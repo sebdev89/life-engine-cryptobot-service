@@ -1,8 +1,8 @@
 package io.lifeengine.cryptobot.application.controlplane;
 
-import io.lifeengine.cryptobot.adapters.solana.Base58;
-import io.lifeengine.cryptobot.adapters.solana.SolanaCluster;
-import io.lifeengine.cryptobot.domain.wallet.Wallet;
+import io.lifeengine.cryptobot.solana.rpc.Base58;
+import io.lifeengine.cryptobot.solana.rpc.SolanaCluster;
+import io.lifeengine.cryptobot.core.wallet.Wallet;
 import io.lifeengine.cryptobot.infrastructure.persistence.controlplane.WalletRepository;
 import java.time.Clock;
 import java.time.Instant;
@@ -31,9 +31,9 @@ public class WalletService {
         if (!Base58.isPublicKey(address)) {
             return Mono.error(new ControlPlaneExceptions.InvalidRequest("INVALID_ADDRESS", "Not a Solana public key: " + address));
         }
-        SolanaCluster cluster;
+        io.lifeengine.cryptobot.core.Network cluster;
         try {
-            cluster = SolanaCluster.parse(rawCluster);
+            cluster = io.lifeengine.cryptobot.core.Network.parse(rawCluster);
         } catch (IllegalArgumentException ex) {
             return Mono.error(new ControlPlaneExceptions.InvalidRequest("INVALID_CLUSTER", ex.getMessage()));
         }

@@ -1,11 +1,11 @@
 package io.lifeengine.cryptobot.application.receipt;
 
-import io.lifeengine.cryptobot.adapters.solana.SolanaCluster;
-import io.lifeengine.cryptobot.domain.receipt.IntelligenceReceipt;
-import io.lifeengine.cryptobot.domain.receipt.ReceiptBody;
-import io.lifeengine.cryptobot.domain.receipt.ReceiptEdge;
-import io.lifeengine.cryptobot.domain.receipt.ReceiptKind;
-import io.lifeengine.cryptobot.domain.receipt.ReproducibilityLevel;
+import io.lifeengine.cryptobot.solana.rpc.SolanaCluster;
+import io.lifeengine.cryptobot.core.receipts.IntelligenceReceipt;
+import io.lifeengine.cryptobot.core.receipts.ReceiptBody;
+import io.lifeengine.cryptobot.core.receipts.ReceiptEdge;
+import io.lifeengine.cryptobot.core.receipts.ReceiptKind;
+import io.lifeengine.cryptobot.core.receipts.ReproducibilityLevel;
 import io.lifeengine.cryptobot.infrastructure.persistence.controlplane.LineageRepository;
 import io.lifeengine.cryptobot.infrastructure.persistence.controlplane.LineageRepository.Direction;
 import io.lifeengine.cryptobot.infrastructure.persistence.controlplane.LineageRepository.Reached;

@@ -7,16 +7,16 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.when;
 
-import io.lifeengine.cryptobot.adapters.solana.ExecutionProperties;
-import io.lifeengine.cryptobot.adapters.solana.MainnetDisabledException;
-import io.lifeengine.cryptobot.adapters.solana.SolanaCluster;
-import io.lifeengine.cryptobot.adapters.solana.SolanaRpcClient;
-import io.lifeengine.cryptobot.domain.oracle.OracleReading;
-import io.lifeengine.cryptobot.domain.policy.PolicyDecision;
-import io.lifeengine.cryptobot.domain.transactions.ActionProposal;
-import io.lifeengine.cryptobot.domain.transactions.ProposalStatus;
-import io.lifeengine.cryptobot.domain.transactions.ProposalTransition;
-import io.lifeengine.cryptobot.domain.wallet.Wallet;
+import io.lifeengine.cryptobot.solana.rpc.ExecutionProperties;
+import io.lifeengine.cryptobot.solana.rpc.MainnetDisabledException;
+import io.lifeengine.cryptobot.solana.rpc.SolanaCluster;
+import io.lifeengine.cryptobot.solana.rpc.SolanaRpcClient;
+import io.lifeengine.cryptobot.core.oracle.OracleReading;
+import io.lifeengine.cryptobot.core.policy.PolicyDecision;
+import io.lifeengine.cryptobot.core.execution.ActionProposal;
+import io.lifeengine.cryptobot.core.execution.ProposalStatus;
+import io.lifeengine.cryptobot.core.execution.ProposalTransition;
+import io.lifeengine.cryptobot.core.wallet.Wallet;
 import io.lifeengine.cryptobot.integration.signer.SignerClient;
 import io.lifeengine.cryptobot.observability.CryptobotMetrics;
 import io.micrometer.core.instrument.Timer;
@@ -111,7 +111,7 @@ class ExecutionServiceRefusalMetricsTest {
     @Test
     @DisplayName("wallet on mainnet with the flag off: reason=mainnet, nothing else counted")
     void mainnetRefused() {
-        Wallet mainnet = new Wallet(h.wallet.id(), h.wallet.ownerUserId(), h.wallet.address(), SolanaCluster.MAINNET_BETA, "demo", h.now, h.now);
+        Wallet mainnet = new Wallet(h.wallet.id(), h.wallet.ownerUserId(), h.wallet.address(), SolanaCluster.MAINNET_BETA.toNetwork(), "demo", h.now, h.now);
         when(h.wallets.require(eq(h.wallet.ownerUserId()), eq(h.wallet.id()))).thenReturn(Mono.just(mainnet));
         ExecutionService service = new ExecutionService(h.proposals, h.wallets, h.simulation, h.policy, h.signer, h.validator, h.rpc, h.oracle,
                 h.audit, h.metrics, h.executionReceipts, ExecutionProperties.failClosed());

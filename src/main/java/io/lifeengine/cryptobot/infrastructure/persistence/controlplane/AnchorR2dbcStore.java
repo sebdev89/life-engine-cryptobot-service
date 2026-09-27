@@ -1,6 +1,6 @@
 package io.lifeengine.cryptobot.infrastructure.persistence.controlplane;
 
-import io.lifeengine.cryptobot.domain.receipt.ReceiptAnchor;
+import io.lifeengine.cryptobot.core.receipts.ReceiptAnchor;
 import io.r2dbc.postgresql.codec.Json;
 import io.r2dbc.spi.Row;
 import java.time.Instant;

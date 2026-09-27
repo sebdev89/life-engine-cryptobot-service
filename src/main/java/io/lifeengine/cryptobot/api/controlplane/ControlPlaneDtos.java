@@ -1,16 +1,16 @@
 package io.lifeengine.cryptobot.api.controlplane;
 
-import io.lifeengine.cryptobot.adapters.solana.SolanaRpcClient;
-import io.lifeengine.cryptobot.domain.advisor.AdvisorAnswer;
-import io.lifeengine.cryptobot.domain.advisor.AdvisorMessage;
-import io.lifeengine.cryptobot.domain.portfolio.PortfolioDiff;
-import io.lifeengine.cryptobot.domain.portfolio.PortfolioSnapshot;
-import io.lifeengine.cryptobot.domain.reliability.DeadLetter;
-import io.lifeengine.cryptobot.domain.reliability.OutboxEvent;
-import io.lifeengine.cryptobot.domain.risk.RiskReport;
-import io.lifeengine.cryptobot.domain.transactions.ActionProposal;
-import io.lifeengine.cryptobot.domain.transactions.AuditEvent;
-import io.lifeengine.cryptobot.domain.wallet.Wallet;
+import io.lifeengine.cryptobot.solana.rpc.SolanaRpcClient;
+import io.lifeengine.cryptobot.trading.advisor.AdvisorAnswer;
+import io.lifeengine.cryptobot.trading.advisor.AdvisorMessage;
+import io.lifeengine.cryptobot.trading.portfolio.PortfolioDiff;
+import io.lifeengine.cryptobot.trading.portfolio.PortfolioSnapshot;
+import io.lifeengine.cryptobot.core.reliability.DeadLetter;
+import io.lifeengine.cryptobot.core.reliability.OutboxEvent;
+import io.lifeengine.cryptobot.trading.risk.RiskReport;
+import io.lifeengine.cryptobot.core.execution.ActionProposal;
+import io.lifeengine.cryptobot.core.execution.AuditEvent;
+import io.lifeengine.cryptobot.core.wallet.Wallet;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.List;
@@ -26,7 +26,8 @@ public final class ControlPlaneDtos {
 
     public record WalletView(UUID id, String address, String cluster, String label, String explorerUrl, Instant createdAt) {
         public static WalletView of(Wallet w) {
-            return new WalletView(w.id(), w.address(), w.cluster().id(), w.label(), w.cluster().explorerAddressUrl(w.address()), w.createdAt());
+            return new WalletView(w.id(), w.address(), w.cluster().id(), w.label(),
+                    io.lifeengine.cryptobot.solana.rpc.SolanaCluster.from(w.cluster()).explorerAddressUrl(w.address()), w.createdAt());
         }
     }
 

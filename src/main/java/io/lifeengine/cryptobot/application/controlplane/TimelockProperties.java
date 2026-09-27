@@ -1,6 +1,6 @@
 package io.lifeengine.cryptobot.application.controlplane;
 
-import io.lifeengine.cryptobot.domain.policy.PolicyVerdict;
+import io.lifeengine.cryptobot.core.policy.PolicyVerdict;
 import java.time.Duration;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 

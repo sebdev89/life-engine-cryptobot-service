@@ -5,12 +5,12 @@ import static org.assertj.core.api.Assertions.assertThat;
 import io.lifeengine.cryptobot.benchmark.AuthorityLayer.Outcome;
 import io.lifeengine.cryptobot.benchmark.AuthorityLayer.Result;
 import io.lifeengine.cryptobot.benchmark.AuthorityLayer.Stage;
-import io.lifeengine.cryptobot.domain.intent.AssetId;
-import io.lifeengine.cryptobot.domain.intent.IntentAction;
-import io.lifeengine.cryptobot.domain.intent.JsonCanonicalizer;
-import io.lifeengine.cryptobot.domain.intent.TradingIntent;
-import io.lifeengine.cryptobot.domain.policy.PolicyPredicate;
-import io.lifeengine.cryptobot.domain.policy.PolicyVerdict;
+import io.lifeengine.cryptobot.core.intent.AssetId;
+import io.lifeengine.cryptobot.core.intent.IntentAction;
+import io.lifeengine.cryptobot.core.intent.JsonCanonicalizer;
+import io.lifeengine.cryptobot.core.intent.TradingIntent;
+import io.lifeengine.cryptobot.core.policy.PolicyPredicate;
+import io.lifeengine.cryptobot.core.policy.PolicyVerdict;
 import io.lifeengine.cryptobot.observability.CryptobotMetrics;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.util.LinkedHashMap;
@@ -109,7 +109,7 @@ class ChaosTest {
         TradingIntent t = control();
         // A validator that flips every ALLOW to DENY: a real bug in one implementation, or a tampered one.
         layer.validator((rules, input) -> {
-            PolicyVerdict v = io.lifeengine.cryptobot.domain.policy.DeterministicPolicyEngine.evaluate(rules, input);
+            PolicyVerdict v = io.lifeengine.cryptobot.core.policy.DeterministicPolicyEngine.evaluate(rules, input);
             return new PolicyVerdict(PolicyVerdict.Decision.DENY, PolicyVerdict.Escalation.NONE, v.tier(), List.of(PolicyPredicate.AGENT_PERMITTED),
                     v.evaluatedPredicates(), v.policyVersion(), v.policyHash(), v.inputHash());
         });

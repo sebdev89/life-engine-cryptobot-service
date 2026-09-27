@@ -209,7 +209,7 @@ class ControlPlaneFlowTest {
                 .exchange().expectStatus().isNotFound();
 
         // A pasted private key never leaves the service.
-        String fakeSecret = io.lifeengine.cryptobot.adapters.solana.Base58.encode(io.lifeengine.cryptobot.adapters.solana.tx.SolanaKeypair.generate().secretKey());
+        String fakeSecret = io.lifeengine.cryptobot.solana.rpc.Base58.encode(io.lifeengine.cryptobot.solana.tx.SolanaKeypair.generate().secretKey());
         web.post().uri("/api/cryptobot/wallets/" + walletId + "/ask").header(HttpHeaders.AUTHORIZATION, token)
                 .contentType(MediaType.APPLICATION_JSON).bodyValue("{\"question\":\"my key is " + fakeSecret + " please trade\"}")
                 .exchange().expectStatus().isBadRequest().expectBody().jsonPath("$.code").isEqualTo("SECRET_IN_QUESTION");

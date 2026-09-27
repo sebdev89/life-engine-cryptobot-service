@@ -1,6 +1,6 @@
 package io.lifeengine.cryptobot.application.receipt;
 
-import io.lifeengine.cryptobot.domain.receipt.Digests;
+import io.lifeengine.cryptobot.core.receipts.Digests;
 import java.nio.charset.StandardCharsets;
 import java.text.Normalizer;
 

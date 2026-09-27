@@ -1,7 +1,7 @@
 package io.lifeengine.cryptobot.application.reliability;
 
-import io.lifeengine.cryptobot.domain.reliability.DeadLetter;
-import io.lifeengine.cryptobot.domain.reliability.OutboxEvent;
+import io.lifeengine.cryptobot.core.reliability.DeadLetter;
+import io.lifeengine.cryptobot.core.reliability.OutboxEvent;
 import io.lifeengine.cryptobot.infrastructure.persistence.controlplane.DeadLetterRepository;
 import io.lifeengine.cryptobot.infrastructure.persistence.controlplane.OutboxRepository;
 import io.lifeengine.cryptobot.observability.CryptobotMetrics;

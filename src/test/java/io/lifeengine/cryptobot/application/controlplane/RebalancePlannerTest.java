@@ -5,10 +5,10 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import io.lifeengine.cryptobot.adapters.marketdata.MarketDataProperties;
 import io.lifeengine.cryptobot.adapters.marketdata.TokenRegistry;
-import io.lifeengine.cryptobot.domain.portfolio.PortfolioSnapshot;
-import io.lifeengine.cryptobot.domain.strategy.RebalanceIntent;
-import io.lifeengine.cryptobot.domain.strategy.RebalanceLeg;
-import io.lifeengine.cryptobot.domain.strategy.RebalancePlan;
+import io.lifeengine.cryptobot.trading.portfolio.PortfolioSnapshot;
+import io.lifeengine.cryptobot.trading.strategy.RebalanceIntent;
+import io.lifeengine.cryptobot.trading.strategy.RebalanceLeg;
+import io.lifeengine.cryptobot.trading.strategy.RebalancePlan;
 import java.math.BigDecimal;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
