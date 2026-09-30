@@ -6,6 +6,8 @@ Trusted execution infrastructure for financial AI agents — reference implement
 
 `INTENT → POLICY → APPROVAL → SIGN → EXECUTE → FINALIZE → RECONCILE → PROVE`
 
+![Trusted Agent Execution — architecture](docs/architecture/trusted-agent-execution.svg)
+
 > Colosseum · Crypto World's Fair 2026 · Solana track. The agent proposes; policy, a human approval and
 > a timelock decide; an independent validator re-checks and an isolated signer executes on devnet —
 > with signed receipts anchored on Solana. Built on Life Engine (Auth · Runtime · observability); this

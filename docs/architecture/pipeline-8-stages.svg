@@ -1,0 +1,43 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 900" width="1600" height="900" role="img" aria-labelledby="t d">
+<title id="t">CryptoBot: eight-stage pipeline</title>
+<desc id="d">INTENT, POLICY, APPROVAL, SIGN, EXECUTE, FINALIZE, RECONCILE, PROVE.</desc>
+<defs>
+<marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0 0L10 5L0 10z" fill="#5eead4"/></marker>
+<style>
+text{font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;fill:#e6edf3}
+.m{font-family:ui-monospace,Menlo,Consolas,monospace}
+.k{font-size:14px;fill:#5eead4;letter-spacing:2px;font-family:ui-monospace,Menlo,Consolas,monospace}
+.n{font-size:21px;font-weight:700;font-family:ui-monospace,Menlo,Consolas,monospace}
+.s{font-size:15px;fill:#8b98a9;font-family:ui-monospace,Menlo,Consolas,monospace}
+.b{fill:#111827;stroke:#2a3548;stroke-width:1.5}
+</style>
+</defs>
+<rect width="1600" height="900" fill="#0b0f17"/>
+<text x="60" y="90" style="font-size:38px;font-weight:700">From intent to proof</text>
+<text x="60" y="126" class="s" style="font-size:18px">Eight stages. No stage is skipped, none is trusted to the agent.</text>
+<rect x="60" y="146" width="64" height="3" fill="#5eead4"/>
+<g>
+<rect x="40" y="360" width="172" height="190" rx="8" class="b"/>
+<rect x="222" y="360" width="172" height="190" rx="8" class="b"/>
+<rect x="404" y="360" width="172" height="190" rx="8" class="b"/>
+<rect x="586" y="360" width="172" height="190" rx="8" class="b"/>
+<rect x="768" y="360" width="172" height="190" rx="8" class="b"/>
+<rect x="950" y="360" width="172" height="190" rx="8" class="b"/>
+<rect x="1132" y="360" width="172" height="190" rx="8" class="b"/>
+<rect x="1314" y="360" width="246" height="190" rx="8" class="b" style="stroke:#5eead4;stroke-width:2.5"/>
+</g>
+<g class="m">
+<text x="58" y="398" class="k">01</text><text x="58" y="452" class="n">INTENT</text><text x="58" y="490" class="s">agent intent</text><text x="58" y="512" class="s">→ plan</text>
+<text x="240" y="398" class="k">02</text><text x="240" y="452" class="n">POLICY</text><text x="240" y="490" class="s">13 rules</text><text x="240" y="512" class="s">R_v hash</text>
+<text x="422" y="398" class="k">03</text><text x="422" y="452" class="n" style="font-size:19px">APPROVAL</text><text x="422" y="490" class="s">human</text><text x="422" y="512" class="s">· timelock</text>
+<text x="604" y="398" class="k">04</text><text x="604" y="452" class="n">SIGN</text><text x="604" y="490" class="s">validator</text><text x="604" y="512" class="s">isolated signer</text>
+<text x="786" y="398" class="k">05</text><text x="786" y="452" class="n" style="font-size:19px">EXECUTE</text><text x="786" y="490" class="s">broadcast</text><text x="786" y="512" class="s">operationId</text>
+<text x="968" y="398" class="k">06</text><text x="968" y="452" class="n" style="font-size:19px">FINALIZE</text><text x="968" y="490" class="s">confirmed</text><text x="968" y="512" class="s">on Solana</text>
+<text x="1150" y="398" class="k">07</text><text x="1150" y="452" class="n" style="font-size:17px">RECONCILE</text><text x="1150" y="490" class="s">chain vs ledger</text><text x="1150" y="512" class="s">· DLQ</text>
+<text x="1332" y="398" class="k">08</text><text x="1332" y="452" class="n" style="fill:#5eead4;font-size:24px">PROVE</text><text x="1332" y="490" class="s">receipt</text><text x="1332" y="512" class="s">· Merkle proof</text>
+</g>
+<g stroke="#5eead4" stroke-width="2.5" fill="none">
+<line x1="212" y1="455" x2="220" y2="455" marker-end="url(#a)"/><line x1="394" y1="455" x2="402" y2="455" marker-end="url(#a)"/><line x1="576" y1="455" x2="584" y2="455" marker-end="url(#a)"/><line x1="758" y1="455" x2="766" y2="455" marker-end="url(#a)"/><line x1="940" y1="455" x2="948" y2="455" marker-end="url(#a)"/><line x1="1122" y1="455" x2="1130" y2="455" marker-end="url(#a)"/><line x1="1304" y1="455" x2="1312" y2="455" marker-end="url(#a)"/>
+</g>
+<text x="60" y="856" class="m" style="font-size:18px;fill:#8b98a9">Solana devnet · finalized only · the agent proposes, policy and a human decide</text>
+</svg>

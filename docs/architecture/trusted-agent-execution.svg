@@ -1,0 +1,75 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 900" width="1600" height="900" role="img" aria-labelledby="t d">
+<title id="t">CryptoBot: Trusted Agent Execution</title>
+<desc id="d">Human or AI agent produces an ExecutionIntent, which passes policy, approval and timelock, then Trusted Agent Execution with eight controls, and settles on Solana with verifiable evidence.</desc>
+<defs>
+<marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="9" markerHeight="9" orient="auto"><path d="M0 0L10 5L0 10z" fill="#5eead4"/></marker>
+<style>
+text{font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;fill:#e6edf3}
+.m{font-family:ui-monospace,Menlo,Consolas,monospace}
+.box{fill:#111827;stroke:#2a3548;stroke-width:1.5}
+.sub{fill:#0f1726;stroke:#2a3548;stroke-width:1.2}
+.acc{stroke:#5eead4}
+.k{font-size:13px;fill:#8b98a9;letter-spacing:2px;font-family:ui-monospace,Menlo,Consolas,monospace}
+.h{font-size:26px;font-weight:600}
+.s{font-size:15px;fill:#8b98a9;font-family:ui-monospace,Menlo,Consolas,monospace}
+.n{font-size:20px;font-weight:600;font-family:ui-monospace,Menlo,Consolas,monospace}
+.ar{stroke:#5eead4;stroke-width:2.5;fill:none}
+</style>
+</defs>
+<rect width="1600" height="900" fill="#0b0f17"/>
+<text x="60" y="80" class="h" style="font-size:38px;font-weight:700">Trusted Agent Execution</text>
+<text x="60" y="114" class="s" style="font-size:18px">Agents can think. CryptoBot lets them safely act with money.</text>
+<rect x="60" y="134" width="64" height="3" fill="#5eead4"/>
+
+<!-- Human / AI Agent -->
+<rect x="60" y="390" width="210" height="130" rx="8" class="box"/>
+<text x="80" y="422" class="k">01 · SOURCE</text>
+<text x="80" y="460" class="h" style="font-size:24px">Human /</text>
+<text x="80" y="490" class="h" style="font-size:24px">AI Agent</text>
+<line x1="270" y1="455" x2="322" y2="455" class="ar" marker-end="url(#a)"/>
+
+<!-- ExecutionIntent -->
+<rect x="330" y="390" width="220" height="130" rx="8" class="box"/>
+<text x="350" y="422" class="k">02 · INPUT</text>
+<text x="350" y="462" class="n">Execution</text>
+<text x="350" y="488" class="n">Intent</text>
+<text x="350" y="510" class="s" style="font-size:13px">what, not how</text>
+<line x1="550" y1="455" x2="602" y2="455" class="ar" marker-end="url(#a)"/>
+
+<!-- Policy -->
+<rect x="610" y="370" width="220" height="170" rx="8" class="box acc"/>
+<text x="630" y="402" class="k">03 · CONTROL</text>
+<text x="630" y="440" class="h" style="font-size:24px">Policy</text>
+<text x="630" y="472" class="h" style="font-size:24px">Approval</text>
+<text x="630" y="504" class="h" style="font-size:24px">Timelock</text>
+<line x1="830" y1="455" x2="872" y2="455" class="ar" marker-end="url(#a)"/>
+
+<!-- Trusted Agent Execution -->
+<rect x="880" y="170" width="450" height="600" rx="10" class="box acc" style="stroke-width:2.5"/>
+<text x="904" y="206" class="k">04 · TRUSTED AGENT EXECUTION</text>
+<text x="904" y="236" class="s" style="font-size:14px">exactly-once · recoverable · provable</text>
+<g class="m">
+<rect x="904" y="256" width="200" height="100" rx="6" class="sub"/><text x="920" y="284" class="k">A</text><text x="920" y="320" class="n" style="font-size:17px">Idempotency</text>
+<rect x="1128" y="256" width="178" height="100" rx="6" class="sub"/><text x="1144" y="284" class="k">B</text><text x="1144" y="320" class="n" style="font-size:17px">Outbox</text>
+<rect x="904" y="372" width="200" height="100" rx="6" class="sub"/><text x="920" y="400" class="k">C</text><text x="920" y="436" class="n" style="font-size:17px">DLQ</text>
+<rect x="1128" y="372" width="178" height="100" rx="6" class="sub"/><text x="1144" y="400" class="k">D</text><text x="1144" y="436" class="n" style="font-size:17px">Retry</text>
+<rect x="904" y="488" width="200" height="100" rx="6" class="sub"/><text x="920" y="516" class="k">E</text><text x="920" y="552" class="n" style="font-size:17px">Isolated Signer</text>
+<rect x="1128" y="488" width="178" height="100" rx="6" class="sub"/><text x="1144" y="516" class="k">F</text><text x="1144" y="552" class="n" style="font-size:17px">Reconciliation</text>
+<rect x="904" y="604" width="200" height="100" rx="6" class="sub"/><text x="920" y="632" class="k">G</text><text x="920" y="668" class="n" style="font-size:17px">Signed Receipt</text>
+<rect x="1128" y="604" width="178" height="100" rx="6" class="sub"/><text x="1144" y="632" class="k">H</text><text x="1144" y="668" class="n" style="font-size:17px">Merkle Proof</text>
+</g>
+<text x="904" y="742" class="s" style="font-size:13px">the agent never holds a key</text>
+<line x1="1330" y1="455" x2="1372" y2="455" class="ar" marker-end="url(#a)"/>
+
+<!-- Solana -->
+<rect x="1380" y="370" width="200" height="170" rx="8" class="box acc"/>
+<text x="1400" y="402" class="k">05 · CHAIN</text>
+<text x="1400" y="442" class="h" style="font-size:28px;fill:#5eead4">Solana</text>
+<text x="1400" y="478" class="s">settlement</text>
+<text x="1400" y="502" class="s">+ verifiable</text>
+<text x="1400" y="526" class="s">evidence</text>
+
+<!-- legend -->
+<line x1="60" y1="820" x2="1540" y2="820" stroke="#2a3548" stroke-width="1"/>
+<text x="60" y="856" class="m" style="font-size:20px">Life Engine <tspan fill="#8b98a9">produces the intent</tspan>  ·  CryptoBot <tspan fill="#8b98a9">controls its financial execution</tspan>  ·  Solana <tspan fill="#8b98a9">settles and proves</tspan></text>
+</svg>
