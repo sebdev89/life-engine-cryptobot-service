@@ -63,9 +63,11 @@ check "missing env file" 1 "${DEMO}/pov-v1.sh" --env-file "${TMP}/missing.env" -
 check "dry run exits 0" 0 "${DEMO}/pov-v1.sh" --dry-run --env-file "${TMP}/demo.env" --commit abcdef1
 for want in 'value-events?anchor=true' 'http://127.0.0.1:18091' '"commitSha":"abcdef1"' '"ACCEPTED":true' 'dev-agent-17' \
             'knowledge-assets' 'production-acceptance-model@1' 'strategy-knowledge@3' '"providerId":"compute-node-8"' 'review-agent-3' \
-            'units/ledger?groupBy=identity' 'pov-dev-agent-17.json'; do
+            'units/ledger?groupBy=identity' 'pov-dev-agent-17.json' '/distribute?anchor=true' 'sebas dev-agent-17'; do
   printf '%s' "$OUT" | grep -q -F -- "$want" && ok "pov plan mentions '${want}'" || bad "pov plan lacks '${want}'"
 done
+check "pov dry run --no-distribute" 0 "${DEMO}/pov-v1.sh" --dry-run --no-distribute --env-file "${TMP}/demo.env" --commit abcdef1
+printf '%s' "$OUT" | grep -q -F 'distribute skipped (--no-distribute)' && ok "pov plan shows the reward skipped" || bad "pov plan does not show the reward skipped"
 check "pov dry run with a fixed --accepted-at" 0 "${DEMO}/pov-v1.sh" --dry-run --env-file "${TMP}/demo.env" --commit abcdef1 --accepted-at 2026-09-30T10:00:00Z
 printf '%s' "$OUT" | grep -q -F '"acceptedAt":"2026-09-30T10:00:00Z"' && ok "pov uses --accepted-at" || bad "pov ignores --accepted-at"
 check "pov bad --accepted-at" 1 "${DEMO}/pov-v1.sh" --dry-run --env-file "${TMP}/demo.env" --commit abcdef1 --accepted-at yesterday

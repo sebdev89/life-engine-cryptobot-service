@@ -43,6 +43,8 @@ services:
       VALIDATOR_KEYPAIR_PATH: /run/secrets/validator-keypair
       VALIDATOR_TOKEN: ${VALIDATOR_TOKEN:?}
       VALIDATOR_POLICY_HASH: ${VALIDATOR_POLICY_HASH:-}
+      # KAN-822: the demo policy enables POV_REWARD (Proof of Value payouts) — the SAME list as the service below, or H_R differs.
+      VALIDATOR_POLICY_ENABLED_STRATEGIES: ${CRYPTOBOT_POLICY_ENABLED_STRATEGIES:-REBALANCE,POV_REWARD}
       VALIDATOR_ENABLED: "true"
     volumes:
       - ${VALIDATOR_KEYPAIR_HOST_PATH:?}:/run/secrets/validator-keypair:ro
@@ -115,6 +117,11 @@ services:
       CRYPTOBOT_VALIDATOR_ENABLED: "true"
       CRYPTOBOT_VALIDATOR_BASE_URL: http://cryptobot-validator:8097
       CRYPTOBOT_VALIDATOR_TOKEN: ${CRYPTOBOT_VALIDATOR_TOKEN:?}
+      # KAN-822 — Proof of Value V5, immediate reward: POST /value-events/{id}/distribute pays an ANCHORED event's pool in devnet
+      # SOL to the contributors' wallets (only those in SIGNER_ALLOWED_DESTINATIONS). Same strategies as the validator above.
+      CRYPTOBOT_POLICY_ENABLED_STRATEGIES: ${CRYPTOBOT_POLICY_ENABLED_STRATEGIES:-REBALANCE,POV_REWARD}
+      POV_REWARD_ENABLED: ${POV_REWARD_ENABLED:-true}
+      POV_REWARD_POOL_LAMPORTS: ${POV_REWARD_POOL_LAMPORTS:-10000000}
       # KAN-795 — "perfil video": the waits of the demo, all overridable from .env.demo or the shell with
       # the SAME names (run.sh / e2e-devnet.sh read them too, to know how long to wait). Defaults = the
       # rehearsed values. For the recording (measured 2026-09-29, see scripts/demo/README.md):

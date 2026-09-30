@@ -1,4 +1,4 @@
-# Proof of Value V1 (KAN-818) and V2–V4 + V6 (KAN-819)
+# Proof of Value V1 (KAN-818), V2–V4 + V6 (KAN-819) and V5 immediate reward (KAN-822)
 
 Life Engine records an **accepted** contribution as a `ValueEvent`, anchors it on Solana devnet and
 correlates the on-chain hash with the off-chain evidence. No new service, no signer change: a
@@ -88,6 +88,69 @@ and, on each contribution, `derivedFrom` (`null` unless the service added it). T
 (free-form strings, never produced) is replaced by the objects above.
 
 Metrics: `pov_knowledge_assets_total`, `pov_compute_receipts_total`.
+
+## Immediate reward (V5, KAN-822)
+
+An **ANCHORED** ValueEvent can pay its contributors right away, in **devnet SOL** (devnet SOL stands in for stablecoin
+settlement in this demo; no SPL/USDC — that would widen the signer's surface).
+
+```
+POST /value-events/{id}/distribute[?anchor=true]      RUNTIME_ADMIN · 201 new · 200 existing (idempotent) · 409 not ANCHORED / disabled
+GET  /value-events/{id}/distribution                   RUNTIME_OPERATOR · 404 when there is none
+```
+
+- **Policy `pov/reward-pro-rata/v1`** (predefined, auditable, no AI): pool = `POV_REWARD_POOL_LAMPORTS` (default
+  10 000 000 = 0.01 SOL); per identity, its units of every role added up, `lamports = floor(units × pool / totalUnits)` — one
+  transaction per destination, the sum never exceeds the pool (the floor's remainder stays with the payer), a share that floors
+  to 0 gets no payout. An identity **without wallet** is recorded `UNFUNDED` (not paid, nothing invented).
+- **The same gates as any execution** (`ExecutionService.submitTransfer`, the proposal pipeline's steps without a proposal row):
+  mainnet guard → fresh blockhash → on-chain simulation of the exact bytes → the payout's `(I, S)` through the deterministic
+  policy (must **ALLOW**: an ESCALATE is not enough, a payout is autonomous or it does not happen) → the **independent
+  validator's attestation** over those facts and bytes → the **isolated signer** (which only pays `SIGNER_ALLOWED_DESTINATIONS`
+  and never more than `SIGNER_MAX_LAMPORTS` per transaction) → our own check of the signature → the signature is persisted
+  (`SUBMITTED`) **before** the broadcast → confirmation poll → `CONFIRMED` with `txSignature` + `explorerUrl`.
+- **The payout's facts** `(I, S)`: `strategy_id = POV_REWARD` (the policy of the service **and** of the validator must enable it:
+  `CRYPTOBOT_POLICY_ENABLED_STRATEGIES=REBALANCE,POV_REWARD`, which changes `H_R` — the demo re-pins `VALIDATOR_POLICY_HASH`),
+  `asset = SOL`, `trade_value` = the lamports at the oracle's SOL consensus (unknown price ⇒ DENY), slippage 0 (a transfer swaps
+  nothing), `asset_exposure_after` 0 (a payout buys no asset), `daily_exposure` = payouts SUBMITTED/CONFIRMED in the last 24 h,
+  `agent_permitted` = the reward is enabled, `nonce_unused` = the payout never left PENDING, expiry = now + 300 s (epoch seconds,
+  like a proposal). The emergency stop (`CRYPTOBOT_EXECUTION_ENABLED=false`) stops payouts too.
+- **Failures never cut the rest:** a signer refusal (`destination_not_allowed`, …), a DENY, a failed simulation or a node
+  rejection makes that payout `FAILED` with the service's own error text (no secrets) and the next one goes on. A broadcast whose
+  outcome is unknown, or a confirmation that did not arrive in time, stays `SUBMITTED` and is **reconciled on every read**
+  (`getSignatureStatuses`) to `CONFIRMED`/`FAILED`.
+- **Status** (derived from the payouts): `COMPLETE` every payout confirmed · `PARTIAL` some confirmed/submitted and some not
+  (UNFUNDED included) · `FAILED` none confirmed nor submitted · `IN_PROGRESS` while one is PENDING.
+- **Receipt `VALUE_DISTRIBUTION`** (Flyway V14 widens the kind CHECK): child of the event's `VALUE_EVENT` receipt, `output.hash`
+  = sha256 of the canonical distribution (schema `pov/distribution/v1`: valueEventId, its receipt and hash, policy, pool,
+  totalUnits and every payout — identity, wallet, units, lamports, status, tx). It enters the next Merkle batch like any receipt;
+  `?anchor=true` runs the sweep right away (the same as V1). The receipt records the distribution as it ended; the rows are the
+  live state.
+- **Read models:** the event gains `distribution: {status, poolLamports, confirmedLamports} | null`; `GET /identities/{id}` gains
+  `rewards: {confirmedLamports, payouts}`.
+- **Tables (V14):** `pov_distribution` (unique per event, status, pool, policy, receipt_hash) and `pov_payout` (identity FK,
+  wallet, lamports, status PENDING|SUBMITTED|CONFIRMED|FAILED|UNFUNDED, tx_signature, explorer_url, error, policy), tenant-scoped.
+- **Metrics:** `pov_payouts_total{status}`, `pov_payout_lamports_total{status}`.
+- **Config:** `POV_REWARD_ENABLED` (default **false**; the demo compose sets true), `POV_REWARD_POOL_LAMPORTS`,
+  `POV_REWARD_STRATEGY_ID` (default `POV_REWARD`).
+
+### Demo wallets and the signer's allowlist
+
+`scripts/demo/wallet-devnet.sh` generates `~/.cryptobot-demo/pov-<id>.json` for `sebas` (HUMAN — so the payment to the human
+shows), `dev-agent-17`, `cryptobot-001`, `review-agent-3` and `compute-node-8` **before** writing `.env.demo`, and writes
+`SIGNER_ALLOWED_DESTINATIONS=<vault>,<their public keys>` (public keys only), `CRYPTOBOT_POLICY_ENABLED_STRATEGIES`, the
+re-pinned `VALIDATOR_POLICY_HASH` and the `POV_REWARD_*` knobs. A stack that is already running reads the new values only when
+its containers are recreated — **never `down`**:
+
+```bash
+scripts/demo/wallet-devnet.sh --no-airdrop                     # regenerates .env.demo, keeps every existing key and token
+docker compose -p <project> -f docker-compose.demo.yml --env-file .env.demo up -d --no-deps cryptobot-signer
+# only if CRYPTOBOT_POLICY_ENABLED_STRATEGIES / VALIDATOR_POLICY_HASH changed (first time after KAN-822):
+docker compose -p <project> -f docker-compose.demo.yml --env-file .env.demo up -d --no-deps cryptobot-validator cryptobot-service
+```
+
+`scripts/demo/pov-v1.sh` ends with step 6: `distribute?anchor=true`, the payouts with tx and explorer link, and each wallet's
+balance before/after (RPC `getBalance`). `--no-distribute` skips it.
 
 ## Demo: `scripts/demo/pov-v1.sh`
 
