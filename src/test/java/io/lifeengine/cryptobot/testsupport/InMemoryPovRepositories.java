@@ -20,16 +20,16 @@ import java.util.concurrent.ConcurrentHashMap;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
-/** In-memory Proof of Value stores (KAN-818, KAN-819) with the same contract as the R2DBC ones, incl. the identity join on read. */
+/** In-memory Proof of Value stores with the same contract as the R2DBC ones, incl. the identity join on read. */
 public final class InMemoryPovRepositories {
 
     public static final Map<String, PovIdentity> IDENTITIES = new ConcurrentHashMap<>();
     public static final Map<UUID, ValueEventRecord> EVENTS = new ConcurrentHashMap<>();
     public static final Map<String, PovKnowledgeAsset> ASSETS = new ConcurrentHashMap<>();
-    /** KAN-822: distributions by id (payouts inside, the live rows by payout id). */
+    /** distributions by id (payouts inside, the live rows by payout id). */
     public static final Map<UUID, PovDistribution> DISTRIBUTIONS = new ConcurrentHashMap<>();
     public static final Map<UUID, PovPayout> PAYOUTS = new ConcurrentHashMap<>();
-    /** KAN-824: revenue events by id (links inside; their payouts live in PAYOUTS). */
+    /** revenue events by id (links inside; their payouts live in PAYOUTS). */
     public static final Map<UUID, PovRevenueEvent> REVENUES = new ConcurrentHashMap<>();
 
     private InMemoryPovRepositories() {}
@@ -179,7 +179,7 @@ public final class InMemoryPovRepositories {
         };
     }
 
-    /** KAN-822: the same contract as PayoutR2dbcStore — unique per event, FK to identities, display name joined on read. */
+    /** the same contract as PayoutR2dbcStore — unique per event, FK to identities, display name joined on read. */
     public static PayoutRepository payouts() {
         return new PayoutRepository() {
             @Override
@@ -245,7 +245,7 @@ public final class InMemoryPovRepositories {
         return p.withDisplayName(i == null ? null : i.displayName());
     }
 
-    /** KAN-824: the same contract as RevenueR2dbcStore — unique source, FKs to value events and identities, titles and names joined on read. */
+    /** the same contract as RevenueR2dbcStore — unique source, FKs to value events and identities, titles and names joined on read. */
     public static RevenueRepository revenues() {
         return new RevenueRepository() {
             @Override

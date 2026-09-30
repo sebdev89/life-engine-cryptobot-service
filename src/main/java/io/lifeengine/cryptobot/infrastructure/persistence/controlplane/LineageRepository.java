@@ -6,7 +6,7 @@ import java.util.Collection;
 import reactor.core.publisher.Flux;
 
 /**
- * Walks of the provenance DAG (KAN-393, Endgame §7): bounded {@code WITH RECURSIVE} over
+ * Walks of the provenance DAG (Endgame §7): bounded {@code WITH RECURSIVE} over
  * {@code receipt_edge}, always inside one tenant. Reads only — the DAG is append-only and this
  * interface has no write path at all.
  *

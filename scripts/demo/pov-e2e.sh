@@ -37,7 +37,7 @@
 # Auth as pov-v1.sh: a 1 h HS256 demo token from JWT_SECRET of the env file (never printed), or --base-url with
 # CRYPTOBOT_DEMO_TOKEN. Exit: 0 pass · 1 a step failed (the report is still written) · 3 a secret reached the report/log.
 set -euo pipefail
-# (KAN-826 — Proof of Value V9. Kept below the --help range: tracker ids stay out of the demo output.)
+# (Proof of Value V9. Kept below the --help range: tracker ids stay out of the demo output.)
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT="$(cd "${HERE}/../.." && pwd)"
 # shellcheck source=lib.sh

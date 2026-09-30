@@ -70,7 +70,7 @@ public record PolicyInput(IntentFacts intent, StateFacts state) {
     }
 
     /**
-     * Inverse of {@link #canonicalMap()} (KAN-572): the {@code (I, S)} a Decision Receipt stored
+     * Inverse of {@link #canonicalMap()}: the {@code (I, S)} a Decision Receipt stored
      * next to itself, read back so {@code verify} can re-run the engine. An absent key is an unknown
      * fact, exactly as it was when the verdict was computed; a value of the wrong shape is invalid.
      */

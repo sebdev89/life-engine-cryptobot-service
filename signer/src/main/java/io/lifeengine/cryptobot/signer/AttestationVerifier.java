@@ -27,7 +27,7 @@ import org.springframework.stereotype.Component;
  *       attestation covers <em>these</em> bytes, not a description of them;
  *   <li>{@code decision} is ALLOW or ESCALATE (a DENY attestation is evidence, not authority);
  *   <li>the attestation is inside its {@code [issued_at, expires_at]} window (small clock skew allowed);
- *   <li>KAN-493: {@code cluster} is present and is the cluster the request named — the validator
+ *   <li>an internal ticket: {@code cluster} is present and is the cluster the request named — the validator
  *       attested these bytes <em>for that cluster</em>, so a devnet attestation cannot be replayed
  *       for mainnet bytes and vice-versa.
  * </ol>

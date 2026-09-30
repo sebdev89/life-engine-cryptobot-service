@@ -11,7 +11,7 @@ import java.util.Map;
 import java.util.Optional;
 
 /**
- * The oracle's answer for the set of assets one decision depends on (KAN-439): one
+ * The oracle's answer for the set of assets one decision depends on: one
  * {@link OracleConsensus} per asset, the limits they were judged under, and the instant they
  * were read. It travels with the {@code PolicyDecision} and is what the receipt's state
  * reference points at: {@link #quotesHash()} covers every quote of every asset; {@link #limitsHash()}

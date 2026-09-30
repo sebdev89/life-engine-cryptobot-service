@@ -24,7 +24,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 /**
- * The lineage walks (KAN-393, Endgame §7) on the real in-memory stores: the demo pipeline as a
+ * The lineage walks (Endgame §7) on the real in-memory stores: the demo pipeline as a
  * DAG, ancestors / descendants / both, depth bound and truncation, direct neighbours, reuse, the
  * summary, and the two things that must never happen — crossing a tenant and reading a receipt
  * that is not yours.
@@ -185,7 +185,7 @@ class LineageServiceTest {
         assertThat(llm.cost()).as("no price table ⇒ no cost claimed").isNull();
         assertThat(llm.level()).isEqualTo(ReproducibilityLevel.L0_SIGNED);
         assertThat(llm.runId()).isNotNull();
-        assertThat(llm.anchor()).as("not anchored yet (KAN-394)").isNull();
+        assertThat(llm.anchor()).as("not anchored yet").isNull();
         assertThat(llm.parentCount()).isEqualTo(3);
         assertThat(llm.childCount()).isEqualTo(1);
         assertThat(llm.keyId()).isEqualTo("unit-key");

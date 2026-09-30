@@ -7,7 +7,7 @@ import io.lifeengine.cryptobot.core.intent.IntentHash;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 
-/** KAN-435: the intent hash is the operationId of KAN-403 — derived, deterministic, never invented. */
+/** the intent hash is the operationId of an internal ticket — derived, deterministic, never invented. */
 class ProposalsControllerOperationIdTest {
 
     private static final String HASH = "sha256:877dcaf96566ba02b058d41c01af02ff69d8d4c60dc375a610f3f9f15aa89081";
@@ -26,7 +26,7 @@ class ProposalsControllerOperationIdTest {
         assertThat(fromHash.toString()).isEqualTo("877dcaf9-6566-ba02-b058-d41c01af02ff");
     }
 
-    /** KAN-500: the hash itself is what gets persisted (action_proposal.intent_hash), canonical lower-case; a UUID key has none. */
+    /** the hash itself is what gets persisted (action_proposal.intent_hash), canonical lower-case; a UUID key has none. */
     @Test
     void intentHashOfIsCanonicalOrNull() {
         assertThat(ProposalsController.intentHashOf(HASH)).isEqualTo(HASH);

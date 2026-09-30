@@ -8,7 +8,7 @@ import java.util.regex.Pattern;
 import org.springframework.stereotype.Service;
 
 /**
- * KAN-353 — turns the glossary events the UI batches into the two Prometheus counters of
+ * turns the glossary events the UI batches into the two Prometheus counters of
  * {@link CryptobotMetrics}: {@code cryptobot_glossary_term_total{term,action}} and
  * {@code cryptobot_glossary_search_total{hit}}.
  *
@@ -25,7 +25,7 @@ import org.springframework.stereotype.Service;
  *       defaults to "a valid term came along".</li>
  * </ul>
  *
- * The service does not carry the glossary itself (that list lives in the UI, KAN-325), so the
+ * The service does not carry the glossary itself (that list lives in the UI), so the
  * cardinality bound is the cap in {@link CryptobotMetrics#glossaryLabel}, not an allow-list.
  * A rejected event is counted and dropped: the endpoint never fails the batch for one bad row.
  */
@@ -36,7 +36,7 @@ public class GlossaryEventsService {
     public static final int MAX_BATCH = 100;
     public static final Set<String> ACTIONS = Set.of("open", "search", "copy");
 
-    // Verified against the 864 terms of glossary-data.ts (KAN-325): `program_id`, `51% attack`, `require!`,
+    // Verified against the 864 terms of glossary-data.ts: `program_id`, `51% attack`, `require!`,
     // `Signer<'info>` and `Result<T,E>` are real terms, hence _ % ! < > in the tail.
     private static final Pattern TERM = Pattern.compile("^[\\p{L}\\p{N}][\\p{L}\\p{N} .,+/()'’&_%!<>-]{0," + (MAX_TERM_LENGTH - 1) + "}$");
     private static final Pattern WHITESPACE = Pattern.compile("\\s+");

@@ -33,7 +33,7 @@ import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
 /**
- * Proof of Value V1 (KAN-818) and V2–V4 + V6 (KAN-819: identities with reputation, knowledge assets, compute
+ * Proof of Value V1 and V2–V4 + V6 (identities with reputation, knowledge assets, compute
  * receipts inside the event, Contribution Units ledger) — base {@code /api/cryptobot}, JWT like the receipts.
  *
  * <p>Roles: every route here falls under the catch-all {@code /api/cryptobot/**} of
@@ -72,19 +72,19 @@ public class ProofOfValueController {
                 .map(c -> ResponseEntity.status(c.created() ? HttpStatus.CREATED : HttpStatus.OK).body(IdentityView.of(c.identity())));
     }
 
-    /** KAN-819: each identity with its {@code reputation}. */
+    /** each identity with its {@code reputation}. */
     @GetMapping("/identities")
     public Flux<IdentitySummaryView> identities(@AuthenticationPrincipal CryptobotPrincipal principal) {
         return attribution.identities(require(principal).userId());
     }
 
-    /** KAN-819: the identity, its {@code reputation} and its {@code history} (newest first). */
+    /** the identity, its {@code reputation} and its {@code history} (newest first). */
     @GetMapping("/identities/{id}")
     public Mono<IdentityProfileView> identity(@PathVariable String id, @AuthenticationPrincipal CryptobotPrincipal principal) {
         return attribution.profile(require(principal).userId(), id);
     }
 
-    /** KAN-820: 201 when registered, 200 when the id already existed (returned unchanged). 422 unknown creator or parent. */
+    /** 201 when registered, 200 when the id already existed (returned unchanged). 422 unknown creator or parent. */
     @PostMapping(path = "/knowledge-assets", consumes = "application/json")
     public Mono<ResponseEntity<KnowledgeAssetView>> createKnowledgeAsset(@Valid @RequestBody KnowledgeAssetRequest req,
             @AuthenticationPrincipal CryptobotPrincipal principal) {
@@ -102,7 +102,7 @@ public class ProofOfValueController {
         return knowledge.get(require(principal).userId(), id);
     }
 
-    /** KAN-823: Contribution Units by {@code identity} (default), {@code asset} or {@code project}; 400 otherwise. */
+    /** Contribution Units by {@code identity} (default), {@code asset} or {@code project}; 400 otherwise. */
     @GetMapping("/units/ledger")
     public Mono<LedgerView> ledger(@RequestParam(required = false) String groupBy, @AuthenticationPrincipal CryptobotPrincipal principal) {
         return attribution.ledger(require(principal).userId(), groupBy);
@@ -136,7 +136,7 @@ public class ProofOfValueController {
     }
 
     /**
-     * KAN-822 (V5): the immediate reward of an ANCHORED event — one devnet SOL transfer per contributor wallet, each attested by the
+     * (V5): the immediate reward of an ANCHORED event — one devnet SOL transfer per contributor wallet, each attested by the
      * validator and signed by the signer. {@code RUNTIME_ADMIN} (it moves funds). 201 when distributed now, 200 with the existing
      * distribution on any later call (idempotent), 409 when the event is not ANCHORED or the reward is disabled.
      * {@code ?anchor=true} also runs the sweep for the VALUE_DISTRIBUTION receipt.
@@ -152,14 +152,14 @@ public class ProofOfValueController {
                 .map(r -> ResponseEntity.status(r.created() ? HttpStatus.CREATED : HttpStatus.OK).body(r.view()));
     }
 
-    /** KAN-822 (V5): the event's distribution (payouts reconciled with the chain on read); 404 when it has none. */
+    /** (V5): the event's distribution (payouts reconciled with the chain on read); 404 when it has none. */
     @GetMapping("/value-events/{id}/distribution")
     public Mono<DistributionView> distribution(@PathVariable UUID id, @AuthenticationPrincipal CryptobotPrincipal principal) {
         return rewards.get(require(principal).userId(), id);
     }
 
     /**
-     * KAN-824 (V7): an economic result split with {@code pov/revenue-share/v1}; the contributor pool is paid with the V5 flow.
+     * (V7): an economic result split with {@code pov/revenue-share/v1}; the contributor pool is paid with the V5 flow.
      * {@code RUNTIME_ADMIN} (it moves funds). 201 recorded now, 200 the same source with the same content (idempotent), 409 the same
      * source with other content or the reward flow disabled, 422 a linked event unknown or not ANCHORED, or a PROPOSAL source not
      * EXECUTED. {@code ?anchor=true} also runs the sweep for the REVENUE_EVENT receipt.
@@ -175,7 +175,7 @@ public class ProofOfValueController {
                 .map(r -> ResponseEntity.status(r.created() ? HttpStatus.CREATED : HttpStatus.OK).body(r.view()));
     }
 
-    /** KAN-824: newest first; payouts reconciled with the chain on read. */
+    /** newest first; payouts reconciled with the chain on read. */
     @GetMapping("/revenue-events")
     public Flux<RevenueEventView> revenueEvents(@RequestParam(required = false) Integer limit, @AuthenticationPrincipal CryptobotPrincipal principal) {
         return revenue.list(require(principal).userId(), limit);
@@ -186,7 +186,7 @@ public class ProofOfValueController {
         return revenue.get(require(principal).userId(), id);
     }
 
-    /** KAN-825 (V8): an identity's accounting treasury (on-chain balance, income, payouts, fee, compute cost, retained, policies, recent events). */
+    /** (V8): an identity's accounting treasury (on-chain balance, income, payouts, fee, compute cost, retained, policies, recent events). */
     @GetMapping("/treasury/{identityId}")
     public Mono<TreasuryView> treasury(@PathVariable String identityId, @AuthenticationPrincipal CryptobotPrincipal principal) {
         return treasury.get(require(principal).userId(), identityId);

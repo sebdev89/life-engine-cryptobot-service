@@ -6,7 +6,7 @@ import java.util.Map;
 import reactor.core.publisher.Mono;
 
 /**
- * One independent USD price feed (KAN-439). The oracle asks every enabled source for the same
+ * One independent USD price feed. The oracle asks every enabled source for the same
  * mainnet mints and builds a consensus from what comes back; a source is <em>independent</em>
  * when its price is produced by a different mechanism (a DEX aggregator, a pull oracle network, a
  * CEX aggregator), not merely a different URL of the same data.
@@ -14,9 +14,9 @@ import reactor.core.publisher.Mono;
  * <p>Contract: {@link #observe} must never error — a failure, a timeout or an unknown mint is an
  * absent observation, which the oracle counts against the quorum. A source never invents a price
  * (no static fallback here: that lives in the oracle service, labelled, and never counts as a
- * source). Same failure policy as {@code ExchangeQuoteSource} of KAN-355.
+ * source). Same failure policy as {@code ExchangeQuoteSource} of an internal ticket.
  *
- * <p>TODO-PLATFORM KAN-383: the HTTP-feed client underneath (rate limit, cache, timeouts,
+ * <p>TODO-PLATFORM an internal ticket: the HTTP-feed client underneath (rate limit, cache, timeouts,
  * circuit breaker, fixtures) is generic and belongs to the platform; this is the local port.
  */
 public interface PriceSource {

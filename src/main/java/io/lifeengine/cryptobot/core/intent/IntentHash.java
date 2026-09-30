@@ -13,7 +13,7 @@ import java.util.regex.Pattern;
  * receipts, memos) and anyone can recompute it with {@code sha256sum} on the canonical string.
  *
  * <p>The hash is the identity of the intent through the whole pipeline. Where a {@link UUID} is
- * required (the execution {@code operationId} of KAN-403), it is the first 128 bits of the hash
+ * required (the execution {@code operationId} of an internal ticket), it is the first 128 bits of the hash
  * — deterministic, so re-executing the same intent is idempotent by construction.
  */
 public record IntentHash(String value) {

@@ -161,7 +161,7 @@ class CryptobotJwtServiceTest {
 
     @Test
     void acceptsMissingSecret_whenJwksIsConfigured() {
-        // KAN-32 follow-up: this service only ever verifies (never signs) tokens, so once
+        // follow-up: this service only ever verifies (never signs) tokens, so once
         // AUTH_JWKS_URI is set there's no reason JWT_SECRET should still be mandatory.
         JwksPublicKeyProvider configured = mock(JwksPublicKeyProvider.class);
         when(configured.isConfigured()).thenReturn(true);

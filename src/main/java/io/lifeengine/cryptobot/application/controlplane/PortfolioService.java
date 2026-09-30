@@ -68,7 +68,7 @@ public class PortfolioService {
     /**
      * Reads the chain and stores a fresh snapshot; returns it with risk + diff vs the previous one.
      *
-     * <p>KAN-391: the two first receipts of the pipeline are issued here — {@code WALLET_SNAPSHOT}
+     * <p>an internal ticket: the two first receipts of the pipeline are issued here — {@code WALLET_SNAPSHOT}
      * (what the chain and the oracle said) and, derived from it, {@code RISK_DECISION} (what the
      * deterministic engine concluded, L1). Their nonces are the snapshot id, so a snapshot has
      * exactly one receipt of each kind.

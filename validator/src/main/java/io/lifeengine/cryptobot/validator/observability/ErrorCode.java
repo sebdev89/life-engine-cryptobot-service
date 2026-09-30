@@ -4,7 +4,7 @@ import net.logstash.logback.argument.StructuredArgument;
 import net.logstash.logback.argument.StructuredArguments;
 
 /**
- * Catálogo de errores del validatorNAME (KAN-426 / KAN-573). Corto a propósito: un código por causa que
+ * Catálogo de errores del validatorNAME. Corto a propósito: un código por causa que
  * alguien va a buscar en Loki durante el demo. Formato {@code CB-VALIDATOR-<NNN>}; los de borde
  * ({@code HTTP}, {@code INTERNAL}) son los mismos de la plataforma.
  *

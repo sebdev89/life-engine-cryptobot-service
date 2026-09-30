@@ -33,9 +33,9 @@ import org.junit.jupiter.api.Test;
 import reactor.core.publisher.Mono;
 
 /**
- * KAN-571 (HK-3) — reconciliation + recovery, visible: a signature the chain never saw whose
+ * (HK-3) — reconciliation + recovery, visible: a signature the chain never saw whose
  * blockhash expired is retried <em>idempotently</em> (same operationId, new signature) up to N
- * times, then dead-lettered; a human resolves or requeues the letter by API (KAN-501) and the
+ * times, then dead-lettered; a human resolves or requeues the letter by API and the
  * proposal ends in a state the chain proves — never a second transaction.
  */
 class ExecutionRecoveryTest {

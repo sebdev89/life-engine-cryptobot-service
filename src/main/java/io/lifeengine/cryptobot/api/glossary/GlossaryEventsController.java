@@ -16,7 +16,7 @@ import reactor.core.publisher.Mono;
 
 /**
  * {@code POST /api/cryptobot/glossary/events} — the glossary drawer of cryptobot-ui reports what
- * people open, search and copy, in batches (KAN-353).
+ * people open, search and copy, in batches.
  *
  * <pre>
  * POST /api/cryptobot/glossary/events

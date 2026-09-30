@@ -41,10 +41,10 @@ jobs:
       - name: Run tests (surefire)
         run: ./mvnw -B -ntp test
 
-      # KAN-604 — Testcontainers Postgres for ActionProposalR2dbcStore (optimistic lock, unique
+      # Testcontainers Postgres for ActionProposalR2dbcStore (optimistic lock, unique
       # operation_id, atomic commit), OutboxEventR2dbcStore (SKIP LOCKED) and DeadLetterR2dbcStore
-      # (single resolution), and KAN-818 Proof of Value (PovR2dbcStoreIT, ProofOfValueApiIT): *IT classes Surefire's default patterns do not pick up, run here
-      # explicitly. le-ci has Docker; KAN-296 — several Testcontainers jobs in parallel can produce
+      # (single resolution), and an internal ticket Proof of Value (PovR2dbcStoreIT, ProofOfValueApiIT): *IT classes Surefire's default patterns do not pick up, run here
+      # explicitly. le-ci has Docker; an internal ticket — several Testcontainers jobs in parallel can produce
       # a false red ("bind: address already in use") from port contention between runners, not a
       # code regression, so one retry absorbs that before failing the build for real.
       - name: Run Postgres integration tests (Testcontainers)
@@ -54,7 +54,7 @@ jobs:
               exit 0
             fi
             if [ "$attempt" -eq 1 ] && grep -q "bind: address already in use" target/surefire-reports/*.txt 2>/dev/null; then
-              echo "KAN-296: port contention between parallel Testcontainers jobs — retrying once."
+              echo "port contention between parallel Testcontainers jobs — retrying once."
               continue
             fi
             exit 1
@@ -63,10 +63,10 @@ jobs:
       - name: Run signer tests (isolated module, own pom)
         run: ./mvnw -B -ntp -f signer/pom.xml test
 
-      - name: Run validator tests (KAN-438 — isolated module, own pom)
+      - name: Run validator tests (isolated module, own pom)
         run: ./mvnw -B -ntp -f validator/pom.xml test
 
-      # KAN-575 — the demo scripts (run.sh / e2e-devnet.sh): argument validation, --dry-run plan,
+      # the demo scripts (run.sh / e2e-devnet.sh): argument validation, --dry-run plan,
       # gitignore of the secret files, shellcheck when the runner has it. Offline: no compose is started.
       - name: Demo scripts (scripts/demo/tests/test-run.sh)
         run: scripts/demo/tests/test-run.sh
@@ -81,7 +81,7 @@ jobs:
           retention-days: 14
 
   # ---------------------------------------------------------------------------
-  # KAN-500 — la cadena completa una vez, con los gates y el pipeline juntos (ChainE2EIT):
+  # la cadena completa una vez, con los gates y el pipeline juntos (ChainE2EIT):
   # el service real sobre sus stores R2DBC (Postgres por Testcontainers), validator y signer
   # como PROCESOS reales (los jars de sus módulos), RPC de Solana y Runtime mockeados por HTTP.
   # Tres escenarios: EXECUTED con receipt + reconciliación; validator caído ⇒ FAILED sin
@@ -149,7 +149,7 @@ jobs:
           retention-days: 14
 
   # ---------------------------------------------------------------------------
-  # KAN-437 — el programa Solana (programs/intent-authority) se testea en el host, sin
+  # el programa Solana (programs/intent-authority) se testea en el host, sin
   # toolchain SBF: `solana-program-test` corre el processor nativo contra un banco real.
   # Rust se instala en el runner por acción (no está en la imagen de le-ci); la cache de
   # cargo evita recompilar los ~560 crates de solana-program-test en cada run.
@@ -184,15 +184,15 @@ jobs:
         run: cargo test --locked
 
   # ---------------------------------------------------------------------------
-  # KAN-352 — publicar la imagen. Copia del job de life-engine-runtime: hasta acá este
+  # publicar la imagen. Copia del job de life-engine-runtime: hasta acá este
   # repo sólo compilaba y testeaba, así que no existía ningún artefacto que uat-compose
   # pudiera desplegar por digest, y ningún tablero de CryptoBot podía mostrar nada.
   #
-  # KAN-579 — una imagen por módulo. `signer/` y `validator/` tienen pom, Dockerfile e
-  # imagen propios (KAN-438/KAN-570) y UAT los corre como contenedores por digest (KAN-574),
+  # una imagen por módulo. `signer/` y `validator/` tienen pom, Dockerfile e
+  # imagen propios y UAT los corre como contenedores por digest,
   # pero este job construía sólo el context `.`: `resolve-artifact.sh cryptobot-signer <sha>`
   # daba 404 y `ops uat deploy cryptobot-signer` sólo salía por el fallback manual
-  # (buildSource=manual-fallback), que KAN-258 quiere que sea la excepción. La matrix
+  # (buildSource=manual-fallback), que an internal ticket quiere que sea la excepción. La matrix
   # publica los tres paquetes con la misma forma (login, metadata-action, labels OCI,
   # cache gha con scope por módulo para que no se pisen). Los nombres de paquete son los
   # que ya esperan ops.d/lib/services.sh, resolve-artifact.sh y platform-catalog.yml en
@@ -202,7 +202,7 @@ jobs:
   # validator} heredan esa visibilidad en su primera publicación (GITHUB_TOKEN, mismo owner).
   # Verificarlo después del primer run: gh api /user/packages/container/<paquete>
   # -q .visibility → private. El host que despliega necesita `docker login ghcr.io`
-  # con un PAT read:packages (ya lo tiene para runtime, privado desde KAN-349).
+  # con un PAT read:packages (ya lo tiene para runtime, privado desde un cambio anterior).
   #
   # Sin `outputs:` a nivel job: con una matrix, un output lo escribe el último leg que
   # termina y no dice de qué módulo es. La identidad del artefacto (repository/tag/digest/
@@ -213,7 +213,7 @@ jobs:
   docker-publish:
     name: docker build + push (${{ matrix.module }})
     runs-on: [self-hosted, le-ci]
-    # KAN-500: sin la cadena completa verde no hay imagen.
+    # sin la cadena completa verde no hay imagen.
     needs: [build-and-test, e2e-chain]
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     permissions:
@@ -239,7 +239,7 @@ jobs:
             package: life-engine-cryptobot-validator
 
     steps:
-      # KAN-488: config de Docker aislada por job. Los runners de la VM le-ci comparten el
+      # config de Docker aislada por job. Los runners de la VM le-ci comparten el
       # ~/.docker/config.json del usuario del runner, y el post-step de docker/login-action
       # hace `docker logout` global: si el job de otro repo termina primero, el push de este
       # falla con `denied: permission_denied: read_package`. Con DOCKER_CONFIG en $RUNNER_TEMP
@@ -250,7 +250,7 @@ jobs:
       # (sólo github/needs/strategy/matrix/vars/secrets/inputs) y el workflow entero fallaba
       # con 0 jobs ("workflow file issue"). GITHUB_ENV propaga la variable a los steps
       # siguientes y a sus post-steps, incluido el logout de docker/login-action.
-      - name: Docker config aislada por job (KAN-488)
+      - name: Docker config aislada por job
         run: |
           mkdir -p "$RUNNER_TEMP/.docker"
           echo "DOCKER_CONFIG=$RUNNER_TEMP/.docker" >> "$GITHUB_ENV"
@@ -273,7 +273,7 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       # Immutable sha- tags only. 'latest' is a moving pointer and is banned across the platform
-      # (KAN-193 no-latest guard); deploys resolve by digest/sha, never by latest. metadata-action still
+      # (internal ticket no-latest guard); deploys resolve by digest/sha, never by latest. metadata-action still
       # stamps org.opencontainers.image.revision=<sha> into the labels, so the image keeps its OCI revision.
       # La version sale del tag de git, no del pom.xml (`0.0.1-SNAPSHOT`, nunca tocado).
       # `--match 'v*'` evita tomar tags de otra convencion; `--always` cae al sha corto en
@@ -294,7 +294,7 @@ jobs:
             type=sha,prefix=sha-
           # La procedencia va en el propio artefacto, no en el manifiesto: `ops` la lee de la
           # imagen y, si el label no está, registra `buildSource=unknown` en vez de asumir CI
-          # —afirmarlo sin evidencia sería falsificar CI (KAN-258).
+          # —afirmarlo sin evidencia sería falsificar CI.
           # `build.reason` no se estampa a propósito: sólo lo exige `manual-fallback`.
           labels: |
             life-engine.semver=${{ steps.version.outputs.semver }}
@@ -311,7 +311,7 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           # Real git identity for /actuator/info: the build context has no .git, so pass it explicitly.
-          # Los tres Dockerfiles declaran los mismos ARG GIT_* (KAN-579): misma identidad de build.
+          # Los tres Dockerfiles declaran los mismos ARG GIT_*: misma identidad de build.
           build-args: |
             GIT_COMMIT=${{ github.sha }}
             GIT_BRANCH=${{ github.ref_name }}
@@ -321,7 +321,7 @@ jobs:
           cache-from: type=gha,scope=${{ matrix.module }}
           cache-to: type=gha,mode=max,scope=${{ matrix.module }}
 
-      # KAN-200 / T9: publish the digest of the image we just pushed. build-push-action reports the
+      # T9: publish the digest of the image we just pushed. build-push-action reports the
       # immutable digest in steps.build.outputs.digest — surface it in the run summary (gh run view),
       # so the deploy can resolve commit -> digest straight from the run instead of querying GHCR by
       # hand. No credentials here.

@@ -29,7 +29,7 @@ import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.reactive.server.WebTestClient;
 
 /**
- * KAN-824 (V7 RevenueEvent) and KAN-825 (V8 Treasury) over HTTP with the real transfer pipeline of V5: an ANCHORED ValueEvent,
+ * (V7 RevenueEvent) and an internal ticket (V8 Treasury) over HTTP with the real transfer pipeline of V5: an ANCHORED ValueEvent,
  * its immediate reward, then a SIMULATED revenue event of 0.05 SOL linked to it → pov/revenue-share/v1 (20 % pool, 5 % fee,
  * 75 % retained) → one attested + signed devnet transfer per wallet → REVENUE_EVENT receipt, anchored. Then the read models:
  * the event's revenueShares, the identity's rewards (immediate and revenue apart), the treasury of cryptobot-001.

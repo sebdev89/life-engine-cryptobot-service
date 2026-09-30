@@ -14,7 +14,7 @@ import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * KAN-572 — the adversarial price of the demo: what the oracle's sources say is tampered with
+ * the adversarial price of the demo: what the oracle's sources say is tampered with
  * <em>after</em> they answered, so the real {@code PriceOracle} refuses for a real reason. Same
  * contract as {@link BroadcastChaos}: exists only with {@code cryptobot.chaos.enabled=true}
  * (never UAT/PROD), armed by {@code PUT /api/cryptobot/demo/price} or {@code CRYPTOBOT_DEMO_PRICE_OVERRIDE}

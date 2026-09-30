@@ -43,7 +43,7 @@ import reactor.core.publisher.Mono;
 /**
  * The pipeline the product is about: plan → risk → simulate → policy → wait for a human.
  * Each step is one atomic {@link ProposalTransition}: state, audit trail and outbox event are
- * written together or not at all (KAN-403). Nothing here can sign or send.
+ * written together or not at all. Nothing here can sign or send.
  */
 @Service
 public class ProposalService {
@@ -58,7 +58,7 @@ public class ProposalService {
     public static final String EV_APPROVED = "APPROVED";
     public static final String EV_REJECTED = "REJECTED";
     public static final String EV_EXPIRED = "EXPIRED";
-    /** KAN-438 (paper §19): a human cancelled an APPROVED proposal inside its timelock. */
+    /** (paper §19): a human cancelled an APPROVED proposal inside its timelock. */
     public static final String EV_CANCELLED = "CANCELLED";
     static final String SERVICE_ACTOR = "cryptobot-service";
 
@@ -131,12 +131,12 @@ public class ProposalService {
     }
 
     /**
-     * KAN-391: three receipts on the way to the human. {@code STRATEGY} (the plan, L1; parents: the
+     * three receipts on the way to the human. {@code STRATEGY} (the plan, L1; parents: the
      * snapshot it was planned on and, if the caller passed the advisor's {@code runtimeRunId}, the
      * {@code MARKET_ANALYSIS} that suggested it), {@code RISK_DECISION} over the projected portfolio
      * (VALIDATES the strategy, L1) and {@code SIMULATION} (DERIVES_FROM the strategy).
      *
-     * <p>KAN-393: without a {@code runtimeRunId}, the strategy may instead <em>reuse</em> the
+     * <p>an internal ticket: without a {@code runtimeRunId}, the strategy may instead <em>reuse</em> the
      * wallet's latest {@code MARKET_ANALYSIS} — same asset, younger than the reuse window — and
      * says so with a {@code REUSES} edge ({@link AnalysisReuse}). The audit event records which.
      */
@@ -151,7 +151,7 @@ public class ProposalService {
             io.lifeengine.cryptobot.trading.portfolio.PortfolioSnapshot projected = planner.project(view.snapshot(), plan);
             RiskReport riskAfter = riskEngine.evaluate(projected, null);
             if (riskAfter.overall() == io.lifeengine.cryptobot.trading.risk.RiskSeverity.HIGH) {
-                // KAN-573: riesgo alto del portfolio resultante — no bloquea por sí solo (la policy decide), pero se busca en Loki.
+                // riesgo alto del portfolio resultante — no bloquea por sí solo (la policy decide), pero se busca en Loki.
                 log.warn("proposal_risk_high wallet={} score={} findings={}", wallet.id(), riskAfter.score(),
                         riskAfter.findings().stream().map(f -> f.code()).toList(),
                         LogFields.event("risk_evaluated"), LogFields.status("high"), ErrorCode.RISK_HIGH.kv());
@@ -165,7 +165,7 @@ public class ProposalService {
             Mono<Optional<String>> snapshotReceipt = receipts.byNonce(tenant, view.snapshot().id().toString())
                     .map(r -> Optional.of(r.receiptHash())).defaultIfEmpty(Optional.empty());
             // The analysis behind this strategy: the run the caller named (DERIVES_FROM), or — without one —
-            // the wallet's latest analysis if it is recent and about the same asset (REUSES, KAN-393).
+            // the wallet's latest analysis if it is recent and about the same asset (REUSES).
             Mono<AnalysisLink> analysis = runtimeRunId != null
                     ? receipts.byNonce(tenant, runtimeRunId.toString()).map(r -> new AnalysisLink(r.receiptHash(), ReceiptEdge.Role.DERIVES_FROM))
                             .defaultIfEmpty(AnalysisLink.NONE)
@@ -191,7 +191,7 @@ public class ProposalService {
                         })
                         .flatMap(sim -> evaluatePolicy(sim.proposal(), wallet, view.snapshot().capturedAt(), sim.strategyReceipt(), sim.simulationReceipt()));
             })
-            // KAN-573: de acá al veredicto de policy, cada línea dice de qué propuesta (y de qué corrida del Runtime) habla.
+            // de acá al veredicto de policy, cada línea dice de qué propuesta (y de qué corrida del Runtime) habla.
             .contextWrite(ctx -> LogContext.write(LogContext.write(ctx, LogContext.PROPOSAL_ID, p.id()), LogContext.RUNTIME_RUN_ID, runtimeRunId));
         });
     }
@@ -201,7 +201,7 @@ public class ProposalService {
         static final AnalysisLink NONE = new AnalysisLink(null, ReceiptEdge.Role.DERIVES_FROM);
     }
 
-    /** A simulated proposal and the receipts it descends from — what the Decision Receipt (KAN-572) points at. */
+    /** A simulated proposal and the receipts it descends from — what the Decision Receipt points at. */
     private record Simulated(ActionProposal proposal, String strategyReceipt, String simulationReceipt) {}
 
     private Mono<Simulated> simulate(ActionProposal p, Wallet wallet, io.lifeengine.cryptobot.trading.portfolio.PortfolioSnapshot snapshot, String strategyReceipt) {
@@ -224,7 +224,7 @@ public class ProposalService {
     /**
      * The authoritative state {@code S} the policy needs comes from this wallet's own history:
      * the last execution (cooldown) and the notional executed in the last 24 h (daily exposure),
-     * from the most recent proposals — and, since KAN-439, from a fresh multi-source reading of
+     * from the most recent proposals — and, since an earlier change, from a fresh multi-source reading of
      * every asset the plan touches: the prices {@code S} is allowed to contain, and the oracle age.
      */
     private Mono<ActionProposal> evaluatePolicy(ActionProposal p, Wallet wallet, Instant pricesAsOf, String strategyReceipt, String simulationReceipt) {
@@ -244,7 +244,7 @@ public class ProposalService {
                     return new PolicyEngine.WalletState(last, last24h, pricesAsOf, t.getT2());
                 });
         return Mono.zip(state, signer.identity(), validator.identity()).flatMap(t -> {
-            // KAN-438: the independent validator must be up and on the same H_R, or this is a paper trade.
+            // the independent validator must be up and on the same H_R, or this is a paper trade.
             PolicyDecision decision = policy.requireValidator(
                     policy.evaluate(p, wallet, t.getT1(), t.getT2()), t.getT3());
             PolicyVerdict verdict = decision.authorization();
@@ -257,14 +257,14 @@ public class ProposalService {
                     oracleReading != null && oracleReading.accepted(), oracleReading == null ? null : oracleReading.quotesHash(),
                     LogFields.event("policy_evaluated"), LogFields.status(next.name().toLowerCase(java.util.Locale.ROOT)));
             if (!decision.allowed()) {
-                // KAN-573: el rechazo de policy es la primera parada del demo path; una línea con errorCode y las reglas que dijeron no.
+                // el rechazo de policy es la primera parada del demo path; una línea con errorCode y las reglas que dijeron no.
                 log.warn("proposal_blocked_by_policy proposalId={} rules={} decision={} failedPredicates={}", p.id(),
                         decision.violations().stream().map(PolicyDecision.Violation::rule).toList(), verdict.decision(), verdict.failedPredicates(),
                         LogFields.event("policy_blocked"), LogFields.status("blocked"), ErrorCode.POLICY_BLOCKED.kv());
             }
             // Funnel step 1: the trade was requested — it either reached the human or policy stopped it.
             metrics.tradeRequested(next.name(), assetOf(p.plan()));
-            // Authority layer (KAN-440): which verdict, and — on DENY — which predicates said no.
+            // Authority layer: which verdict, and — on DENY — which predicates said no.
             metrics.policyVerdict(verdict.decision().name(), verdict.escalation().name());
             verdict.failedPredicates().forEach(pred -> metrics.policyPredicateFailed(pred.name()));
             ProposalTransition transition = ProposalTransition.from(p, updated)
@@ -277,7 +277,7 @@ public class ProposalService {
                                             "failedPredicates", verdict.failedPredicates().stream().map(Enum::name).toList(),
                                             "policyVersion", verdict.policyVersion(), "policyHash", verdict.policyHash(),
                                             "inputHash", verdict.inputHash(), "verdictHash", verdict.hash(),
-                                            // KAN-439: the state reference — which quotes, under which limits, and whether they agreed.
+                                            // the state reference — which quotes, under which limits, and whether they agreed.
                                             "oracleAccepted", oracleReading == null ? null : oracleReading.accepted(),
                                             "oracleQuotesHash", oracleReading == null ? null : oracleReading.quotesHash(),
                                             "oracleLimitsHash", oracleReading == null ? null : oracleReading.limitsHash(),
@@ -288,7 +288,7 @@ public class ProposalService {
                 transition = transition.publish(tradeEvent(updated, TradeEvents.REQUESTED, now,
                         payload("plan", p.plan().summary(), "turnoverUsd", p.plan().turnoverUsd(), "executable", decision.executable(), "expiresAt", updated.expiresAt())));
             }
-            // KAN-572: the Decision Receipt — allowed or blocked, every verdict leaves a signed, L1-verifiable receipt in the DAG.
+            // the Decision Receipt — allowed or blocked, every verdict leaves a signed, L1-verifiable receipt in the DAG.
             return proposals.commit(transition)
                     .flatMap(decided -> receiptOf.policyDecision(wallet, decided, strategyReceipt, simulationReceipt)
                             .map(draft -> receipts.issue(draft)
@@ -315,7 +315,7 @@ public class ProposalService {
             Instant now = clock.instant();
             boolean approved = decision == ApprovalRecord.Decision.APPROVED;
             ProposalStatus next = approved ? ProposalStatus.APPROVED : ProposalStatus.REJECTED;
-            // KAN-438 (paper §19): the timelock starts now; the window is pushed so the lock can be honoured.
+            // (paper §19): the timelock starts now; the window is pushed so the lock can be honoured.
             Instant executableAt = approved ? policy.executableAt(now, p.policy()) : null;
             ActionProposal updated = p.withApproval(new ApprovalRecord(decision, actor, now, blankToNull(note), executableAt), now).withStatus(next, now);
             if (approved) {
@@ -336,7 +336,7 @@ public class ProposalService {
     }
 
     /**
-     * KAN-438 (paper §19): during the timelock a human may cancel. Only an APPROVED proposal that
+     * (paper §19): during the timelock a human may cancel. Only an APPROVED proposal that
      * has not started executing; the approval record is kept (who approved is part of the trace)
      * and the row goes to REJECTED with a {@code CANCELLED} audit event and outbox fact.
      */

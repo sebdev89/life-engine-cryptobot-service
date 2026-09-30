@@ -49,7 +49,7 @@ public class CryptobotJwtAuthenticationWebFilter implements WebFilter {
             return chain.filter(exchange);
         }
         String auth = exchange.getRequest().getHeaders().getFirst(HttpHeaders.AUTHORIZATION);
-        // KAN-105: parseAuthorizationHeader can trigger a blocking JWKS HTTP fetch
+        // parseAuthorizationHeader can trigger a blocking JWKS HTTP fetch
         // (JwksPublicKeyProvider). This filter runs on a Reactor Netty event-loop thread, where
         // any direct .block() trips Reactor's non-blocking-thread check. Run the whole parse step
         // on boundedElastic instead.
@@ -78,7 +78,7 @@ public class CryptobotJwtAuthenticationWebFilter implements WebFilter {
                         .map(SimpleGrantedAuthority::new)
                         .collect(Collectors.toList());
         var authentication = new UsernamePasswordAuthenticationToken(principal, null, authorities);
-        // KAN-573: el tenant del log es el del token verificado (sub = ownerUserId, lo que Receipts.tenantOf
+        // el tenant del log es el del token verificado (sub = ownerUserId, lo que Receipts.tenantOf
         // usa como tenant), nunca un header del cliente. Va al Reactor Context (→ MDC, LogContext) y al
         // exchange, para los WebExceptionHandler que corren fuera de la cadena.
         String tenantId = principal.userId() == null ? null : principal.userId().toString();
@@ -96,7 +96,7 @@ public class CryptobotJwtAuthenticationWebFilter implements WebFilter {
         return path.startsWith("/actuator/health")
                 || path.equals("/api/cryptobot/health")
                 || path.equals("/actuator/prometheus")
-                // KAN-199: build identity, scraped from inside the Docker network with no Authorization
+                // build identity, scraped from inside the Docker network with no Authorization
                 // header (nginx blocks it externally). SecurityConfig lists it permitAll, but that governs
                 // authorization only — this pre-Security filter must skip it too, like the other reads.
                 || path.startsWith("/actuator/info");

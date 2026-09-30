@@ -29,7 +29,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInstance;
 
 /**
- * KAN-570 — the whole pipeline, for real, with nothing stubbed: {@code intent → risk → policy →
+ * the whole pipeline, for real, with nothing stubbed: {@code intent → risk → policy →
  * approval → timelock → execute (preconditions + mainnet gate) → independent validator → isolated
  * signer → sendTransaction → SUBMITTED → confirmation → EXECUTED → EXECUTION receipt}, against the
  * demo stack of {@code docker-compose.demo.yml} (service + signer + validator + Postgres) and a
@@ -107,7 +107,7 @@ class E2EDevnetIT {
     @DisplayName("devnet: intent → policy → approval → timelock → validator → signer → submit → confirmed → receipt, and the signature is on the chain")
     void realExecutionEndToEnd() throws Exception {
         // 0. Register the wallet the signer controls; the portfolio is valued from the real chain.
-        JsonNode registered = post("/api/cryptobot/wallets", Map.of("address", wallet, "cluster", "devnet", "label", "KAN-570 e2e"), null, 201);
+        JsonNode registered = post("/api/cryptobot/wallets", Map.of("address", wallet, "cluster", "devnet", "label", "e2e"), null, 201);
         String walletId = registered.path("wallet").path("id").asText();
         assertThat(registered.path("snapshot").path("totalUsd").decimalValue()).isPositive();
         JsonNode sol = positionOf(registered.path("snapshot"), "SOL");
@@ -119,7 +119,7 @@ class E2EDevnetIT {
         assertThat(sellSol).as("21 % of " + amount + " SOL must fit the 2 SOL cap: keep the demo wallet between 0.5 and 9 SOL").isLessThanOrEqualTo(2.0);
         int targetPct = (int) (sol.path("weightPct").asDouble() * (1 - sellSol / amount));
         JsonNode proposed = post("/api/cryptobot/wallets/" + walletId + "/proposals",
-                Map.of("kind", "REBALANCE", "targetWeights", Map.of("SOL", targetPct), "reasoningSummary", "KAN-570 e2e devnet"), null, 201);
+                Map.of("kind", "REBALANCE", "targetWeights", Map.of("SOL", targetPct), "reasoningSummary", "e2e devnet"), null, 201);
         JsonNode p = proposed.path("proposal");
         String proposalId = p.path("id").asText();
         assertThat(p.path("status").asText()).isEqualTo("AWAITING_APPROVAL");
@@ -172,7 +172,7 @@ class E2EDevnetIT {
         assertThat(proposal.path("execution").path("signature").asText()).isEqualTo(signature);
         assertThat(proposal.path("execution").path("confirmationStatus").asText()).isIn("confirmed", "finalized");
 
-        // Same key again ⇒ same row, same signature, no second transaction (KAN-403).
+        // Same key again ⇒ same row, same signature, no second transaction.
         JsonNode again = request("POST", "/api/cryptobot/proposals/" + proposalId + "/execute", null, Map.of("Idempotency-Key", operationId.toString()));
         assertThat(again.path("_status").asInt()).isEqualTo(200);
         assertThat(again.path("execution").path("signature").asText()).isEqualTo(signature);
@@ -228,11 +228,11 @@ class E2EDevnetIT {
     @DisplayName("mainnet is fail-closed in the same run: a mainnet intent never executes (409) and is recorded as such")
     void mainnetIntentIsRefused() throws Exception {
         String mainnet = env.getOrDefault("CRYPTOBOT_E2E_MAINNET_WALLET", MEMO_PROGRAM);
-        JsonNode registered = request("POST", "/api/cryptobot/wallets", Map.of("address", mainnet, "cluster", "mainnet-beta", "label", "KAN-570 read-only"), null);
+        JsonNode registered = request("POST", "/api/cryptobot/wallets", Map.of("address", mainnet, "cluster", "mainnet-beta", "label", "read-only"), null);
         assumeTrue(registered.path("_status").asInt() == 201, "mainnet RPC/pricing not available for the read-only wallet: " + registered);
         String walletId = registered.path("wallet").path("id").asText();
         JsonNode proposed = request("POST", "/api/cryptobot/wallets/" + walletId + "/proposals",
-                Map.of("kind", "REBALANCE", "targetWeights", Map.of("SOL", 70), "reasoningSummary", "KAN-570 mainnet gate"), null);
+                Map.of("kind", "REBALANCE", "targetWeights", Map.of("SOL", 70), "reasoningSummary", "mainnet gate"), null);
         assumeTrue(proposed.path("_status").asInt() == 201, "could not plan on the mainnet wallet: " + proposed);
         JsonNode p = proposed.path("proposal");
         String proposalId = p.path("id").asText();
@@ -252,7 +252,7 @@ class E2EDevnetIT {
     }
 
     /**
-     * KAN-571 (HK-3) — recovery, for real: the RPC "goes down" at broadcast time (fault injected
+     * (HK-3) — recovery, for real: the RPC "goes down" at broadcast time (fault injected
      * through the demo-only chaos endpoint), the row stays in flight with its signature, the
      * reconciler gets no verdict and dead-letters the trade, a human requeues it by API, the
      * expired-unseen signature is retried under the SAME operationId with a NEW signature, the
@@ -271,7 +271,7 @@ class E2EDevnetIT {
         assumeTrue(vault != null && !vault.isBlank(), "no CRYPTOBOT_REBALANCE_VAULT in .env.demo");
 
         // Intent → approval → timelock, as in the happy path.
-        JsonNode registered = post("/api/cryptobot/wallets", Map.of("address", wallet, "cluster", "devnet", "label", "KAN-571 e2e chaos"), null, 201);
+        JsonNode registered = post("/api/cryptobot/wallets", Map.of("address", wallet, "cluster", "devnet", "label", "e2e chaos"), null, 201);
         String walletId = registered.path("wallet").path("id").asText();
         JsonNode sol = positionOf(registered.path("snapshot"), "SOL");
         assertThat(sol).isNotNull();
@@ -283,7 +283,7 @@ class E2EDevnetIT {
         JsonNode proposed = null;
         for (int attempt = 0; attempt < 8; attempt++) {
             proposed = post("/api/cryptobot/wallets/" + walletId + "/proposals",
-                    Map.of("kind", "REBALANCE", "targetWeights", Map.of("SOL", targetPct), "reasoningSummary", "KAN-571 e2e chaos"), null, 201);
+                    Map.of("kind", "REBALANCE", "targetWeights", Map.of("SOL", targetPct), "reasoningSummary", "e2e chaos"), null, 201);
             if (proposed.path("proposal").path("policy").path("executable").asBoolean()) {
                 break;
             }
@@ -528,7 +528,7 @@ class E2EDevnetIT {
         return rpc("getBalance", List.of(address)).path("result").path("value").asLong(0);
     }
 
-    /** The dead letter of a proposal, once the reconciler writes it (KAN-571). */
+    /** The dead letter of a proposal, once the reconciler writes it. */
     private JsonNode waitForDeadLetter(String proposalId, Duration max) throws IOException, InterruptedException {
         Instant deadline = Instant.now().plus(max);
         JsonNode last = null;

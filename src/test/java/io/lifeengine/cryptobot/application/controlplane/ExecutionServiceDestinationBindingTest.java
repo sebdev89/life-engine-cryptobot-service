@@ -20,7 +20,7 @@ import org.junit.jupiter.api.Test;
 import reactor.core.publisher.Mono;
 
 /**
- * KAN-599 (audit G1, §17): {@code SimulationService.prepareTransfer} reads {@code
+ * (audit G1, §17): {@code SimulationService.prepareTransfer} reads {@code
  * cryptobot.policy.rebalance-vault} freshly at execution time; before {@link
  * ExecutionService#requireDestinationBound} nothing compared that rebuilt destination with what
  * the human approved. Runs on {@link ExecutionHarness} — same wiring as {@link
@@ -117,7 +117,7 @@ class ExecutionServiceDestinationBindingTest {
     }
 
     @Test
-    @DisplayName("KAN-571 retry re-runs the same binding check: a config drift discovered mid-retry also refuses")
+    @DisplayName("retry re-runs the same binding check: a config drift discovered mid-retry also refuses")
     void retryAlsoBindsTheDestination() {
         ExecutionHarness h = new ExecutionHarness();
         String sig = h.signerSignsAnyMessage();

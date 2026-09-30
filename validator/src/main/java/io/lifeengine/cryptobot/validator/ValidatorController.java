@@ -55,7 +55,7 @@ public class ValidatorController {
 
     @PostMapping(path = "/validate", consumes = "application/json")
     public Mono<ResponseEntity<?>> validate(@RequestHeader(value = TOKEN_HEADER, required = false) String token, @RequestBody ValidationService.Request req) {
-        // KAN-573: el veredicto corre dentro de la cadena reactiva para que proposalId esté en el MDC de
+        // el veredicto corre dentro de la cadena reactiva para que proposalId esté en el MDC de
         // cada línea (LogContext), incluida validator_decision de ValidationService.
         return Mono.<ResponseEntity<?>>fromCallable(() -> doValidate(token, req))
                 .contextWrite(ctx -> LogContext.write(ctx, LogContext.PROPOSAL_ID, req == null ? null : req.proposalId()));
@@ -65,7 +65,7 @@ public class ValidatorController {
         if (!authorized(token)) {
             return badToken("validate");
         }
-        // KAN-582: the validator's own series — issued vs denied, by the rule that decided — and the time it took.
+        // the validator's own series — issued vs denied, by the rule that decided — and the time it took.
         Timer.Sample sample = metrics.start();
         try {
             ValidationService.Response response = validation.validate(req);

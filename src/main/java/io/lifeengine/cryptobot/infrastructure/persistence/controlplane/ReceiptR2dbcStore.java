@@ -24,7 +24,7 @@ import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
 /**
- * {@code intelligence_receipt} + {@code receipt_edge} + {@code artifact} + {@code deterministic_inference} (KAN-392). The receipt row stores
+ * {@code intelligence_receipt} + {@code receipt_edge} + {@code artifact} + {@code deterministic_inference}. The receipt row stores
  * the canonical value tree as JSONB (what a lineage API returns) <em>and</em> the exact canonical
  * bytes that were hashed, so {@code verify} can check both that the bytes hash to the id and that
  * the JSON still canonicalises to those bytes.

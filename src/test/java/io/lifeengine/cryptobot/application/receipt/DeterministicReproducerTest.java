@@ -26,7 +26,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 /**
- * L1 re-execution (KAN-392, Endgame §10): {@code verify} runs the engine again on the stored
+ * L1 re-execution (Endgame §10): {@code verify} runs the engine again on the stored
  * input and says, per reason code, why a receipt is or is not reproduced. A receipt is never
  * marked reproduced because it says so — every hash is recomputed from the trees.
  */

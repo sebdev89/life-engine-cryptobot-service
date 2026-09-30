@@ -98,7 +98,7 @@ class AttestationVerifierTest {
         assertThat(v.decision()).isEqualTo("NOT_REQUIRED");
     }
 
-    // ---- KAN-493: the attestation is for a cluster ------------------------------------------
+    // ---- an internal ticket: the attestation is for a cluster ------------------------------------------
 
     @Test
     void theAttestedClusterMustBeTheRequestsCluster() {

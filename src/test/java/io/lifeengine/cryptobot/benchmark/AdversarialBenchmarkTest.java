@@ -122,7 +122,7 @@ class AdversarialBenchmarkTest {
         assertThat(reasons.get(Klass.OVERSIZED_AMOUNT).keySet()).allMatch(r -> r.contains("TRADE_WITHIN_MAX"));
         assertThat(reasons.get(Klass.INCORRECT_POLICY_VERSION).keySet()).allMatch(r -> r.equals("SCHEMA") || r.contains("POLICY_BOUND"));
         assertThat(reasons.get(Klass.INVALID_ASSET).keySet()).allMatch(r -> r.equals("SCHEMA") || r.contains("ASSET_ALLOWED"));
-        // KAN-572: a disagreeing source is refused by the real oracle (PRICE_DEVIATION) and the trade has no value (TRADE_WITHIN_MAX)
+        // a disagreeing source is refused by the real oracle (PRICE_DEVIATION) and the trade has no value (TRADE_WITHIN_MAX)
         assertThat(reasons.get(Klass.MANIPULATED_ORACLE).keySet()).allMatch(r -> r.equals("SCHEMA") || (r.contains("TRADE_WITHIN_MAX") && r.contains("PRICE_DEVIATION")));
         assertThat(reasons.get(Klass.STALE_PRICE_SOURCES).keySet()).isNotEmpty().allMatch(r -> r.contains("TRADE_WITHIN_MAX") && r.contains("PRICE_STALE"));
         assertThat(reasons.get(Klass.SINGLE_PRICE_SOURCE).keySet()).isNotEmpty().allMatch(r -> r.contains("TRADE_WITHIN_MAX") && r.contains("PRICE_QUORUM"));

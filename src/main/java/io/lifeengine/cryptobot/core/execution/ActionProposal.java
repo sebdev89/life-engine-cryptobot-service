@@ -11,7 +11,7 @@ import java.util.UUID;
  * Everything the trace requires, in one aggregate: user, wallet, timestamp, reasoning, action,
  * asset/amount (in the plan), simulation, risk, policy, approval and execution signature.
  *
- * <p>KAN-403: {@code operationId} is the idempotency key of the execution — unique across all
+ * <p>an internal ticket: {@code operationId} is the idempotency key of the execution — unique across all
  * proposals, persisted in the same transaction that moves the row to {@code EXECUTING}, i.e.
  * before anything is signed. {@code version} is the optimistic lock: every commit expects the
  * version it read and bumps it, so two writers (two clicks, the executor and the reconciler)
@@ -51,7 +51,7 @@ public record ActionProposal(
     public ActionProposal {}
 
     /**
-     * Pre-KAN-500 shape: no intent hash. What {@code ProposalService} creates (the hash arrives
+     * Legacy shape: no intent hash. What {@code ProposalService} creates (the hash arrives
      * with the execute request, never at proposal time) and what every row written before V11 has.
      */
     public ActionProposal(UUID id, UUID walletId, UUID ownerUserId, String walletAddress, String cluster, ProposalStatus status, String kind,
@@ -102,7 +102,7 @@ public record ActionProposal(
                 runtimeRunId, snapshotId, expiresAt, createdAt, now, operationId, intentHash, version);
     }
 
-    /** KAN-438: the timelock may end after the original TTL; the window is pushed so the lock can be honoured. */
+    /** the timelock may end after the original TTL; the window is pushed so the lock can be honoured. */
     public ActionProposal withExpiresAt(Instant expires, Instant now) {
         return new ActionProposal(
                 id, walletId, ownerUserId, walletAddress, cluster, status, kind, title, reasoningSummary, requestedBy,
@@ -118,7 +118,7 @@ public record ActionProposal(
     }
 
     /**
-     * KAN-500 (CB-03): the operation id together with the intent hash it derives from (KAN-435),
+     * (CB-03): the operation id together with the intent hash it derives from,
      * persisted in the same commit — {@code intent_hash} is a column, not a fold into the id.
      * {@code hash} is {@code null} when the caller presented a plain UUID key.
      */

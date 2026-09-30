@@ -24,7 +24,7 @@ import org.junit.jupiter.api.Test;
 import reactor.core.publisher.Mono;
 
 /**
- * KAN-604 (audit §26 "Property / invariants"): the five invariants §29 asks for over the
+ * (audit §26 "Property / invariants"): the five invariants §29 asks for over the
  * <em>real</em> {@link ExecutionService} — real {@code PolicyEngine}/{@code ProposalService}
  * wiring against {@code InMemoryControlPlaneRepositories} ({@link ExecutionHarness}), chain/signer
  * /validator mocked. There is no jqwik in this pom; each invariant is checked over a loop of
@@ -64,7 +64,7 @@ class ExecutionServiceInvariantsTest {
 
     // ---------------------------------------------------------------------------------------
     // 2. Unvalidated never SUBMITTED — validator refusal or plain unreachability (unknown ⇒ deny,
-    //    KAN-440 I6) must never let the pipeline reach the broadcast step.
+    //    I6) must never let the pipeline reach the broadcast step.
     // ---------------------------------------------------------------------------------------
     @Test
     @DisplayName("property: whether the validator explicitly denies or is simply unreachable, sendTransaction is never called and the proposal never reaches SUBMITTED/EXECUTED")
@@ -88,7 +88,7 @@ class ExecutionServiceInvariantsTest {
 
     // ---------------------------------------------------------------------------------------
     // 3. Same Idempotency-Key ⇒ at most one sendTransaction, no matter how many times execute()
-    //    is called with it (KAN-403's replay guard).
+    //    is called with it (internal ticket's replay guard).
     // ---------------------------------------------------------------------------------------
     @RepeatedTest(5)
     @DisplayName("property: replaying the same operationId any number of times never calls sendTransaction more than once")
@@ -125,7 +125,7 @@ class ExecutionServiceInvariantsTest {
     void mainnetDisabledNeverBroadcastsRegardlessOfOtherInputs() {
         for (int i = 0; i < ITERATIONS; i++) {
             ExecutionHarness h = new ExecutionHarness();
-            // KAN-493: requireClusterAllowed checks the wallet's cluster before anything else; swapping
+            // requireClusterAllowed checks the wallet's cluster before anything else; swapping
             // the wallet's own cluster to mainnet (with the same failClosed() ExecutionProperties the
             // harness wires by default) is enough to exercise the gate without rebuilding the whole
             // real-PolicyEngine scaffolding ExecutionServiceMainnetGateTest already has.

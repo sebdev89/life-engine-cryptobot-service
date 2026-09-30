@@ -32,9 +32,9 @@ import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
 /**
- * The multi-source price oracle (KAN-439, paper §22): asks every enabled {@link PriceSource} for
+ * The multi-source price oracle (paper §22): asks every enabled {@link PriceSource} for
  * the same assets, concurrently, and reduces what comes back with the pure {@link PriceOracle}
- * under the configured {@link OracleLimits}. Same shape as {@code CachedArsQuotesService} (KAN-355):
+ * under the configured {@link OracleLimits}. Same shape as {@code CachedArsQuotesService}:
  * one slow source never delays the others beyond its own timeout, and a source that fails is an
  * absent observation, never an error.
  *
@@ -70,7 +70,7 @@ public class PriceOracleService implements PriceProvider {
     private final OracleLimits limits;
     private final MeterRegistry meters;
     private final java.time.Clock clock;
-    /** KAN-572: the demo's price tampering; {@code null} outside the demo stack (no bean, nothing consulted). */
+    /** the demo's price tampering; {@code null} outside the demo stack (no bean, nothing consulted). */
     private final PriceChaos chaos;
     private final Map<String, OracleConsensus> lastAccepted = new ConcurrentHashMap<>();
 
@@ -178,7 +178,7 @@ public class PriceOracleService implements PriceProvider {
                         String symbol = e.getValue();
                         List<PriceObservation> mine = all.stream().filter(o -> o.asset().equals(symbol)).toList();
                         if (chaos != null && chaos.armed()) {
-                            // KAN-572, demo only: the adversarial price is injected into what the sources said, and logged.
+                            // an internal ticket, demo only: the adversarial price is injected into what the sources said, and logged.
                             List<PriceObservation> tampered = chaos.apply(symbol, e.getKey(), mine, sourceIds(), now);
                             if (tampered != mine) {
                                 log.warn("oracle_price_injected — DEMO ONLY asset={} real={} injected={}", symbol,

@@ -13,7 +13,7 @@ import java.util.Map;
 /**
  * The one mapping from an {@code intelligence_receipt} row to {@link IntelligenceReceipt}, shared
  * by {@link ReceiptR2dbcStore} and {@link LineageR2dbcStore} so a lineage walk returns exactly what
- * a point lookup returns (KAN-393).
+ * a point lookup returns.
  */
 final class ReceiptRows {
 

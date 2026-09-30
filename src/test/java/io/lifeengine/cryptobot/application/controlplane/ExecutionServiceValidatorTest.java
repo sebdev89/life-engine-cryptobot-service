@@ -22,7 +22,7 @@ import org.mockito.ArgumentCaptor;
 import reactor.core.publisher.Mono;
 
 /**
- * KAN-438 — level 5 (paper §20): nothing is signed without the independent validator's
+ * level 5 (paper §20): nothing is signed without the independent validator's
  * attestation, and the validator's refusal, disagreement or silence all fail closed before the
  * signer is even asked.
  */

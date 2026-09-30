@@ -220,7 +220,7 @@ public record TradingIntent(
      * Untrusted text → canonical text: NFC, then surrounding spaces removed. Control characters
      * are refused <em>before</em> trimming: {@code String.trim()} silently drops every code point
      * below U+0021, so {@code "paper-v1"} followed by U+0000 used to normalize to {@code "paper-v1"} and bind to a
-     * policy the agent never named (found by the KAN-440 benchmark). Two byte strings that differ
+     * policy the agent never named (found by the internal ticket benchmark). Two byte strings that differ
      * must not become one identifier unless the difference is plain spaces.
      */
     static String text(String field, String raw) {

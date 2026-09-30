@@ -14,7 +14,7 @@ public interface ActionProposalRepository {
      * Applies a transition atomically: the row is updated only if it still has
      * {@code expectedStatus}/{@code expectedVersion}; its audit and outbox events are written in
      * the same transaction. Fails with {@code ControlPlaneExceptions.StaleProposal} when the guard
-     * does not match and with {@code DuplicateOperation} when the operationId is taken (KAN-403).
+     * does not match and with {@code DuplicateOperation} when the operationId is taken.
      */
     Mono<ActionProposal> commit(ProposalTransition transition);
 

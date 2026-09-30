@@ -57,7 +57,7 @@ class SolanaRpcClientTest {
 
     @Test
     void getBlockHeightReadsThePlainNumber() {
-        // KAN-403: reconciliation compares this with the signed transaction's lastValidBlockHeight.
+        // reconciliation compares this with the signed transaction's lastValidBlockHeight.
         server.enqueue(json("{\"jsonrpc\":\"2.0\",\"result\":312345678,\"id\":1}"));
         StepVerifier.create(client.getBlockHeight(SolanaCluster.DEVNET))
                 .expectNext(312_345_678L)
@@ -103,7 +103,7 @@ class SolanaRpcClientTest {
 
     @Test
     void getTransactionReadsSlotErrAndMemosFromParsedInstructionsOrLogs() {
-        // KAN-394: the anchor's memo read back at `finalized`. jsonParsed shape first…
+        // the anchor's memo read back at `finalized`. jsonParsed shape first…
         server.enqueue(json("{\"jsonrpc\":\"2.0\",\"result\":{\"slot\":4242,\"blockTime\":1789700000,\"meta\":{\"err\":null,\"logMessages\":[]},"
                 + "\"transaction\":{\"message\":{\"instructions\":[{\"program\":\"spl-memo\",\"programId\":\"MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr\",\"parsed\":\"ir/1 root=sha256:aa n=1 ts=x\"}]}}},\"id\":1}"));
         StepVerifier.create(client.getTransaction(SolanaCluster.DEVNET, "sig"))

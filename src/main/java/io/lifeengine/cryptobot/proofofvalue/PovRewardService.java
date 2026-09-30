@@ -43,7 +43,7 @@ import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
 /**
- * Proof of Value V5 (KAN-822): the immediate reward of an ANCHORED ValueEvent, paid in devnet SOL.
+ * Proof of Value V5: the immediate reward of an ANCHORED ValueEvent, paid in devnet SOL.
  *
  * <pre>
  *   POST /value-events/{id}/distribute
@@ -198,13 +198,13 @@ public class PovRewardService {
         return payAll(d.id(), d.tenantId(), d.payouts()).flatMap(done -> issueReceipt(ownerUserId, event, d.withPayouts(done)));
     }
 
-    /** Refused before anything is signed when the reward is off: a revenue event's payouts go through this same flow (KAN-824). */
+    /** Refused before anything is signed when the reward is off: a revenue event's payouts go through this same flow. */
     boolean enabled() {
         return props.isEnabled();
     }
 
     /**
-     * The payout pipeline, shared by a V5 distribution and (KAN-824) a V7 revenue event ({@code batchId} = the distribution or the
+     * The payout pipeline, shared by a V5 distribution and a V7 revenue event ({@code batchId} = the distribution or the
      * revenue event, for the logs): UNFUNDED rows are only counted; every PENDING one, in order, through {@link #payOne}. A
      * failure never cuts the rest. Returns every payout as it ended.
      */
@@ -414,7 +414,7 @@ public class PovRewardService {
         return ps.stream().anyMatch(p -> PovPayout.SUBMITTED.equals(p.status()) && p.txSignature() != null);
     }
 
-    /** Each SUBMITTED payout looked up on the chain once (shared with KAN-824's revenue events); the rows are updated when it moved. */
+    /** Each SUBMITTED payout looked up on the chain once (shared with an internal ticket's revenue events); the rows are updated when it moved. */
     Mono<List<PovPayout>> reconcilePayouts(UUID batchId, List<PovPayout> ps) {
         SolanaCluster cluster = SolanaCluster.parse(policy.properties().executionCluster());
         return Flux.fromIterable(ps)

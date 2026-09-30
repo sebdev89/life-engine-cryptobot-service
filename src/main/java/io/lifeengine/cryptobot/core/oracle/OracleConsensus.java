@@ -10,7 +10,7 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * What the oracle concluded about one asset from what it saw (KAN-439). {@code priceUsd} is the
+ * What the oracle concluded about one asset from what it saw. {@code priceUsd} is the
  * median of the sources {@code used}; it is only a price when {@link #accepted()} — a refused
  * consensus keeps the median (if there was one) for the audit trail, and nothing downstream may
  * treat it as a fact. {@code asOf} is the oldest observation the median depends on: the age the

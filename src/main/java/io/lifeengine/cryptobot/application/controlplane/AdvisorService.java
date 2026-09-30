@@ -50,7 +50,7 @@ public class AdvisorService {
     private static final int MAX_QUESTION_CHARS = 1000;
     static final int MAX_POSITIONS_FOR_LLM = 15;
 
-    /** {@code receiptHash} is the {@code MARKET_ANALYSIS} receipt of this answer (KAN-391). */
+    /** {@code receiptHash} is the {@code MARKET_ANALYSIS} receipt of this answer. */
     public record Asked(AdvisorAnswer answer, UUID runtimeRunId, String runtimeBaseUrl, String ssePath, String receiptHash) {}
 
     private final PortfolioService portfolio;
@@ -79,7 +79,7 @@ public class AdvisorService {
     }
 
     /**
-     * KAN-391: two receipts per question. {@code HUMAN_IDEA} before the Runtime is called (the
+     * two receipts per question. {@code HUMAN_IDEA} before the Runtime is called (the
      * question as a salted commitment, parent: the wallet's latest {@code WALLET_SNAPSHOT}), and
      * {@code MARKET_ANALYSIS} once the run succeeded (prompt commitment, model, run id, tokens if
      * Runtime reported them, hash of the structured answer; parents: the idea, the snapshot and

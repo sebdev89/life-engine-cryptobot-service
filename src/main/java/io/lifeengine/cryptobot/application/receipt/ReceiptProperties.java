@@ -4,7 +4,7 @@ import java.time.Duration;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
 /**
- * {@code cryptobot.receipts.*} (KAN-391).
+ * {@code cryptobot.receipts.*}.
  *
  * <ul>
  *   <li>{@code key-id} — name of the signing key, written into every receipt for rotation.
@@ -17,7 +17,7 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
  *   <li>{@code price-table-version} — the version label of the cost table the receipt quotes.
  *       Cost is an estimate for local models and is labelled as such; a receipt without a cost is
  *       an honest receipt.
- *   <li>{@code reuse-window} — KAN-393: how old a {@code MARKET_ANALYSIS} may be for a new
+ *   <li>{@code reuse-window} — an internal ticket: how old a {@code MARKET_ANALYSIS} may be for a new
  *       {@code STRATEGY} of the same wallet and asset to declare {@code REUSES} it instead of
  *       requiring a fresh run (Endgame §19 step 3: "&lt; 1 h"). {@code PT0S} disables reuse.
  * </ul>

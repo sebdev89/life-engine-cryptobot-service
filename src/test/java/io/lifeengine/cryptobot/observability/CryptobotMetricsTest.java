@@ -14,8 +14,8 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 /**
- * KAN-425: the business meters exist under the names the issue lists, their labels are bounded,
- * and the ones that wait for KAN-403 / KAN-390 are already registered at 0.
+ * the business meters exist under the names the issue lists, their labels are bounded,
+ * and the ones that wait for an internal ticket are already registered at 0.
  */
 class CryptobotMetricsTest {
 
@@ -23,7 +23,7 @@ class CryptobotMetricsTest {
     private final CryptobotMetrics metrics = new CryptobotMetrics(registry, List.of("SOL", "usdc", "BTCUSDT"));
 
     @Test
-    @DisplayName("Prometheus renders exactly the names of KAN-425")
+    @DisplayName("Prometheus renders exactly the names of an internal ticket")
     void prometheusNamesMatchTheIssue() {
         PrometheusMeterRegistry prom = new PrometheusMeterRegistry(PrometheusConfig.DEFAULT);
         CryptobotMetrics m = new CryptobotMetrics(prom, Set.of("SOL"));
@@ -62,7 +62,7 @@ class CryptobotMetricsTest {
                 .contains("intelligence_receipts_total{")
                 .contains("deterministic_inference_total")
                 .contains("deterministic_mismatch_total")
-                // KAN-353: the names the glossary dashboard queries
+                // the names the glossary dashboard queries
                 .contains("cryptobot_glossary_term_total{")
                 .contains("cryptobot_glossary_search_total{");
         // Label values are lower-case and bounded: the enum name went in, the label came out normalised.
@@ -71,7 +71,7 @@ class CryptobotMetricsTest {
     }
 
     @Test
-    @DisplayName("KAN-353: the term label is capped — past MAX_GLOSSARY_TERMS distinct terms, new ones are 'other'")
+    @DisplayName("the term label is capped — past MAX_GLOSSARY_TERMS distinct terms, new ones are 'other'")
     void glossaryTermLabelIsCapped() {
         for (int i = 0; i < CryptobotMetrics.MAX_GLOSSARY_TERMS; i++) {
             metrics.glossaryTerm("term-" + i, "open");
@@ -98,7 +98,7 @@ class CryptobotMetricsTest {
     }
 
     @Test
-    @DisplayName("KAN-403 / KAN-390 series exist at 0 before anything feeds them")
+    @DisplayName("series exist at 0 before anything feeds them")
     void placeholdersAreRegisteredAtZero() {
         assertThat(registry.get("dlq.size").gauge().value()).isZero();
         assertThat(registry.get("outbox.pending").gauge().value()).isZero();
@@ -116,7 +116,7 @@ class CryptobotMetricsTest {
     }
 
     @Test
-    @DisplayName("gauges owned here are settable by KAN-403 without touching the registry")
+    @DisplayName("gauges owned here are settable by an internal ticket without touching the registry")
     void gaugesFollowTheSetters() {
         metrics.dlqSize(3);
         metrics.outboxPending(7);

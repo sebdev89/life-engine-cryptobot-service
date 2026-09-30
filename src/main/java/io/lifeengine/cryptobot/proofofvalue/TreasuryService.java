@@ -29,7 +29,7 @@ import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
 /**
- * Proof of Value V8 (KAN-825): an agent's Treasury — a read model, nothing is moved here.
+ * Proof of Value V8: an agent's Treasury — a read model, nothing is moved here.
  *
  * <ul>
  *   <li>{@code onChainBalanceLamports}: RPC {@code getBalance} of the identity's wallet on the execution cluster; {@code null} with

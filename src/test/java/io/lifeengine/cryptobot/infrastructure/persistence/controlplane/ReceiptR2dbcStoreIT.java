@@ -36,7 +36,7 @@ import org.springframework.r2dbc.core.DatabaseClient;
 import org.springframework.transaction.reactive.TransactionalOperator;
 
 /**
- * The real store against a real Postgres (KAN-391): migrations {@code V6} and {@code V7} (KAN-392)
+ * The real store against a real Postgres: migrations {@code V6} and {@code V7}
  * apply on top of {@code V1..V5} in a scratch schema, and {@link ReceiptR2dbcStore} keeps the same contract the
  * in-memory store promises — content addressing, the nonce guard, the FK on parents, the
  * round-trip of body / canonical bytes / signature / anchor columns.
@@ -141,7 +141,7 @@ class ReceiptR2dbcStoreIT {
     }
 
     @Test
-    @DisplayName("V7 applied (KAN-392): an L1 RISK_DECISION stores its input/output trees, and verify re-executes the engine from what Postgres gives back")
+    @DisplayName("V7 applied: an L1 RISK_DECISION stores its input/output trees, and verify re-executes the engine from what Postgres gives back")
     void l1RoundTripReproduces() {
         String tenant = UUID.randomUUID().toString();
         DeterministicRiskEngine engine = DeterministicRiskEngine.v1();

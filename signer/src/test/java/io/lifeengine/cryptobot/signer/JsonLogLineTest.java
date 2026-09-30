@@ -29,7 +29,7 @@ import org.springframework.test.web.reactive.server.WebTestClient;
 
 /**
  * Lo que de verdad sale por stdout del signer tiene que ser JSON con los campos comunes de la
- * plataforma (KAN-426 / KAN-573): un rechazo lleva errorCode CB-SIGNER-*, el proposalId del pedido en
+ * plataforma: un rechazo lleva errorCode CB-SIGNER-*, el proposalId del pedido en
  * el MDC, requestId/traceId y la identidad del build. Pedidos reales, consola capturada, líneas parseadas.
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)

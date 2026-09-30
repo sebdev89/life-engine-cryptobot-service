@@ -26,7 +26,7 @@ import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
 /**
- * The read models of V2 (reputation, history) and V6 (Contribution Units ledger), KAN-819 / KAN-823. Pure folds over
+ * The read models of V2 (reputation, history) and V6 (Contribution Units ledger), an internal ticket. Pure folds over
  * the stored contributions — no formula, no weights: a reputation is how many accepted outcomes and how many units;
  * the ledger adds up units by identity, by knowledge asset or by project, and its rows always sum to the units every
  * recorded event distributed.
@@ -89,8 +89,8 @@ public class AttributionReadModel {
     }
 
     /**
-     * KAN-822 (V5): lamports of the identity's CONFIRMED immediate-reward payouts, and how many payouts it has in any state;
-     * KAN-824 (V7): the CONFIRMED revenue-share payouts, apart.
+     * (V5): lamports of the identity's CONFIRMED immediate-reward payouts, and how many payouts it has in any state;
+     * (V7): the CONFIRMED revenue-share payouts, apart.
      */
     private Mono<ProofOfValueDtos.RewardsView> rewards(String tenant, String identityId) {
         return payouts.findByIdentity(tenant, identityId).collectList()

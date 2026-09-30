@@ -31,7 +31,7 @@ import org.springframework.r2dbc.core.DatabaseClient;
 import org.springframework.transaction.reactive.TransactionalOperator;
 
 /**
- * The {@code WITH RECURSIVE} walks against a real Postgres (KAN-393): same contract as the
+ * The {@code WITH RECURSIVE} walks against a real Postgres: same contract as the
  * in-memory walk — roots at 0, minimum depth, depth cap, tenant boundary, degrees, edges of the
  * induced subgraph. Opt-in like {@link ReceiptR2dbcStoreIT} (same env vars, same scratch schema
  * {@code kan391_it}); every run uses a fresh tenant so re-runs never collide.

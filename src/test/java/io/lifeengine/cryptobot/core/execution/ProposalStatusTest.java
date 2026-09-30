@@ -18,11 +18,11 @@ class ProposalStatusTest {
 
     @Test
     void submittedSitsBetweenExecutingAndTheChainsVerdict() {
-        // KAN-403: EXECUTING → SUBMITTED → EXECUTED|FAILED; reconciliation may also close EXECUTING directly.
+        // EXECUTING → SUBMITTED → EXECUTED|FAILED; reconciliation may also close EXECUTING directly.
         assertThat(ProposalStatus.EXECUTING.canTransitionTo(ProposalStatus.SUBMITTED)).isTrue();
         assertThat(ProposalStatus.SUBMITTED.canTransitionTo(ProposalStatus.EXECUTED)).isTrue();
         assertThat(ProposalStatus.SUBMITTED.canTransitionTo(ProposalStatus.FAILED)).isTrue();
-        assertThat(ProposalStatus.SUBMITTED.canTransitionTo(ProposalStatus.EXECUTING)).isTrue(); // KAN-571: idempotent retry after blockhash expiry
+        assertThat(ProposalStatus.SUBMITTED.canTransitionTo(ProposalStatus.EXECUTING)).isTrue(); // an internal ticket: idempotent retry after blockhash expiry
         assertThat(ProposalStatus.APPROVED.canTransitionTo(ProposalStatus.SUBMITTED)).isFalse();
         assertThat(ProposalStatus.EXECUTING.inFlight()).isTrue();
         assertThat(ProposalStatus.SUBMITTED.inFlight()).isTrue();

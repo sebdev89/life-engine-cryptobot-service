@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# KAN-355 — manual, dev-only validation of /api/cryptobot/quotes/{asset} against criptos.com.ar.
+# manual, dev-only validation of /api/cryptobot/quotes/{asset} against criptos.com.ar.
 #
 # criptos.com.ar's API is neither public nor documented (Cloudflare, no ToS): it is NEVER called from
 # production code. This script is the "oracle" step of the issue's acceptance criterion: for BTC and

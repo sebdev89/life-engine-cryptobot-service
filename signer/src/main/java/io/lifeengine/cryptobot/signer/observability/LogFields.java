@@ -7,7 +7,7 @@ import org.springframework.web.server.ServerWebExchange;
 import org.springframework.web.util.pattern.PathPattern;
 
 /**
- * Los campos estructurados comunes que un log de negocio agrega a la línea JSON (KAN-426 / KAN-573).
+ * Los campos estructurados comunes que un log de negocio agrega a la línea JSON.
  * Van como {@link StructuredArgument}: en JSON salen como campos de primer nivel; en texto, como
  * {@code clave=valor} al final del mensaje.
  */

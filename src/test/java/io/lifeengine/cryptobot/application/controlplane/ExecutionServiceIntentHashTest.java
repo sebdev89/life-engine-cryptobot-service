@@ -21,7 +21,7 @@ import org.junit.jupiter.api.Test;
 import reactor.core.publisher.Mono;
 
 /**
- * KAN-500 (CB-03/09): the intent hash presented as the idempotency key is persisted with the row
+ * (CB-03/09): the intent hash presented as the idempotency key is persisted with the row
  * (not only folded into the operationId), the EXECUTION_STARTED event records it, and the
  * EXECUTION receipt names the advisor run the proposal came from.
  */

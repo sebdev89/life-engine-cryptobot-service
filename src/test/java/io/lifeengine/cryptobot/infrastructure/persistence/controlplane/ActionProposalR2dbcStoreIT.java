@@ -31,7 +31,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.utility.DockerImageName;
 
 /**
- * KAN-604 (Gap G7, audit §15/§17, mandate §29): {@link ActionProposalR2dbcStore#commit} against a
+ * (Gap G7, audit §15/§17, mandate §29): {@link ActionProposalR2dbcStore#commit} against a
  * real Postgres — Flyway {@code V1..V11} apply on a fresh container, no gating env var. Proves the
  * three things the in-memory replica ({@code InMemoryControlPlaneRepositories}) only asserts by
  * convention:
@@ -47,7 +47,7 @@ import org.testcontainers.utility.DockerImageName;
  *
  * <p>Opt-in ({@code *IT}, not picked up by {@code mvnw test}): run explicitly, e.g. {@code ./mvnw
  * test -Dtest=ActionProposalR2dbcStoreIT,OutboxEventR2dbcStoreIT,DeadLetterR2dbcStoreIT}. Needs
- * Docker (le-ci has it; KAN-296 — port contention between parallel Testcontainers jobs shows up as
+ * Docker (le-ci has it; an internal ticket — port contention between parallel Testcontainers jobs shows up as
  * "bind: address already in use", not a code regression).
  */
 @Testcontainers

@@ -15,7 +15,7 @@ import org.springframework.web.reactive.function.client.WebClient;
 import reactor.core.publisher.Mono;
 
 /**
- * KAN-571 — the demo's faulty RPC. Same client, same node, same bytes; the three calls the
+ * the demo's faulty RPC. Same client, same node, same bytes; the three calls the
  * execution path makes <em>after signing</em> can be made to fail on demand (see
  * {@link BroadcastChaos}). The failure is always a transport-shaped {@link SolanaRpcException}
  * (a cause is set), which is exactly what the production code treats as <em>uncertain</em> — never

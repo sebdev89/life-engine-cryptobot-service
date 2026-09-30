@@ -47,7 +47,7 @@ class JupiterPriceClientTest {
                 .setBody("{\"So11111111111111111111111111111111111111112\":{\"usdPrice\":102.5,\"priceChange24h\":1.2}}"));
         StepVerifier.create(client(true).observe(ASKED))
                 .assertNext(obs -> {
-                    // KAN-439: no static fallback here — USDC is simply not observed, and the oracle counts that against the quorum
+                    // no static fallback here — USDC is simply not observed, and the oracle counts that against the quorum
                     assertThat(obs).hasSize(1);
                     assertThat(obs.get(0).source()).isEqualTo(JupiterPriceClient.SOURCE_JUPITER);
                     assertThat(obs.get(0).asset()).isEqualTo("SOL");

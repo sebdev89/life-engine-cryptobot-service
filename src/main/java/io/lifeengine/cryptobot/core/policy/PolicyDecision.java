@@ -18,17 +18,17 @@ import java.util.List;
  *
  * Rules are named so the audit trail can say exactly which one fired.
  *
- * <p>{@code authorization} (KAN-436) is the graduated verdict of {@link DeterministicPolicyEngine}
+ * <p>{@code authorization} is the graduated verdict of {@link DeterministicPolicyEngine}
  * over {@code (I, S, R_v)}: ALLOW / ESCALATE / DENY with the failed predicates and the hash of
  * the policy that decided. {@code null} only on rows persisted before the verdict existed; the
  * execution preconditions treat that as "not authorized".
  *
- * <p>{@code input} (KAN-438) is the exact {@code (I, S)} the verdict was computed over, kept so
+ * <p>{@code input} is the exact {@code (I, S)} the verdict was computed over, kept so
  * the independent validator can re-derive the verdict in its own process at execution time and
- * refuse if it disagrees. {@code null} on rows persisted before KAN-438: nothing to re-validate ⇒
+ * refuse if it disagrees. {@code null} on rows persisted before a later change: nothing to re-validate ⇒
  * not executable (fail-closed).
  *
- * <p>{@code oracle} (KAN-439) is the multi-source reading the state {@code S} was priced with:
+ * <p>{@code oracle} is the multi-source reading the state {@code S} was priced with:
  * which quotes, from which sources, under which integrity limits, and whether they reached a
  * consensus. It is the state reference of the decision ({@code oracle.quotesHash()}), exposed
  * in the EXECUTION receipt. {@code null} only on rows persisted before the oracle existed;
@@ -54,13 +54,13 @@ public record PolicyDecision(
         rulesApplied = rulesApplied == null ? List.of() : List.copyOf(rulesApplied);
     }
 
-    /** Pre-KAN-438 shape: no recorded input, no oracle reading. */
+    /** Legacy shape: no recorded input, no oracle reading. */
     public PolicyDecision(boolean allowed, boolean executable, List<Violation> violations, List<Violation> executionViolations,
             List<String> rulesApplied, Instant evaluatedAt, PolicyVerdict authorization) {
         this(allowed, executable, violations, executionViolations, rulesApplied, evaluatedAt, authorization, null, null);
     }
 
-    /** Pre-KAN-439 shape: recorded input, no oracle reading. */
+    /** Legacy shape: recorded input, no oracle reading. */
     public PolicyDecision(boolean allowed, boolean executable, List<Violation> violations, List<Violation> executionViolations,
             List<String> rulesApplied, Instant evaluatedAt, PolicyVerdict authorization, PolicyInput input) {
         this(allowed, executable, violations, executionViolations, rulesApplied, evaluatedAt, authorization, input, null);

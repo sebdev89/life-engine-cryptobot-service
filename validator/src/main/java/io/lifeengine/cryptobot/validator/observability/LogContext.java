@@ -13,7 +13,7 @@ import reactor.util.context.ContextView;
 
 /**
  * Las claves de contexto que aparecen en cada línea de log del validatorNAME, y el mecanismo que las hace
- * viajar (KAN-573; copia del patrón de cryptobot-service / ATP). En WebFlux el MDC es un ThreadLocal y
+ * viajar (copia del patrón de cryptobot-service / ATP). En WebFlux el MDC es un ThreadLocal y
  * un pedido no tiene un hilo: el único lugar donde se escribe es el Reactor Context, y con
  * {@code spring.reactor.context-propagation=auto} Reactor restaura el MDC alrededor de cada operador.
  *

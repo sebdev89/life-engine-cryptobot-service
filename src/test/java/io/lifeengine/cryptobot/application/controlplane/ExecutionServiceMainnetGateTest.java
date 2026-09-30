@@ -51,7 +51,7 @@ import reactor.core.publisher.Mono;
 import reactor.test.StepVerifier;
 
 /**
- * KAN-493 — mainnet is fail-closed at the execution service. Unlike {@link ExecutionHarness},
+ * mainnet is fail-closed at the execution service. Unlike {@link ExecutionHarness},
  * this wiring uses the <em>real</em> {@link PolicyEngine} ({@code executionPreconditions} is not
  * stubbed) and a proposal that passed policy for real, so the only thing standing between an
  * APPROVED mainnet proposal and the signer is the {@code cryptobot.execution.allow-mainnet} flag.
@@ -70,7 +70,7 @@ class ExecutionServiceMainnetGateTest {
     private final SignerClient signer = mock(SignerClient.class);
     private final ValidatorClient validator = mock(ValidatorClient.class);
     private final SolanaRpcClient rpc = mock(SolanaRpcClient.class);
-    // KAN-439: the world agrees with the plan (SOL $100); the only gate under test is the mainnet flag.
+    // the world agrees with the plan (SOL $100); the only gate under test is the mainnet flag.
     private final PriceOracleService oracle = mock(PriceOracleService.class);
     private final AuditService audit = new AuditService(InMemoryControlPlaneRepositories.audit());
     private final ExecutionReceipts executionReceipts = new ExecutionReceipts(
@@ -116,7 +116,7 @@ class ExecutionServiceMainnetGateTest {
         ActionProposal simulated = new ActionProposal(UUID.randomUUID(), wallet.id(), wallet.ownerUserId(), wallet.address(), wallet.cluster().id(),
                 ProposalStatus.SIMULATED, "REBALANCE", "t", null, "tester", new RebalanceIntent(Map.of("SOL", new BigDecimal("50")), "USDC"), plan,
                 null, null, null, sim, tx, null, null, null, null, NOW.plusSeconds(1800), NOW, NOW, null, 0);
-        PolicyDecision decision = policy.evaluate(simulated, wallet, PolicyEngine.WalletState.fresh(NOW, Fixtures.oracle("100", NOW)), // KAN-572: the signer misconfigured to the same cluster as the wallet, so only the mainnet flag remains
+        PolicyDecision decision = policy.evaluate(simulated, wallet, PolicyEngine.WalletState.fresh(NOW, Fixtures.oracle("100", NOW)), // an internal ticket: the signer misconfigured to the same cluster as the wallet, so only the mainnet flag remains
                 Optional.of(new io.lifeengine.cryptobot.integration.signer.SignerClient.Identity(wallet.address(), wallet.cluster().id(), 2_000_000_000L, List.of(Fixtures.VAULT))));
         ApprovalRecord approval = new ApprovalRecord(ApprovalRecord.Decision.APPROVED, "op", NOW.minusSeconds(60), null, NOW.minusSeconds(60));
         ActionProposal approved = new ActionProposal(simulated.id(), wallet.id(), wallet.ownerUserId(), wallet.address(), wallet.cluster().id(),
@@ -205,7 +205,7 @@ class ExecutionServiceMainnetGateTest {
     }
 
     /**
-     * KAN-604 (audit §26/§29): the mainnet gate as a property, not a single example — N freshly
+     * (audit §26/§29): the mainnet gate as a property, not a single example — N freshly
      * approved mainnet proposals, N random operationIds (including the server-generated overload),
      * every one refused before the validator, the signer or the RPC client sees anything.
      */

@@ -4,7 +4,7 @@ spring:
   main:
     web-application-type: reactive
   reactor:
-    # KAN-573: el Reactor Context se proyecta al MDC alrededor de cada operador (LogContext).
+    # el Reactor Context se proyecta al MDC alrededor de cada operador (LogContext).
     context-propagation: auto
 
 server:
@@ -26,15 +26,15 @@ signer:
   allowed-destinations: ${SIGNER_ALLOWED_DESTINATIONS:}
   # Emergency stop for the signer itself.
   enabled: ${SIGNER_ENABLED:true}
-  # KAN-438 (paper §20, level 5): base58 public key of cryptobot-validator. A sign request must carry
+  # (paper §20, level 5): base58 public key of cryptobot-validator. A sign request must carry
   # an attestation signed by it for this proposal and these exact bytes, not a DENY, not expired.
   # Empty while require-attestation is true ⇒ every request is refused (fail-closed).
   validator-public-key: ${SIGNER_VALIDATOR_PUBLIC_KEY:}
-  # false = pre-KAN-438 behaviour (token + byte-level limits only). Tests and empty demo wallets only.
-  # KAN-493: false is only accepted with SPRING_PROFILES_ACTIVE=local (or test); any other profile
+  # false = legacy behaviour (token + byte-level limits only). Tests and empty demo wallets only.
+  # false is only accepted with SPRING_PROFILES_ACTIVE=local (or test); any other profile
   # refuses to start.
   require-attestation: ${SIGNER_REQUIRE_ATTESTATION:true}
-  # KAN-493: mainnet is fail-closed. A sign request whose cluster is mainnet-beta is refused
+  # mainnet is fail-closed. A sign request whose cluster is mainnet-beta is refused
   # (403 mainnet_disabled) unless this is true — independently of cryptobot-service's flag.
   allow-mainnet: ${SIGNER_ALLOW_MAINNET:false}
 
@@ -42,11 +42,11 @@ lifeengine:
   # Entorno para la identidad del build (logs `env`, common tag `environment`). De APP_ENV, nunca hardcodeado.
   deployment:
     env: ${APP_ENV:local}
-  # KAN-573 / KAN-426: `json` (default, lo que lee Promtail/Loki) o `text` (una consola con un humano).
+  # `json` (default, lo que lee Promtail/Loki) o `text` (una consola con un humano).
   logging:
     format: ${LOG_FORMAT:json}
 
-# KAN-573: identidad del build cuando la imagen no tiene .git (build-args de CI, KAN-579). Nunca un secreto.
+# identidad del build cuando la imagen no tiene .git (build-args de CI). Nunca un secreto.
 identity:
   git:
     commit: ${GIT_COMMIT:}
@@ -57,12 +57,12 @@ management:
   endpoints:
     web:
       exposure:
-        # prometheus (KAN-573): sólo desde la red interna; el compose/k8s no lo publica.
+        # prometheus: sólo desde la red interna; el compose/k8s no lo publica.
         include: health,prometheus
   endpoint:
     health:
       show-details: never
-  # KAN-573: tracer siempre activo (traceId/spanId en cada línea; acepta el traceparent del servicio).
+  # tracer siempre activo (traceId/spanId en cada línea; acepta el traceparent del servicio).
   # Exportar es por entorno: MANAGEMENT_OTLP_TRACING_EXPORT_ENABLED=true + OTEL_EXPORTER_OTLP_ENDPOINT.
   tracing:
     sampling:

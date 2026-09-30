@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # shellcheck disable=SC2034  # RESP/TOKEN/BASE/CURL_OPTS are read by the helpers sourced from lib.sh
-# KAN-575 (HK-7) — the whole CryptoBot demo, one command, from zero, with a report.
+# (HK-7) — the whole CryptoBot demo, one command, from zero, with a report.
 #
 #   scripts/demo/run.sh [--target local|uat] [--rpc auto|devnet|local] [--env-file <f>] [--sell-sol N]
 #                       [--no-recovery] [--no-anchor] [--keep] [--out <dir>] [--dry-run]
@@ -15,7 +15,7 @@
 #               → EXECUTION receipt verified → a mainnet intent in the same run → 409     (e2e-devnet.sh)
 #   2 risk      an adversarial intent (dump 95 % of the position) → BLOCKED_BY_POLICY with the rules
 #               that failed, approve → 409, execute → 409; then the cooldown the wallet is under; then
-#               (KAN-572) a SECOND adversarial intent, wrong only in its price: one oracle source is made
+# a SECOND adversarial intent, wrong only in its price: one oracle source is made
 #               to say −90 % (PUT /api/cryptobot/demo/price, demo profile only) → PRICE_DEVIATION, and
 #               every source made 15 min old → PRICE_STALE — each with its Decision Receipt (RISK_DECISION
 #               by policy-engine, L1) verified live and placed in the lineage
@@ -31,12 +31,12 @@
 #   compose project (default cryptobot-demo): a new name is a new stack — "from zero" without touching
 #   a previous rehearsal. --rpc auto (default) runs on devnet when the wallet holds ≥ 0.6 SOL there,
 #   otherwise on the local solana-test-validator (unlimited airdrop; explorer links do not resolve).
-# --target uat: the same acts against a deployed service (KAN-574). Reads .env.demo-uat (see
+# --target uat: the same acts against a deployed service. Reads .env.demo-uat (see
 #   .env.demo-uat.example): CRYPTOBOT_DEMO_BASE_URL, a JWT in CRYPTOBOT_DEMO_TOKEN or the Auth login
 #   (CRYPTOBOT_DEMO_AUTH_URL/_USER/_PASSWORD), the signer's wallet, the vault, the RPC. No docker.
 #   Act 3 needs the chaos endpoint (CRYPTOBOT_CHAOS_ENABLED, demo compose only): on a target without
 #   it the act is SKIPPED and the report says why.
-#   The price injection (act 2, KAN-572) needs CRYPTOBOT_CHAOS_ENABLED too: without it the price
+#   The price injection (act 2) needs CRYPTOBOT_CHAOS_ENABLED too: without it the price
 #   intents are SKIPPED and the report says why.
 # --keep leaves the local stack running (UI, curl, Postgres). --dry-run prints the plan and exits.
 # Exit: 0 every act passed (SKIPPED allowed only where the target lacks the feature) · 1 an act
@@ -76,7 +76,7 @@ TS="$(date +%Y%m%d-%H%M%S)"
 RUN_DIR="${OUT}/run-${TS}"
 REPORT="${OUT}/demo-report-${TS}.md"
 LOG="${RUN_DIR}/demo.log"
-# cooldown_seconds <duration> → seconds ("60s", "90", "2m"). KAN-795: read again after the env file is
+# cooldown_seconds <duration> → seconds ("60s", "90", "2m"). an internal ticket: read again after the env file is
 # sourced (below), so a CRYPTOBOT_POLICY_COOLDOWN set in .env.demo — the value the service gets — is
 # also the one the demo waits for.
 cooldown_seconds() { local d="${1:-60s}"; case "$d" in *m) echo $(( ${d%m} * 60 )) ;; *s) echo "${d%s}" ;; *) echo "$d" ;; esac; }
@@ -99,7 +99,7 @@ act_end() { # act_end PASS|SKIPPED "<note>"
   CURRENT=-1
 }
 hms() { printf '%dm%02ds' $(( $1 / 60 )) $(( $1 % 60 )); }
-# read_summary <file> <assoc-array-name>: lib.sh (shared with pov-e2e.sh, KAN-826)
+# read_summary <file> <assoc-array-name>: lib.sh (shared with pov-e2e.sh)
 
 # ---- report + secrets check, always (EXIT trap) ---------------------------------------------------
 on_exit() {
@@ -192,7 +192,7 @@ write_report() {
 secrets_check() {
   local k v hits=0 n=0
   [[ -f "$ENV_FILE" ]] || { log "secrets check: no env file, nothing to check"; return 0; }
-  # secrets_scan (lib.sh, KAN-826): the same rule as pov-e2e.sh — only secret-named keys, never public values.
+  # secrets_scan (lib.sh): the same rule as pov-e2e.sh — only secret-named keys, never public values.
   while IFS= read -r k; do
     case "$k" in
       LEAK\ *) printf '\033[1;31m[demo]\033[0m SECRET LEAK: the value of %s appears in the report or the log\n' "${k#LEAK }" >&2; hits=$((hits + 1)) ;;
@@ -325,7 +325,7 @@ act_risk() {
     EV2+=("receipts | ${kinds:-none}")
   fi
 
-  # KAN-607 — two more failure demos, both cheap (no waiting, no chain): a mint outside the allowed
+  # two more failure demos, both cheap (no waiting, no chain): a mint outside the allowed
   # asset list, and a receipt caught tampered at rest.
   mint_not_allowed_demo "$wid"
   tampered_receipt_demo "${MINT_RISK_RECEIPT:-$risk_hash}"
@@ -345,7 +345,7 @@ act_risk() {
   act_price "$wid"
 }
 
-# KAN-607 — failure demo #1 (cheap): a mint outside the allowed asset list. The plan itself is fine
+# failure demo #1 (cheap): a mint outside the allowed asset list. The plan itself is fine
 # (SOL → 50 %); what is wrong is where the counter side would land — BONK is not in
 # cryptobot.policy.allowed-assets (SOL,USDC,USDT in the demo). ASSET_ALLOWLIST checks every leg's
 # asset AND its counter asset, so this blocks before any price is even needed for BONK. Sets
@@ -380,11 +380,11 @@ mint_not_allowed_demo() {
   fi
 }
 
-# KAN-607 — failure demo #2 (cheap): a receipt caught tampered at rest. `POST /receipts/{hash}/verify`
+# failure demo #2 (cheap): a receipt caught tampered at rest. `POST /receipts/{hash}/verify`
 # (ReceiptsController) takes no body — it re-reads whatever is stored under receipt_hash and
-# re-verifies THAT (KAN-597's body-based /receipts/verify is not built yet). So "1 byte altered in
+# re-verifies THAT (internal ticket's body-based /receipts/verify is not built yet). So "1 byte altered in
 # the body" is exercised the only way today's endpoint can observe it — the same pattern
-# ReceiptTamperVerifyApiTest (KAN-604) uses at the repository level: the byte is flipped in what is
+# ReceiptTamperVerifyApiTest uses at the repository level: the byte is flipped in what is
 # PERSISTED, as if storage had corrupted it, and the same verify the API exposes today is asked to
 # catch it. Needs direct DB access, so this runs only against the demo's own disposable Postgres
 # (`--target local`); on `uat` it is SKIPPED, same as the chaos/price endpoints.
@@ -409,10 +409,10 @@ tampered_receipt_demo() {
   [[ "$after_valid" == "False" ]] || fail "expected valid=false after flipping 1 byte of the stored receipt, got valid=${after_valid}: ${BODY}"
   printf '\033[1;31m[demo] TAMPER CAUGHT\033[0m — receipt %s: 1 byte flipped at rest → POST /receipts/%s/verify → valid=false (hashMatchesCanonical=%s, bodyMatchesCanonical=%s, signatureValid=%s: the Ed25519 signature alone does not prove the document)\n' \
     "$hash" "$hash" "$hashok" "$bodyok" "$sigok" >&2
-  EV2+=("tampered receipt | \`${hash}\` — verify before: valid=true; 1 byte flipped in the stored \`canonical\` bytes (demo-postgres, same pattern as ReceiptTamperVerifyApiTest KAN-604); verify after: **valid=${after_valid}**, hashMatchesCanonical=${hashok}, bodyMatchesCanonical=${bodyok}, signatureValid=${sigok}")
+  EV2+=("tampered receipt | \`${hash}\` — verify before: valid=true; 1 byte flipped in the stored \`canonical\` bytes (demo-postgres, same pattern as ReceiptTamperVerifyApiTest an internal ticket); verify after: **valid=${after_valid}**, hashMatchesCanonical=${hashok}, bodyMatchesCanonical=${bodyok}, signatureValid=${sigok}")
 }
 
-# KAN-572 (HK-4): the second adversarial intent — nothing wrong with the trade, everything wrong with the
+# (HK-4): the second adversarial intent — nothing wrong with the trade, everything wrong with the
 # price. The oracle needs ≥ 2 independent sources within 1 % of the median, younger than max-age, and no
 # jump against the last consensus; the plan's price must agree with the fresh median. Here one source is
 # tampered with (demo profile only), the real oracle refuses, the policy names the rule, the Decision
@@ -493,7 +493,7 @@ print(f\"agent {r['agentId']} · engine {r['engine']['id']} {r['engine']['versio
   [[ "$valid" == "True" && "$repro" == "True" ]] || fail "the Decision Receipt did not verify: valid=${valid} reproduced=${repro} ${BODY}"
   EV2+=("Decision Receipt | \`${dhash}\` — ${dparams}")
   EV2+=("receipt verify (live) | **valid=${valid}**, signatureValid=${sigok}, **reproduced=${repro}** (${engine} re-run on the stored (I, S): ${reason}); receipts: ${kinds}")
-  # …and in the lineage (KAN-393): the decision under the STRATEGY it validates.
+  # …and in the lineage: the decision under the STRATEGY it validates.
   RESP="$(api GET "/api/cryptobot/proposals/${pid}/lineage")"; split_status
   local lin; lin="$(printf '%s' "$BODY" | python3 -c "
 import json,sys
@@ -502,7 +502,7 @@ mine=[e for e in edges if e.get('childHash')=='${dhash}' or e.get('from')=='${dh
 print(f\"{len(nodes)} nodes, {len(edges)} edges; decision receipt present={'${dhash}' in json.dumps(d)}; its edges: \" + ', '.join(f\"{e.get('role')} → {(e.get('parentHash') or e.get('to') or '')[:16]}…\" for e in mine))
 ")"
   log "lineage: ${lin}"
-  EV2+=("lineage (KAN-393) | ${lin}")
+  EV2+=("lineage | ${lin}")
   # A blocked proposal cannot be approved.
   RESP="$(api POST "/api/cryptobot/proposals/${pid}/approve" '{"note":"demo: trying to approve a price-blocked proposal"}')"; split_status
   [[ "$STATUS" == "409" ]] || fail "approve of a price-blocked proposal must be 409, got ${STATUS}: ${BODY}"
@@ -572,14 +572,14 @@ mkdir -p "$RUN_DIR"
 exec 3>&1 4>&2
 exec > >(tee -a "$LOG") 2>&1
 TEE_PID=$!
-log "CryptoBot demo (KAN-575 HK-7) · ${TS} · target ${TARGET} · out ${RUN_DIR}"
+log "CryptoBot demo (internal ticket HK-7) · ${TS} · target ${TARGET} · out ${RUN_DIR}"
 
 act_begin "setup"
 if [[ "$TARGET" == "local" ]]; then setup_local; else setup_uat; fi
 if [[ "$DRY_RUN" -eq 1 ]]; then
   log "dry run — the plan:"
   log "  act 1 execute   ${HERE}/e2e-devnet.sh $([[ "$TARGET" == "local" ]] && echo --no-up || echo "--base-url ${BASE}") $([[ "$RPC_MODE" == "local" ]] && echo --local-validator) --env-file ${ENV_FILE} --sell-sol ${SELL_SOL} --token-env CRYPTOBOT_DEMO_TOKEN"
-  log "  act 2 risk      adversarial intent SOL → 5 % → BLOCKED_BY_POLICY; approve/execute → 409; (KAN-607) mint into BONK → ASSET_ALLOWLIST; a RISK_DECISION receipt tampered at rest (1 byte, local target only) → verify valid=false; cooldown ${COOLDOWN_S}s; then (KAN-572) PUT /demo/price → SOL → 50 % blocked by PRICE_DEVIATION, then PRICE_STALE; Decision Receipts verified + lineage"
+  log "  act 2 risk      adversarial intent SOL → 5 % → BLOCKED_BY_POLICY; approve/execute → 409; mint into BONK → ASSET_ALLOWLIST; a RISK_DECISION receipt tampered at rest (1 byte, local target only) → verify valid=false; cooldown ${COOLDOWN_S}s; then PUT /demo/price → SOL → 50 % blocked by PRICE_DEVIATION, then PRICE_STALE; Decision Receipts verified + lineage"
   log "  act 3 recovery  $([[ "$RECOVERY" -eq 1 ]] && echo "e2e-devnet.sh --chaos rpc-down (if the target has the chaos endpoint)" || echo "skipped (--no-recovery)")"
   log "  act 4 evidence  $([[ "$ANCHOR" -eq 1 ]] && echo "receipt DAG → POST /anchors?wait=true → inclusion proof → anchor verify → metrics" || echo "skipped (--no-anchor)")"
   log "  report          ${REPORT}"

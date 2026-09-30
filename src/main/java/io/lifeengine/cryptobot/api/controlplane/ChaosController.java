@@ -13,7 +13,7 @@ import org.springframework.web.bind.annotation.RestController;
 import reactor.core.publisher.Mono;
 
 /**
- * KAN-571 — arm/disarm the demo's fault injection. Exists only with {@code cryptobot.chaos.enabled=true}
+ * arm/disarm the demo's fault injection. Exists only with {@code cryptobot.chaos.enabled=true}
  * (the same property that creates the chaos bean); {@code RUNTIME_ADMIN}. Not part of the product API.
  *
  * <pre>

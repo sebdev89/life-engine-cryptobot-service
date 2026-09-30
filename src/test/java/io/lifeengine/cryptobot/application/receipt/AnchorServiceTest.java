@@ -52,7 +52,7 @@ import org.junit.jupiter.api.Test;
 import reactor.core.publisher.Mono;
 
 /**
- * The anchoring batch (KAN-394, Endgame §11) on the in-memory stores, with a signer fake that
+ * The anchoring batch (Endgame §11) on the in-memory stores, with a signer fake that
  * really signs (so the service's own signature check runs) and an RPC mock that plays the chain:
  * batch → memo → signed → SUBMITTED; finalized → stamped with proofs; dropped → re-anchored for
  * the same root; too many failures → abandoned and re-batched; verify recomputes the root and

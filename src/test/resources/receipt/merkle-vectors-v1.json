@@ -5,7 +5,7 @@
   "oddNode": "promoted unchanged",
   "leafOrder": "lexicographic, de-duplicated",
   "proofStep": "L:<sibling> => node(sibling, current) ; R:<sibling> => node(current, sibling)",
-  "generatedBy": "python3 hashlib, outside the Java code (KAN-394)",
+  "generatedBy": "python3 hashlib, outside the Java code",
   "vectors": [
     {
       "name": "1 receipts",

@@ -11,7 +11,7 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * The oracle as a pure function (KAN-439, paper §22): {@code consensus(asset, observations,
+ * The oracle as a pure function (paper §22): {@code consensus(asset, observations,
  * previous, now, limits) → OracleConsensus}. No I/O, no clock of its own, no randomness — the
  * same observations under the same limits give the same median, the same refusals and the same
  * {@code quotesHash} on every machine, so a decision can be re-derived from the quotes it names.

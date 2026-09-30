@@ -31,7 +31,7 @@ import org.springframework.stereotype.Component;
  *       deny — and refuses if the agent's recorded verdict hash disagrees (§17: validator
  *       disagreement ⇒ DENY);
  *   <li>issues a short-lived Ed25519 <b>attestation</b> bound to the proposal, the transaction
- *       message hash, the cluster the bytes are for (KAN-493), {@code H_R}, the input hash and
+ *       message hash, the cluster the bytes are for, {@code H_R}, the input hash and
  *       the verdict hash. The signer signs nothing without one, and nothing whose bytes — or
  *       cluster — are not the ones attested.
  * </ol>
@@ -51,7 +51,7 @@ public class ValidationService {
     public static final String REFUSAL_POLICY_HASH = "POLICY_HASH_MISMATCH";
     public static final String REFUSAL_DISAGREEMENT = "VERDICT_DISAGREEMENT";
 
-    /** {@code cluster} (KAN-493): {@code devnet} | {@code mainnet-beta} ({@code mainnet} accepted); required, attested verbatim. */
+    /** {@code cluster}: {@code devnet} | {@code mainnet-beta} ({@code mainnet} accepted); required, attested verbatim. */
     public record Request(
             String proposalId,
             String policyHash,

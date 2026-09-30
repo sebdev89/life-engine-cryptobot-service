@@ -11,7 +11,7 @@ import org.springframework.boot.builder.SpringApplicationBuilder;
 import org.springframework.context.ConfigurableApplicationContext;
 
 /**
- * KAN-493 — {@code SIGNER_REQUIRE_ATTESTATION=false} outside the {@code local}/{@code test}
+ * {@code SIGNER_REQUIRE_ATTESTATION=false} outside the {@code local}/{@code test}
  * profiles is a refusal to start, not a warning. The whole {@link SignerApplication} context is
  * booted (web layer off) so the check is proven where it runs, not in isolation.
  */

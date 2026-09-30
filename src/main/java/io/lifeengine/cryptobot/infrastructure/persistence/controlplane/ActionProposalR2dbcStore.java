@@ -20,7 +20,7 @@ import reactor.core.publisher.Mono;
 /**
  * The proposal row + its JSONB document. {@link #commit} is the only write path after insert: one
  * transaction with an optimistic-lock guard on {@code version} and a status guard, plus the audit
- * and outbox rows of the step (KAN-403). {@code version} is read from the column, never from the
+ * and outbox rows of the step. {@code version} is read from the column, never from the
  * document.
  */
 @Profile("!test")
@@ -88,7 +88,7 @@ public class ActionProposalR2dbcStore implements ActionProposalRepository {
     }
 
     /**
-     * KAN-500 (CB-03/09): the intent hash (KAN-435, as presented in {@code Idempotency-Key}) and the
+     * (CB-03/09): the intent hash (as presented in {@code Idempotency-Key}) and the
      * on-chain signature are columns, written in the same commit as the state they belong to —
      * {@code intent_hash} with EXECUTING, {@code execution_signature} with SIGNED and every step after.
      */

@@ -3,7 +3,7 @@ package io.lifeengine.cryptobot.proofofvalue;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
 /**
- * KAN-822 (V5): the immediate reward of an ANCHORED ValueEvent.
+ * (V5): the immediate reward of an ANCHORED ValueEvent.
  *
  * @param enabled {@code POV_REWARD_ENABLED}; off by default — the demo compose turns it on. Off ⇒ {@code distribute} is a 409.
  * @param poolLamports {@code POV_REWARD_POOL_LAMPORTS}: the pool per event (default 10 000 000 = 0.01 devnet SOL), split

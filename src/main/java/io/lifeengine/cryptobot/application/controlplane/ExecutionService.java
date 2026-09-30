@@ -41,11 +41,11 @@ import reactor.util.retry.Retry;
 /**
  * The only path to the chain. Requires an APPROVED proposal whose timelock has elapsed, re-checks
  * policy, rebuilds the transaction on a fresh blockhash, re-simulates, has the <em>independent
- * validator</em> re-derive the verdict and attest these exact bytes (KAN-438, paper §20), asks
+ * validator</em> re-derive the verdict and attest these exact bytes (paper §20), asks
  * the isolated signer — which refuses without that attestation —, verifies the signature against
  * the wallet's public key, broadcasts, and waits for confirmation.
  *
- * <h2>Reliability (KAN-403)</h2>
+ * <h2>Reliability</h2>
  *
  * <ul>
  *   <li><b>Idempotent submit.</b> The caller's {@code operationId} is bound to the proposal in the
@@ -59,14 +59,14 @@ import reactor.util.retry.Retry;
  *       transport error or timeout on broadcast, or any error while polling for confirmation,
  *       leaves the row in flight for reconciliation — a retry here would be the double trade
  *       Solana only protects against while the blockhash lives (~90 s).
- *   <li><b>Idempotent retry (KAN-571).</b> Once that blockhash has expired and the chain has never
+ *   <li><b>Idempotent retry.</b> Once that blockhash has expired and the chain has never
  *       seen the signature, the transaction can no longer land: {@link #retry} runs the pipeline
  *       again under the <em>same</em> {@code operationId} — fresh blockhash, re-simulation, a new
  *       attestation, a new signature — and records {@code EXECUTION_RETRIED} with the superseded
  *       signature. Only the {@code ReconciliationService} calls it, and only after proving that.
  * </ul>
  *
- * <h2>Mainnet is fail-closed (KAN-493)</h2>
+ * <h2>Mainnet is fail-closed</h2>
  *
  * Before the proposal is even moved to {@code EXECUTING}, a wallet or proposal on mainnet is
  * refused with {@link MainnetDisabledException} ({@code 409 MAINNET_DISABLED}) unless
@@ -78,12 +78,12 @@ public class ExecutionService {
 
     private static final Logger log = LoggerFactory.getLogger(ExecutionService.class);
     public static final String EV_STARTED = "EXECUTION_STARTED";
-    /** KAN-438: the independent validator re-derived the verdict and attested the bytes. */
+    /** the independent validator re-derived the verdict and attested the bytes. */
     public static final String EV_VALIDATED = "EXECUTION_VALIDATED";
     public static final String EV_SIGNED = "EXECUTION_SIGNED";
     public static final String EV_SUBMITTED = "EXECUTION_SUBMITTED";
     public static final String EV_BROADCAST_UNCERTAIN = "EXECUTION_BROADCAST_UNCERTAIN";
-    /** KAN-571: the reconciler re-executed the operation (same operationId) after the previous signature's blockhash expired unseen. */
+    /** the reconciler re-executed the operation (same operationId) after the previous signature's blockhash expired unseen. */
     public static final String EV_RETRIED = "EXECUTION_RETRIED";
     public static final String EV_CONFIRMATION_PENDING = "EXECUTION_CONFIRMATION_PENDING";
     public static final String EV_DUPLICATE_SUPPRESSED = "EXECUTION_DUPLICATE_SUPPRESSED";
@@ -136,13 +136,13 @@ public class ExecutionService {
     }
 
     /**
-     * KAN-500 (CB-03): when the idempotency key was an intent hash (KAN-435), {@code intentHash} is
+     * (CB-03): when the idempotency key was an intent hash, {@code intentHash} is
      * the {@code sha256:…} the caller presented and {@code operationId} derives from it. It is
      * persisted with the row ({@code action_proposal.intent_hash}) in the commit that moves it to
      * {@code EXECUTING} and recorded in the {@code EXECUTION_STARTED} event. {@code null} for a UUID key.
      */
     public Mono<ActionProposal> execute(UUID ownerUserId, UUID proposalId, String actor, UUID operationId, String intentHash) {
-        // KAN-573: toda línea del pipeline lleva proposalId/operationId en el MDC (LogContext), del
+        // toda línea del pipeline lleva proposalId/operationId en el MDC (LogContext), del
         // preflight al recibo: en Loki `| json | proposalId="…"` es la historia de la propuesta.
         return doExecute(ownerUserId, proposalId, actor, operationId, intentHash)
                 .contextWrite(ctx -> LogContext.proposal(ctx, proposalId, operationId));
@@ -158,7 +158,7 @@ public class ExecutionService {
                 return Mono.error(new ControlPlaneExceptions.Conflict("Proposal is " + p.status() + " under operation " + p.operationId()
                         + "; retry with the same operationId or wait for the result"));
             }
-            // KAN-582: the policy stage — preconditions plus the fresh oracle reading — has its own histogram,
+            // the policy stage — preconditions plus the fresh oracle reading — has its own histogram,
             // and a 409 here is counted by its most specific reason (cryptobot_execution_refused_total{reason}).
             Timer.Sample policyStage = metrics.stageStart();
             List<PolicyEngine.Refusal> refusals = policy.executionRefusals(p);
@@ -171,7 +171,7 @@ public class ExecutionService {
                         LogFields.event("execution_refused"), LogFields.status("refused"), ErrorCode.EXECUTION_PRECONDITION.kv());
                 return Mono.error(new ControlPlaneExceptions.Conflict(String.join("; ", problems)));
             }
-            // KAN-439: the envelope's data-integrity assumptions are re-checked against a fresh reading right
+            // the envelope's data-integrity assumptions are re-checked against a fresh reading right
             // before anything is signed — quorum, deviation, the breaker, and the plan's price vs. the world now.
             return oracle.read(ProposalService.assetsOf(p.plan())).flatMap(reading -> {
                 List<String> oracleProblems = policy.priceViolations(p, reading).stream().map(v -> v.rule() + ": " + v.message()).toList();
@@ -195,7 +195,7 @@ public class ExecutionService {
     }
 
     /**
-     * KAN-493: the first of the three mainnet guards. Checked on the wallet's cluster <em>and</em>
+     * the first of the three mainnet guards. Checked on the wallet's cluster <em>and</em>
      * the cluster recorded on the proposal, before any state change and before the validator or
      * the signer is asked. No flag ⇒ no mainnet, whatever the policy said.
      */
@@ -223,7 +223,7 @@ public class ExecutionService {
     }
 
     /**
-     * KAN-571: the reconciler's idempotent retry. Preconditions the caller proved against the
+     * the reconciler's idempotent retry. Preconditions the caller proved against the
      * chain: the row is in flight ({@code EXECUTING}/{@code SUBMITTED}) with a signature that was
      * never seen and whose blockhash has expired, so the previous bytes can never be included.
      * The operation keeps its {@code operationId}; the first commit ({@code SIGNED} with the new
@@ -276,7 +276,7 @@ public class ExecutionService {
         return run(executing, wallet, actor, false);
     }
 
-    /** {@code retry}: the row already carries a superseded signature (KAN-571); the SIGNED commit records the retry. */
+    /** {@code retry}: the row already carries a superseded signature; the SIGNED commit records the retry. */
     private Mono<ActionProposal> run(ActionProposal executing, Wallet wallet, String actor, boolean retry) {
         long lamports = executing.transaction().lamports();
         String asset = ProposalService.assetOf(executing.plan());
@@ -284,16 +284,16 @@ public class ExecutionService {
         // ("dónde se cae"), not just as "failed".
         AtomicReference<CryptobotMetrics.FailureStage> stage = new AtomicReference<>(CryptobotMetrics.FailureStage.PREFLIGHT);
         // 1. Fresh blockhash: the one from approval time is almost certainly expired.
-        //    KAN-582: each stage runs under its own histogram (cryptobot_stage_latency_seconds{stage}).
+        //    each stage runs under its own histogram (cryptobot_stage_latency_seconds{stage}).
         return timed(CryptobotMetrics.Stage.SIMULATE, () -> simulation.prepareTransfer(wallet, lamports)
-                // 1b. KAN-599 (audit G1): prepareTransfer just re-read cryptobot.policy.rebalance-vault
+                // 1b. an internal ticket (audit G1): prepareTransfer just re-read cryptobot.policy.rebalance-vault
                 //     from live config — bind it to what was actually approved before anything downstream sees it.
                 .flatMap(tx -> requireDestinationBound(executing, tx))
                 // 2. Re-simulate the exact bytes that will be signed.
                 .flatMap(tx -> rpc.simulateTransaction(SolanaCluster.from(wallet.cluster()), tx.unsignedTransactionBase64(), false)
                         .flatMap(sim -> sim.ok() ? Mono.just(tx)
                                 : Mono.error(new ControlPlaneExceptions.Conflict("Pre-flight simulation failed: " + sim.error())))))
-                // 3. Independent validation (KAN-438, paper §20): a separate process re-derives the verdict
+                // 3. Independent validation (paper §20): a separate process re-derives the verdict
                 //    over the recorded (I, S) under its own pinned H_R and attests THESE bytes. Disagreement,
                 //    DENY, or no answer ⇒ nothing is signed.
                 .doOnNext(tx -> stage.set(CryptobotMetrics.FailureStage.VALIDATE))
@@ -317,14 +317,14 @@ public class ExecutionService {
     }
 
     /**
-     * KAN-599 (audit G1, §17): {@code SimulationService.prepareTransfer} rebuilds the transaction
+     * (audit G1, §17): {@code SimulationService.prepareTransfer} rebuilds the transaction
      * from {@code cryptobot.policy.rebalance-vault} <em>at execution time</em> — before this check
      * nothing compared the freshly-read destination with what the human actually approved
      * ({@code executing.transaction()}, the {@link PreparedTransaction} persisted when the proposal
      * was simulated/created, unchanged by approval). If the config moved between the two —
      * intentionally or by a compromised deploy — the destination or the lamports diverge here,
      * before the validator or the signer are ever asked. Runs on {@link #retry} too (same {@link
-     * #run} code path, KAN-571). {@code SIGNER_ALLOWED_DESTINATIONS} on the isolated signer remains
+     * #run} code path). {@code SIGNER_ALLOWED_DESTINATIONS} on the isolated signer remains
      * the last independent barrier; this closes the gap in the service itself.
      */
     private static Mono<PreparedTransaction> requireDestinationBound(ActionProposal executing, PreparedTransaction fresh) {
@@ -435,7 +435,7 @@ public class ExecutionService {
             return fail(signedP, actor, ex, CryptobotMetrics.FailureStage.RPC, asset);
         }
         if (ex instanceof MainnetDisabledException) {
-            // KAN-493: the RPC client refused before sending anything — certain, nothing is on the chain.
+            // the RPC client refused before sending anything — certain, nothing is on the chain.
             return fail(signedP, actor, ex, CryptobotMetrics.FailureStage.RPC, asset);
         }
         log.warn("proposal_broadcast_uncertain proposalId={} signature={} error={}", signedP.id(), signed.signature(), ex.toString(),
@@ -530,7 +530,7 @@ public class ExecutionService {
                 .flatMap(terminal -> executionReceipts.receiptFor(terminal, executing.updatedAt()));
     }
 
-    // ---- KAN-822: a transfer that is not a proposal (Proof of Value payout) ------------------------------
+    // ---- an internal ticket: a transfer that is not a proposal (Proof of Value payout) ------------------------------
 
     /**
      * One {@code SystemProgram.transfer(feePayer → destination, lamports)} through the same gates as {@link #execute}: the
@@ -553,7 +553,7 @@ public class ExecutionService {
     public static final String TRANSFER_FAILED = "FAILED";
 
     /**
-     * KAN-822: {@link Transfer} through the execution pipeline without a proposal row. {@code onSigned} runs with the
+     * {@link Transfer} through the execution pipeline without a proposal row. {@code onSigned} runs with the
      * signature after the signer answered and <em>before</em> the broadcast — the caller persists it there, so a crash
      * from then on leaves a row a reconciler can look up (the same rule as {@code SIGNED} for a proposal). Never errors:
      * every outcome is a {@link TransferResult}.
@@ -599,7 +599,7 @@ public class ExecutionService {
                 });
     }
 
-    /** KAN-822: one look at a submitted transfer's signature — the reconciler's question, without the retry loop. */
+    /** one look at a submitted transfer's signature — the reconciler's question, without the retry loop. */
     public Mono<TransferResult> transferStatus(SolanaCluster cluster, String signature) {
         return rpc.getSignatureStatus(cluster, signature)
                 .map(s -> s.failed()
@@ -610,7 +610,7 @@ public class ExecutionService {
                 .onErrorResume(ex -> Mono.just(new TransferResult(TRANSFER_SUBMITTED, signature, null, null, null)));
     }
 
-    /** El código de una falla antes del broadcast: la dependencia que faltó, o el paso (KAN-573). */
+    /** El código de una falla antes del broadcast: la dependencia que faltó, o el paso. */
     static ErrorCode errorCodeOf(Throwable ex, CryptobotMetrics.FailureStage stage) {
         if (ex instanceof MainnetDisabledException) {
             return ErrorCode.MAINNET_DISABLED;
@@ -627,7 +627,7 @@ public class ExecutionService {
         };
     }
 
-    /** KAN-582: runs {@code step} under the stage's histogram; recorded on success, error and cancel alike. */
+    /** runs {@code step} under the stage's histogram; recorded on success, error and cancel alike. */
     private <T> Mono<T> timed(CryptobotMetrics.Stage stage, java.util.function.Supplier<Mono<T>> step) {
         return Mono.defer(() -> {
             Timer.Sample sample = metrics.stageStart();

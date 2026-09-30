@@ -4,7 +4,7 @@ import java.time.Instant;
 import java.util.UUID;
 
 /**
- * KAN-822 (V5): what one contributing identity receives from a distribution — or, KAN-824 (V7), from a RevenueEvent: then
+ * (V5): what one contributing identity receives from a distribution — or, an internal ticket (V7), from a RevenueEvent: then
  * {@code revenueEventId} is set and {@code distributionId}/{@code valueEventId} are {@code null} (exactly one source, V15 CHECK). {@code wallet} is the identity's wallet
  * when the distribution was created ({@code null} ⇒ UNFUNDED: recorded, never paid). {@code displayName} comes from
  * {@code pov_identity} on read. {@code error} is the service's own text (signer/validator refusal, simulation, chain),
@@ -42,7 +42,7 @@ public record PovPayout(
                 createdAt, updatedAt, null);
     }
 
-    /** KAN-824: a payout of a RevenueEvent. */
+    /** a payout of a RevenueEvent. */
     public static PovPayout ofRevenue(UUID id, UUID revenueEventId, String tenantId, int position, String identityId, String wallet, long lamports,
             String status, String policy, Instant at) {
         return new PovPayout(id, null, null, tenantId, position, identityId, null, wallet, lamports, status, null, null, null, policy, at, at, revenueEventId);

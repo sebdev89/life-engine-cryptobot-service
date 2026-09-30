@@ -80,10 +80,10 @@ public class SignerClient {
     }
 
     /**
-     * @param cluster the cluster the transaction is for (KAN-493). It travels with the request and
+     * @param cluster the cluster the transaction is for. It travels with the request and
      *     the signer compares it with the {@code cluster} the validator attested; mainnet is refused
      *     there unless the signer has its own explicit {@code SIGNER_ALLOW_MAINNET=true}.
-     * @param attestation the independent validator's attestation for these exact bytes (KAN-438).
+     * @param attestation the independent validator's attestation for these exact bytes.
      *     The signer refuses without it; this client never sends a request without one.
      */
     public Mono<SignResponse> sign(UUID proposalId, String unsignedTransactionBase64, String expectedFeePayer, SolanaCluster cluster,
@@ -111,14 +111,14 @@ public class SignerClient {
                 .retrieve()
                 .bodyToMono(SignResponse.class)
                 .timeout(props.timeout())
-                // KAN-500: same rule as ValidatorClient — a 2xx with no body is a refusal, never an empty completion.
+                // same rule as ValidatorClient — a 2xx with no body is a refusal, never an empty completion.
                 .switchIfEmpty(Mono.error(new SignerRefused("no answer from the signer (empty response)")))
                 .onErrorMap(WebClientResponseException.class, ex -> new SignerRefused("HTTP " + ex.getStatusCode().value() + " " + ex.getResponseBodyAsString()))
                 .onErrorMap(ex -> !(ex instanceof SignerRefused), ex -> new SignerRefused(ex.getMessage()));
     }
 
     /**
-     * A receipt-batch memo transaction (KAN-394). The signer re-derives the memo from the bytes and
+     * A receipt-batch memo transaction. The signer re-derives the memo from the bytes and
      * refuses unless it is exactly {@code ir/1 root=<root> n=<receiptCount> …} on devnet.
      */
     public Mono<SignResponse> signAnchor(String root, int receiptCount, String unsignedTransactionBase64, String expectedFeePayer) {

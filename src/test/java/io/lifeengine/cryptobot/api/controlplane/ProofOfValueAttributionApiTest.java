@@ -32,7 +32,7 @@ import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.reactive.server.WebTestClient;
 
 /**
- * KAN-819 over HTTP (in-memory stores, the fakes of {@link AnchorFlowTest}): V2 identities with wallet, reputation and
+ * over HTTP (in-memory stores, the fakes of {@link AnchorFlowTest}): V2 identities with wallet, reputation and
  * history · V3 knowledge assets with {@code usedIn} and the KNOWLEDGE_PROVIDER added for an asset's creator · V4
  * compute receipts committed in the event, apart from the units · V6 the ledger by identity / asset / project, whose
  * rows add up to every unit distributed. Plus the 422s of each rule.
@@ -144,20 +144,20 @@ class ProofOfValueAttributionApiTest {
         post(admin, "/api/cryptobot/knowledge-assets", asset("bad-kind@1", 1, "VIBES", "Bad", "sebas", RULES_HASH, "[]")).expectStatus().isBadRequest();
 
         // V3/V4 refusals on the event: unknown asset, unknown provider, provider without wallet → 422, nothing written.
-        post(admin, "/api/cryptobot/value-events", event("KAN-819", "[\"production-acceptance-model@1\",\"nope@1\"]", "[]", DEV_IMPLEMENTS))
+        post(admin, "/api/cryptobot/value-events", event("TASK-819", "[\"production-acceptance-model@1\",\"nope@1\"]", "[]", DEV_IMPLEMENTS))
                 .expectStatus().isEqualTo(422).expectBody().jsonPath("$.code").isEqualTo("UNKNOWN_KNOWLEDGE_ASSET").jsonPath("$.details[0]").isEqualTo("nope@1");
-        post(admin, "/api/cryptobot/value-events", event("KAN-819", "[]", compute("ghost-node"), DEV_IMPLEMENTS))
+        post(admin, "/api/cryptobot/value-events", event("TASK-819", "[]", compute("ghost-node"), DEV_IMPLEMENTS))
                 .expectStatus().isEqualTo(422).expectBody().jsonPath("$.code").isEqualTo("UNKNOWN_COMPUTE_PROVIDER");
-        post(admin, "/api/cryptobot/value-events", event("KAN-819", "[]", compute("sebas"), DEV_IMPLEMENTS))
+        post(admin, "/api/cryptobot/value-events", event("TASK-819", "[]", compute("sebas"), DEV_IMPLEMENTS))
                 .expectStatus().isEqualTo(422).expectBody().jsonPath("$.code").isEqualTo("PROVIDER_WALLET_REQUIRED");
-        post(admin, "/api/cryptobot/value-events", event("KAN-819", "[\"strategy-knowledge@3\",\"strategy-knowledge@3\"]", "[]", DEV_IMPLEMENTS))
+        post(admin, "/api/cryptobot/value-events", event("TASK-819", "[\"strategy-knowledge@3\",\"strategy-knowledge@3\"]", "[]", DEV_IMPLEMENTS))
                 .expectStatus().isBadRequest().expectBody().jsonPath("$.code").isEqualTo("DUPLICATE_KNOWLEDGE_ASSET");
         assertThat(InMemoryPovRepositories.EVENTS).isEmpty();
         assertThat(InMemoryControlPlaneRepositories.RECEIPTS).isEmpty();
 
         // The event: 4 explicit contributions + sebas as KNOWLEDGE_PROVIDER (creator of both assets) → 5 × 20 units.
         JsonNode e1 = read(post(admin, "/api/cryptobot/value-events?anchor=true",
-                event("KAN-819", "[\"production-acceptance-model@1\",\"strategy-knowledge@3\"]", compute("compute-node-8"), FULL_TEAM))
+                event("TASK-819", "[\"production-acceptance-model@1\",\"strategy-knowledge@3\"]", compute("compute-node-8"), FULL_TEAM))
                 .expectStatus().isCreated());
         assertThat(e1.path("status").asText()).isEqualTo("ANCHORED");
         List<String> roles = new ArrayList<>();
@@ -200,11 +200,11 @@ class ProofOfValueAttributionApiTest {
         assertThat(proof.path("valueEventHashValid").asBoolean()).isTrue();
 
         // Same content again: the same event (auto contribution and compute receipt do not break idempotency).
-        post(admin, "/api/cryptobot/value-events", event("KAN-819", "[\"production-acceptance-model@1\",\"strategy-knowledge@3\"]",
+        post(admin, "/api/cryptobot/value-events", event("TASK-819", "[\"production-acceptance-model@1\",\"strategy-knowledge@3\"]",
                 compute("compute-node-8"), FULL_TEAM)).expectStatus().isOk().expectBody().jsonPath("$.id").isEqualTo(e1.path("id").asText());
 
         // A second, V1-shaped event in another project: sebas SPECIFIER, dev-agent-17 IMPLEMENTER → 50/50.
-        JsonNode e2 = read(post(admin, "/api/cryptobot/value-events", event("KAN-900", "[]", "[]", DEV_IMPLEMENTS).replace("\"cryptobot\"", "\"portfolio\""))
+        JsonNode e2 = read(post(admin, "/api/cryptobot/value-events", event("TASK-900", "[]", "[]", DEV_IMPLEMENTS).replace("\"cryptobot\"", "\"portfolio\""))
                 .expectStatus().isCreated());
         assertThat(e2.path("knowledgeAssets")).isEmpty();
         assertThat(e2.path("computeReceipts")).isEmpty();
@@ -310,9 +310,9 @@ class ProofOfValueAttributionApiTest {
                 + "\"gpuSeconds\":12.5,\"estimatedCostMicroUsd\":4730000}]";
     }
 
-    /** taskId KAN-819 is accepted at 10:00, any other at 11:00. */
+    /** taskId TASK-819 is accepted at 10:00, any other at 11:00. */
     static String event(String taskId, String assets, String compute, String contributions) {
-        String at = "KAN-819".equals(taskId) ? "2026-09-30T10:00:00Z" : "2026-09-30T11:00:00Z";
+        String at = "TASK-819".equals(taskId) ? "2026-09-30T10:00:00Z" : "2026-09-30T11:00:00Z";
         return "{\"projectId\":\"cryptobot\",\"taskId\":\"" + taskId + "\",\"title\":\"Improve CryptoBot opportunity detection\","
                 + "\"artifact\":{\"commitSha\":\"" + ProofOfValueApiTest.COMMIT + "\"},"
                 + "\"acceptance\":{\"source\":\"release-truth\",\"environment\":\"uat-k8s\",\"stages\":{\"MERGED\":true,\"BUILT\":true,\"DEPLOYED\":true,"

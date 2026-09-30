@@ -24,7 +24,7 @@ import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.reactive.server.WebTestClient;
 
 /**
- * KAN-353 end to end: {@code POST /api/cryptobot/glossary/events} behind the real security filter
+ * end to end: {@code POST /api/cryptobot/glossary/events} behind the real security filter
  * increments the counters that {@code /actuator/prometheus} exports — the criterion of the issue
  * ("el endpoint incrementa el contador").
  */

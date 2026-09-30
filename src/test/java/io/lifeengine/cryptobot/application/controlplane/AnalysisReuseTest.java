@@ -28,7 +28,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 /**
- * When a strategy may declare {@code REUSES} over an earlier {@code MARKET_ANALYSIS} (KAN-393,
+ * When a strategy may declare {@code REUSES} over an earlier {@code MARKET_ANALYSIS} (
  * Endgame §19 step 3): same wallet, younger than the window, and about an asset the intent
  * touches — every condition read from stored facts.
  */

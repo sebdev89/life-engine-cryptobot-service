@@ -5,7 +5,7 @@ import java.util.UUID;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
-/** Tenant-scoped store of knowledge assets (KAN-820). Reads join the creator's display name. */
+/** Tenant-scoped store of knowledge assets. Reads join the creator's display name. */
 public interface KnowledgeAssetRepository {
 
     /** Inserts unless {@code (tenantId, id)} exists; empty when it already existed (the caller reads it back). */

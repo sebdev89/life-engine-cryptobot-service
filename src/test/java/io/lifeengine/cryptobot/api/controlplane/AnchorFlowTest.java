@@ -42,7 +42,7 @@ import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.reactive.server.WebTestClient;
 
 /**
- * KAN-394 over HTTP with a fake devnet and a fake signer that really signs: two users' receipts
+ * over HTTP with a fake devnet and a fake signer that really signs: two users' receipts
  * → one admin sweep (`wait=true`) → memo transaction finalized → every receipt carries the anchor
  * and a proof that folds to the root in the memo → verify per receipt and per batch → each user
  * sees only their own receipts of the batch → the explorer link is the devnet one.

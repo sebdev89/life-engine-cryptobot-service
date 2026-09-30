@@ -16,7 +16,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 /**
- * The deterministic core (KAN-392, Endgame §5) as a pure function: integer frontier, canonical
+ * The deterministic core (Endgame §5) as a pure function: integer frontier, canonical
  * input/output, fixed tie-breaks, and the weights file hashed as the model's identity.
  */
 class DeterministicRiskEngineTest {

@@ -9,7 +9,7 @@ import net.logstash.logback.composite.AbstractJsonProvider;
 import org.springframework.lang.Nullable;
 
 /**
- * Escribe {@code version} y {@code commitSha} en cada línea JSON (KAN-426).
+ * Escribe {@code version} y {@code commitSha} en cada línea JSON.
  *
  * <p>Es un provider de Logback y no un bean de Spring a propósito: el encoder se configura antes de
  * que exista el contexto de Spring, y las líneas del arranque —las que se leen cuando un contenedor

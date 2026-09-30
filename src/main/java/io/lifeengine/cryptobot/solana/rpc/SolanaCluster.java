@@ -5,7 +5,7 @@ import java.util.Locale;
 
 /**
  * The Solana clusters CryptoBot knows how to read. Execution is only ever allowed on devnet.
- * Adapts {@link Network} (the core's own, adapter-independent representation, KAN-595) at the
+ * Adapts {@link Network} (the core's own, adapter-independent representation) at the
  * boundary: {@link #toNetwork()} / {@link #from(Network)}.
  */
 public enum SolanaCluster {

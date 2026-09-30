@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# KAN-794 — the URL that opens the demo UI already signed in.
+# the URL that opens the demo UI already signed in.
 #
 # The demo stack has no Life Engine Auth: the service verifies HS256 tokens with the JWT_SECRET of
 # .env.demo (see jwt_hs256 in lib.sh). This mints one (RUNTIME_OPERATOR + RUNTIME_ADMIN, valid 1 h)

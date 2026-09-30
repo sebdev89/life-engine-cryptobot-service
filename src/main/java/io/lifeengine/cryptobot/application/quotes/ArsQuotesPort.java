@@ -5,7 +5,7 @@ import java.util.List;
 import reactor.core.publisher.Mono;
 
 /**
- * Port: ARS quotes of one crypto asset across the Argentine exchanges CryptoBot knows (KAN-355).
+ * Port: ARS quotes of one crypto asset across the Argentine exchanges CryptoBot knows.
  *
  * <p>Contract: never errors. An exchange that is down, slow, or does not list the asset shows up
  * in {@link QuoteBoard#unavailable()} with a reason; the others are returned. Implementations own

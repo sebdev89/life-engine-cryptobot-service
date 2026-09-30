@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # shellcheck disable=SC2034  # RESP/TOKEN/BASE/CURL_OPTS are read by the helpers sourced from lib.sh
-# KAN-570 — the demo, end to end, by API, with evidence. KAN-571 — with a failure injected.
+# the demo, end to end, by API, with evidence. an internal ticket — with a failure injected.
 #
 #   scripts/demo/e2e-devnet.sh [--local-validator] [--no-up] [--keep] [--sell-sol 1] [--it] [--chaos <mode>]
 #                              [--env-file <f>] [--base-url <url> --token-env <VAR>] [--evidence <f>] [--summary <f>]
@@ -16,7 +16,7 @@
 # 4. asks the RPC directly for the signature (getSignatureStatuses) — the chain, not the service;
 # 5. writes out/evidence-<ts>.md (proposal id, operationId, signature, explorer link, receipt hash…).
 #
-# --chaos <mode> (KAN-571, HK-3) injects a failure at broadcast time and shows the recovery:
+# --chaos <mode> (HK-3) injects a failure at broadcast time and shows the recovery:
 #     uncertain        the tx IS broadcast, the RPC answer is lost ⇒ EXECUTION_BROADCAST_UNCERTAIN, row
 #                      EXECUTING+SIGNED ⇒ the reconciler finds it confirmed ⇒ EXECUTED (no retry)
 #     confirm-timeout  broadcast ok, the confirmation poll fails ⇒ SUBMITTED ⇒ reconciler ⇒ EXECUTED
@@ -27,7 +27,7 @@
 #   With --it, --chaos sets CRYPTOBOT_E2E_CHAOS for E2EDevnetIT (rpc-down by default; `off` skips it).
 # --it runs E2EDevnetIT (Failsafe, profile e2e-devnet) against the same stack instead of curl.
 # --no-up assumes the stack is already up. --keep leaves it running at the end (default: stop).
-# --base-url <url> (KAN-575, HK-7) runs the same flow against a service that is NOT this compose
+# --base-url <url> (HK-7) runs the same flow against a service that is NOT this compose
 #   (UAT, or a stack run.sh already brought up): no docker, no stop at the end; the bearer comes from
 #   the variable named by --token-env (a JWT from Life Engine Auth) or, if absent, is minted from
 #   JWT_SECRET of the env file. --env-file (default .env.demo) must carry DEMO_WALLET_ADDRESS,
@@ -95,7 +95,7 @@ TS="$(date +%Y%m%d-%H%M%S)"
 OUT_DIR="${PROJECT}/out"; mkdir -p "$OUT_DIR"
 [[ -n "$EVIDENCE" ]] || EVIDENCE="${OUT_DIR}/evidence-${TS}.md"
 mkdir -p "$(dirname "$EVIDENCE")"
-# summary <key> <value>: one line per fact, for run.sh (KAN-575). Never a secret.
+# summary <key> <value>: one line per fact, for run.sh. Never a secret.
 summary() { [[ -n "$SUMMARY" ]] && printf '%s=%s\n' "$1" "$2" >> "$SUMMARY" || true; }
 if [[ -n "$SUMMARY" ]]; then mkdir -p "$(dirname "$SUMMARY")"; : > "$SUMMARY"; fi
 summary MODE "$MODE"; summary CHAOS "${CHAOS:-none}"; summary WALLET "$WALLET"; summary RPC "$HOST_RPC"; summary EVIDENCE "$EVIDENCE"
@@ -157,7 +157,7 @@ fi
 EV=() ; ev() { EV+=("$*"); }
 
 step "0. register the devnet wallet the signer controls"
-RESP="$(api POST /api/cryptobot/wallets "{\"address\":\"${WALLET}\",\"cluster\":\"devnet\",\"label\":\"${DEMO_WALLET_LABEL:-KAN-570 demo}\"}")"; split_status
+RESP="$(api POST /api/cryptobot/wallets "{\"address\":\"${WALLET}\",\"cluster\":\"devnet\",\"label\":\"${DEMO_WALLET_LABEL:-an internal ticket demo}\"}")"; split_status
 [[ "$STATUS" == "201" ]] || fail "register: HTTP ${STATUS} ${BODY}"
 WALLET_ID="$(printf '%s' "$BODY" | jget "['wallet']['id']")"
 TOTAL_USD="$(printf '%s' "$BODY" | jget "['snapshot']['totalUsd']")"
@@ -214,7 +214,7 @@ ev "approval | APPROVED, executableAt=${EXECUTABLE_AT}"
 
 step "6. timelock"
 # Only probe the lock when there is one: a small trade is ALLOW (no timelock) and an execute "probe"
-# with a throwaway key would be the real execution (KAN-571 found this with a 2 SOL wallet).
+# with a throwaway key would be the real execution (internal ticket found this with a 2 SOL wallet).
 wait_s="$(python3 - "$EXECUTABLE_AT" <<'PY'
 import sys, datetime
 t = datetime.datetime.fromisoformat(sys.argv[1].replace('Z', '+00:00'))
@@ -244,7 +244,7 @@ VAULT="${CRYPTOBOT_REBALANCE_VAULT:?}"
 vault_tx_count() { rpc "$HOST_RPC" getSignaturesForAddress "[\"${VAULT}\", {\"limit\": 1000, \"commitment\": \"confirmed\"}]" | python3 -c 'import json,sys; d=json.load(sys.stdin); print(len([s for s in d.get("result",[]) if s.get("err") is None]))'; }
 VAULT_TXS_BEFORE="$(vault_tx_count)"
 chain_status() { rpc "$HOST_RPC" getSignatureStatuses "[[\"$1\"],{\"searchTransactionHistory\":true}]" | python3 -c 'import json,sys; v=json.load(sys.stdin).get("result",{}).get("value",[None])[0]; print("never-seen" if v is None else (("error:"+json.dumps(v["err"])) if v.get("err") else v.get("confirmationStatus")))'; }
-# The KAN-571 series, without the common tags (application/commit/environment/service/version) and without the zero placeholders.
+# The an internal ticket series, without the common tags (application/commit/environment/service/version) and without the zero placeholders.
 kan571_metrics() { { curl -fsS -m 5 "${CURL_OPTS[@]}" "${BASE}/actuator/prometheus" 2>/dev/null || echo "actuator not reachable from here (403 behind the edge is expected in UAT)"; } \
   | grep -E '^cryptobot_(dead_letter_open|dead_letter_total|reconciliation_total)|^actuator' | grep -v ' 0.0$' \
   | sed -E 's/(application|commit|environment|service|version)="[^"]*",?//g; s/,\}/}/; s/\{\}//' | tr '\n' ';' || true; }
@@ -252,7 +252,7 @@ audit_types() { printf '%s' "$1" | python3 -c "import json,sys; d=json.load(sys.
 audit_field() { printf '%s' "$1" | python3 -c "import json,sys; d=json.load(sys.stdin); e=[x for x in d['audit'] if x['eventType']==sys.argv[1]]; print(e[-1]['payload'].get(sys.argv[2],'') if e else '')" "$2" "$3"; }
 
 if [[ -n "$CHAOS" ]]; then
-  # ---- KAN-571: the failure is injected, the recovery is watched -------------------------------
+  # ---- an internal ticket: the failure is injected, the recovery is watched -------------------------------
   step "7. inject the failure: chaos '${CHAOS}' armed on the service (demo-only endpoint)"
   SHOTS=1; [[ "$CHAOS" == "rpc-down" ]] && SHOTS=-1   # rpc-down stays down until we bring it back
   RESP="$(api PUT /api/cryptobot/demo/chaos "{\"broadcast\":\"${CHAOS}\",\"shots\":${SHOTS}}")"; split_status
@@ -508,7 +508,7 @@ SERVICE_COMMIT="$(git -C "$PROJECT" rev-parse --short HEAD 2>/dev/null || echo u
   echo "# CryptoBot E2E — evidence ${TS}"
   echo
   echo "- mode: ${MODE}"
-  [[ -n "$CHAOS" ]] && echo "- chaos (KAN-571): **${CHAOS}** injected at broadcast time; reconciliation interval ${CRYPTOBOT_RECONCILIATION_INTERVAL:-10s}, grace ${CRYPTOBOT_RECONCILIATION_GRACE:-20s}, max attempts ${CRYPTOBOT_RECONCILIATION_MAX_ATTEMPTS:-3}, max retries ${CRYPTOBOT_RECONCILIATION_MAX_RETRIES:-2}"
+  [[ -n "$CHAOS" ]] && echo "- chaos: **${CHAOS}** injected at broadcast time; reconciliation interval ${CRYPTOBOT_RECONCILIATION_INTERVAL:-10s}, grace ${CRYPTOBOT_RECONCILIATION_GRACE:-20s}, max attempts ${CRYPTOBOT_RECONCILIATION_MAX_ATTEMPTS:-3}, max retries ${CRYPTOBOT_RECONCILIATION_MAX_RETRIES:-2}"
   echo "- service commit: \`${SERVICE_COMMIT}\` · stack: docker-compose.demo.yml (service + signer + validator + postgres)"
   echo "- flags: CRYPTOBOT_EXECUTION_ENABLED=true · CRYPTOBOT_ALLOW_MAINNET=false · SIGNER_REQUIRE_ATTESTATION=true · timelock escalated ${CRYPTOBOT_TIMELOCK_ESCALATED:-20s}"
   echo "- policy pin: \`${VALIDATOR_POLICY_HASH:-unpinned}\`"

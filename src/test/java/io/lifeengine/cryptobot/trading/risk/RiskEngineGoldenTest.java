@@ -18,7 +18,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
 
 /**
- * The golden file of the deterministic risk engine (KAN-392, Endgame §5): 200 canonical inputs
+ * The golden file of the deterministic risk engine (Endgame §5): 200 canonical inputs
  * with the {@code inputHash} and {@code outputHash} the engine produced when the file was
  * written, plus the {@code weightsHash} and version it ran with. The test re-runs every input
  * on this JVM and demands the same 200 output hashes byte for byte.

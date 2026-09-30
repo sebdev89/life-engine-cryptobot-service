@@ -16,7 +16,7 @@ import org.springframework.web.bind.annotation.RestController;
 import reactor.core.publisher.Mono;
 
 /**
- * KAN-571 / KAN-501: the dead-letter queue, globally (admin: {@code RUNTIME_ADMIN}). The
+ * the dead-letter queue, globally (admin: {@code RUNTIME_ADMIN}). The
  * per-proposal view stays at {@code GET /proposals/{id}/events}. See {@code docs/runbooks/dead-letter.md}.
  */
 @RestController

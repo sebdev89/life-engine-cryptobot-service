@@ -23,7 +23,7 @@ import org.springframework.stereotype.Service;
  * Deterministic rules over a valued snapshot (and optionally its diff). No LLM here on purpose:
  * the findings are the ground truth the advisor is asked to explain, never the other way round.
  *
- * <p>Since KAN-392 this is an adapter: it quantises the snapshot into the canonical integer
+ * <p>Since an internal ticket this is an adapter: it quantises the snapshot into the canonical integer
  * {@link RiskInput}, runs the pure {@link DeterministicRiskEngine} (versioned, weights hashed),
  * and renders its discrete {@link RiskVerdict} as the {@link RiskReport} the UI already shows.
  * The prose below is presentation; nothing in it enters a hash.
