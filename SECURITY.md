@@ -31,7 +31,8 @@ the validator, tenant isolation or receipt verification are the most valuable.
 
 Before publishing, the full Git history was scanned with **gitleaks 8.30.1** (`gitleaks git`, all commits).
 
-- **Result:** 19 findings in 11 commits.
+- **Result:** 19 findings in 9 commits. The commit that replaced the receipt vector key adds one more finding (the new
+  test-only key, listed in `.gitleaksignore`), so a scan of the history today reports 20.
 - **Classification:**
   - test API keys and similar literals inside `*Test.java` files (fake values used as test inputs);
   - the Ed25519 key of the receipt golden vectors (`src/test/resources/receipt/vectors-v1.json`), a test vector that
