@@ -242,42 +242,42 @@ if (( ! DISTRIBUTE && ! REVENUE )); then
 fi
 
 if (( DISTRIBUTE )); then
-  step "6 immediate reward (KAN-822): devnet SOL to the contributors' wallets — devnet SOL stands in for stablecoin settlement"
-  RPC_URL="${CRYPTOBOT_SOLANA_DEVNET_RPC:-}"
-  if [[ -z "$RPC_URL" && -f "$ENV_FILE" ]]; then RPC_URL="$(sed -n 's/^CRYPTOBOT_SOLANA_DEVNET_RPC=//p' "$ENV_FILE" | tail -1)"; fi
-  RPC_URL="${RPC_URL:-$DEVNET_RPC}"
-  declare -A BEFORE=()
-  for id in sebas "${AGENTS[@]}"; do
-    w="$(pubkey_of "${DEMO_HOME}/pov-${id}.json")"
-    BEFORE[$id]="$(balance_lamports "$RPC_URL" "$w" 2>/dev/null || echo '?')"
-  done
-  RESP="$(api POST "/api/cryptobot/value-events/${ID}/distribute?anchor=true" '')"; split_status
-  [[ "$STATUS" == 201 || "$STATUS" == 200 ]] || fail "POST /distribute → ${STATUS}: ${BODY}"
-  DIST="$BODY"
-  DSTATE="$(printf '%s' "$DIST" | jget "['status']")"
-  echo "distribution    $(printf '%s' "$DIST" | jget "['id']") → ${STATUS} ${DSTATE} policy=$(printf '%s' "$DIST" | jget "['policy']") pool=$(printf '%s' "$DIST" | jget "['poolLamports']") lamports"
-  echo "receipt         $(printf '%s' "$DIST" | jget "['receiptHash']") (VALUE_DISTRIBUTION, anchored: $(printf '%s' "$DIST" | jget "['anchor']['txSignature']" || true))"
-  echo "payouts"
-  printf '%s' "$DIST" | python3 -c '
-  import json, sys
-  for p in json.load(sys.stdin)["payouts"]:
-      print("  %-15s %-9s %10s lamports  wallet=%s" % (p["identityId"], p["status"], p["lamports"], p.get("wallet") or "-"))
-      if p.get("txSignature"):
-          print("  %-15s tx %s" % ("", p["txSignature"]))
-          print("  %-15s %s" % ("", p.get("explorerUrl") or ""))
-      if p.get("error"):
-          print("  %-15s error: %s" % ("", p["error"]))'
-  echo "balances (lamports, ${RPC_URL%%\?*})"
-  for id in sebas "${AGENTS[@]}"; do
-    w="$(pubkey_of "${DEMO_HOME}/pov-${id}.json")"
-    after="$(balance_lamports "$RPC_URL" "$w" 2>/dev/null || echo '?')"
-    printf '  %-15s before=%-12s after=%-12s %s\n' "$id" "${BEFORE[$id]}" "$after" "$w"
-  done
-  case "$DSTATE" in
-    COMPLETE) log "ValueEvent anchored, verified, and its contributors paid on devnet" ;;
-    PARTIAL|IN_PROGRESS) warn "distribution ${DSTATE}: see the payouts above (a wallet not in SIGNER_ALLOWED_DESTINATIONS? restart the signer with --no-deps)" ;;
-    *) fail "distribution ${DSTATE}: nothing was paid (POV_REWARD_ENABLED? POV_REWARD in the policy of service AND validator? signer allowlist?)" ;;
-  esac
+step "6 immediate reward (KAN-822): devnet SOL to the contributors' wallets — devnet SOL stands in for stablecoin settlement"
+RPC_URL="${CRYPTOBOT_SOLANA_DEVNET_RPC:-}"
+if [[ -z "$RPC_URL" && -f "$ENV_FILE" ]]; then RPC_URL="$(sed -n 's/^CRYPTOBOT_SOLANA_DEVNET_RPC=//p' "$ENV_FILE" | tail -1)"; fi
+RPC_URL="${RPC_URL:-$DEVNET_RPC}"
+declare -A BEFORE=()
+for id in sebas "${AGENTS[@]}"; do
+  w="$(pubkey_of "${DEMO_HOME}/pov-${id}.json")"
+  BEFORE[$id]="$(balance_lamports "$RPC_URL" "$w" 2>/dev/null || echo '?')"
+done
+RESP="$(api POST "/api/cryptobot/value-events/${ID}/distribute?anchor=true" '')"; split_status
+[[ "$STATUS" == 201 || "$STATUS" == 200 ]] || fail "POST /distribute → ${STATUS}: ${BODY}"
+DIST="$BODY"
+DSTATE="$(printf '%s' "$DIST" | jget "['status']")"
+echo "distribution    $(printf '%s' "$DIST" | jget "['id']") → ${STATUS} ${DSTATE} policy=$(printf '%s' "$DIST" | jget "['policy']") pool=$(printf '%s' "$DIST" | jget "['poolLamports']") lamports"
+echo "receipt         $(printf '%s' "$DIST" | jget "['receiptHash']") (VALUE_DISTRIBUTION, anchored: $(printf '%s' "$DIST" | jget "['anchor']['txSignature']" || true))"
+echo "payouts"
+printf '%s' "$DIST" | python3 -c '
+import json, sys
+for p in json.load(sys.stdin)["payouts"]:
+    print("  %-15s %-9s %10s lamports  wallet=%s" % (p["identityId"], p["status"], p["lamports"], p.get("wallet") or "-"))
+    if p.get("txSignature"):
+        print("  %-15s tx %s" % ("", p["txSignature"]))
+        print("  %-15s %s" % ("", p.get("explorerUrl") or ""))
+    if p.get("error"):
+        print("  %-15s error: %s" % ("", p["error"]))'
+echo "balances (lamports, ${RPC_URL%%\?*})"
+for id in sebas "${AGENTS[@]}"; do
+  w="$(pubkey_of "${DEMO_HOME}/pov-${id}.json")"
+  after="$(balance_lamports "$RPC_URL" "$w" 2>/dev/null || echo '?')"
+  printf '  %-15s before=%-12s after=%-12s %s\n' "$id" "${BEFORE[$id]}" "$after" "$w"
+done
+case "$DSTATE" in
+  COMPLETE) log "ValueEvent anchored, verified, and its contributors paid on devnet" ;;
+  PARTIAL|IN_PROGRESS) warn "distribution ${DSTATE}: see the payouts above (a wallet not in SIGNER_ALLOWED_DESTINATIONS? restart the signer with --no-deps)" ;;
+  *) fail "distribution ${DSTATE}: nothing was paid (POV_REWARD_ENABLED? POV_REWARD in the policy of service AND validator? signer allowlist?)" ;;
+esac
 else
   log "immediate reward skipped (--no-distribute)"
 fi
