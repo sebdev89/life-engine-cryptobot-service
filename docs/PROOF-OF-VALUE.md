@@ -1,6 +1,9 @@
-# Proof of Value V1, V2–V4 + V6, V5 immediate reward, V7 revenue, V8 treasury and V9 end-to-end
+# Proof of Value — Verifiable Value Creation on Solana: protocol and API reference
 
-Life Engine records an **accepted** contribution as a `ValueEvent`, anchors it on Solana devnet and
+Covers V1 (value events), V2–V4 + V6 (attribution primitives), V5 (immediate reward), V7 (revenue), V8 (treasury) and
+V9 (end-to-end). CryptoBot is the first real case that proves the protocol.
+
+Proof of Value records an **accepted** contribution as a `ValueEvent`, anchors it on Solana devnet and
 correlates the on-chain hash with the off-chain evidence. No new service, no signer change: a
 ValueEvent is one more Decision Receipt (`ReceiptKind.VALUE_EVENT`, Flyway `V12__pov_value_event.sql`).
 
