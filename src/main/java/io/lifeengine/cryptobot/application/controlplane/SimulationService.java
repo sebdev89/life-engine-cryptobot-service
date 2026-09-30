@@ -70,14 +70,23 @@ public class SimulationService {
 
     /** Builds a fresh unsigned {@code SystemProgram.transfer(wallet → vault, lamports)} with a current blockhash. */
     public Mono<PreparedTransaction> prepareTransfer(Wallet wallet, long lamports) {
-        return rpc.getLatestBlockhash(SolanaCluster.from(wallet.cluster()))
+        return prepareTransfer(SolanaCluster.from(wallet.cluster()), wallet.address(), policy.rebalanceVault(), lamports, "rebalance vault");
+    }
+
+    /**
+     * KAN-822: the same unsigned {@code SystemProgram.transfer(from → to, lamports)} on a fresh blockhash, to any
+     * destination — the caller (a Proof of Value payout) names it; the signer's allowlist is still the last word.
+     * {@code label} only goes into the human-readable summary.
+     */
+    public Mono<PreparedTransaction> prepareTransfer(SolanaCluster cluster, String from, String to, long lamports, String label) {
+        return rpc.getLatestBlockhash(cluster)
                 .map(bh -> {
-                    LegacyTransaction tx = new LegacyTransaction(wallet.address(), bh.blockhash(),
-                            List.of(SystemProgram.transfer(wallet.address(), policy.rebalanceVault(), lamports)));
-                    return new PreparedTransaction(wallet.cluster().id(), wallet.address(), policy.rebalanceVault(), lamports,
-                            bh.blockhash(), bh.lastValidBlockHeight(), tx.unsignedBase64(), tx.messageBase64(),
-                            "SystemProgram.transfer " + lamports + " lamports (" + BigDecimal.valueOf(lamports).divide(BigDecimal.valueOf(SolanaRpcClient.LAMPORTS_PER_SOL), 9, RoundingMode.DOWN).stripTrailingZeros().toPlainString()
-                                    + " SOL) from " + wallet.address() + " to rebalance vault " + policy.rebalanceVault());
+                    LegacyTransaction tx = new LegacyTransaction(from, bh.blockhash(), List.of(SystemProgram.transfer(from, to, lamports)));
+                    return new PreparedTransaction(cluster.id(), from, to, lamports, bh.blockhash(), bh.lastValidBlockHeight(), tx.unsignedBase64(),
+                            tx.messageBase64(), "SystemProgram.transfer " + lamports + " lamports ("
+                                    + BigDecimal.valueOf(lamports).divide(BigDecimal.valueOf(SolanaRpcClient.LAMPORTS_PER_SOL), 9, RoundingMode.DOWN)
+                                            .stripTrailingZeros().toPlainString()
+                                    + " SOL) from " + from + " to " + label + " " + to);
                 });
     }
 

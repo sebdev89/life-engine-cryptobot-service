@@ -14,6 +14,8 @@ import io.lifeengine.cryptobot.core.execution.ExecutionRecord;
 import io.lifeengine.cryptobot.core.execution.PreparedTransaction;
 import io.lifeengine.cryptobot.core.execution.ProposalStatus;
 import io.lifeengine.cryptobot.core.execution.ProposalTransition;
+import io.lifeengine.cryptobot.core.policy.PolicyInput;
+import io.lifeengine.cryptobot.core.policy.PolicyVerdict;
 import io.lifeengine.cryptobot.core.wallet.Wallet;
 import io.lifeengine.cryptobot.integration.signer.SignerClient;
 import io.lifeengine.cryptobot.integration.validator.ValidatorClient;
@@ -341,6 +343,10 @@ public class ExecutionService {
 
     /** Defence in depth: the signer's output must be the same message we sent, signed by the wallet key. */
     private static Signed verifySigned(PreparedTransaction tx, SignerClient.SignResponse resp, Wallet wallet, ValidatorClient.Response attestation) {
+        return verifySigned(tx, resp, wallet.address(), attestation);
+    }
+
+    private static Signed verifySigned(PreparedTransaction tx, SignerClient.SignResponse resp, String feePayer, ValidatorClient.Response attestation) {
         byte[] wire = Base64.getDecoder().decode(resp.signedTransactionBase64());
         byte[] message = Base64.getDecoder().decode(tx.messageBase64());
         // 1 signature: compact-u16 (1 byte) + 64 bytes, then the message.
@@ -352,7 +358,7 @@ public class ExecutionService {
         if (!Arrays.equals(message, returnedMessage)) {
             throw new ControlPlaneExceptions.Conflict("Signer altered the transaction message");
         }
-        if (!SolanaKeypair.verify(Base58.decode(wallet.address()), message, signature)) {
+        if (!SolanaKeypair.verify(Base58.decode(feePayer), message, signature)) {
             throw new ControlPlaneExceptions.Conflict("Signature does not verify against the wallet public key");
         }
         // The transaction id IS the first signature: known before anyone broadcasts it.
@@ -522,6 +528,86 @@ public class ExecutionService {
                 .audit(audit.event(executing.ownerUserId(), executing.walletId(), executing.id(), EV_FAILED, actor, ProposalService.payload("error", ex.getMessage(), "stage", stage.name())))
                 .publish(ProposalService.tradeEvent(failed, TradeEvents.FAILED, now, ProposalService.payload("error", ex.getMessage(), "stage", stage.name().toLowerCase(java.util.Locale.ROOT)))))
                 .flatMap(terminal -> executionReceipts.receiptFor(terminal, executing.updatedAt()));
+    }
+
+    // ---- KAN-822: a transfer that is not a proposal (Proof of Value payout) ------------------------------
+
+    /**
+     * One {@code SystemProgram.transfer(feePayer → destination, lamports)} through the same gates as {@link #execute}: the
+     * mainnet guard, a fresh blockhash, an on-chain simulation of the exact bytes, the independent validator's attestation
+     * over the recorded {@code (I, S)} and verdict, the isolated signer, our own check of its signature, and then the
+     * broadcast and the confirmation poll. {@code operationId} is what the attestation and the signer bind the bytes to.
+     */
+    public record Transfer(UUID operationId, SolanaCluster cluster, String feePayer, String destination, long lamports, String label,
+            PolicyVerdict verdict, PolicyInput input) {}
+
+    /**
+     * {@code status}: {@link #TRANSFER_CONFIRMED} (confirmed or finalized), {@link #TRANSFER_SUBMITTED} (signed and possibly on the
+     * chain — broadcast uncertain or confirmation still pending: a reconciler asks {@link #transferStatus} later) or
+     * {@link #TRANSFER_FAILED} (nothing is on the chain, or the chain rejected it; {@code error} says why, no secrets).
+     */
+    public record TransferResult(String status, String signature, String confirmation, String error, String validator) {}
+
+    public static final String TRANSFER_CONFIRMED = "CONFIRMED";
+    public static final String TRANSFER_SUBMITTED = "SUBMITTED";
+    public static final String TRANSFER_FAILED = "FAILED";
+
+    /**
+     * KAN-822: {@link Transfer} through the execution pipeline without a proposal row. {@code onSigned} runs with the
+     * signature after the signer answered and <em>before</em> the broadcast — the caller persists it there, so a crash
+     * from then on leaves a row a reconciler can look up (the same rule as {@code SIGNED} for a proposal). Never errors:
+     * every outcome is a {@link TransferResult}.
+     */
+    public Mono<TransferResult> submitTransfer(Transfer t, java.util.function.Function<String, Mono<?>> onSigned) {
+        if (!execution.permits(t.cluster())) {
+            metrics.executionRefused(CryptobotMetrics.RefusalReason.MAINNET);
+            return Mono.just(new TransferResult(TRANSFER_FAILED, null, null, new MainnetDisabledException("transfer", t.cluster()).getMessage(), null));
+        }
+        AtomicReference<String> validatorKey = new AtomicReference<>();
+        return timed(CryptobotMetrics.Stage.SIMULATE, () -> simulation.prepareTransfer(t.cluster(), t.feePayer(), t.destination(), t.lamports(), t.label())
+                        .flatMap(tx -> rpc.simulateTransaction(t.cluster(), tx.unsignedTransactionBase64(), false)
+                                .flatMap(sim -> sim.ok() ? Mono.just(tx)
+                                        : Mono.error(new ControlPlaneExceptions.Conflict("Pre-flight simulation failed: " + sim.error())))))
+                .flatMap(tx -> timed(CryptobotMetrics.Stage.VALIDATE, () -> validator.authorize(t.operationId(), t.verdict(), t.input(), tx)
+                        .doOnNext(att -> {
+                            metrics.validatorAttestation("issued");
+                            validatorKey.set(att.attestation().validator());
+                        })
+                        .doOnError(ValidatorClient.ValidatorRefused.class, ex -> metrics.validatorAttestation("refused"))
+                        .map(att -> new Attested(tx, att))))
+                .flatMap(a -> timed(CryptobotMetrics.Stage.SIGN, () -> signer.sign(t.operationId(), a.tx().unsignedTransactionBase64(), t.feePayer(),
+                                t.cluster(), a.attestation().attestation())
+                        .map(resp -> verifySigned(a.tx(), resp, t.feePayer(), a.attestation()))))
+                .flatMap(signed -> onSigned.apply(signed.signature()).then(Mono.just(signed)))
+                // Up to here nothing can be on the chain.
+                .flatMap(signed -> timed(CryptobotMetrics.Stage.SUBMIT, () -> rpc.sendTransaction(t.cluster(), signed.signedBase64()))
+                        .then(Mono.defer(() -> timed(CryptobotMetrics.Stage.CONFIRM, () -> confirm(t.cluster(), signed.signature()))))
+                        .map(status -> status.failed()
+                                ? new TransferResult(TRANSFER_FAILED, signed.signature(), status.confirmationStatus(), "on-chain: " + status.error(),
+                                        validatorKey.get())
+                                : "pending".equals(status.confirmationStatus()) || status.confirmationStatus() == null
+                                        ? new TransferResult(TRANSFER_SUBMITTED, signed.signature(), "pending", null, validatorKey.get())
+                                        : new TransferResult(TRANSFER_CONFIRMED, signed.signature(), status.confirmationStatus(), null, validatorKey.get()))
+                        // A JSON-RPC rejection (or the mainnet guard of the client) is certain: nothing landed. Anything else is uncertain.
+                        .onErrorResume(ex -> Mono.just((ex instanceof SolanaRpcException rpcEx && rpcEx.getCause() == null) || ex instanceof MainnetDisabledException
+                                ? new TransferResult(TRANSFER_FAILED, signed.signature(), null, "broadcast rejected: " + ex.getMessage(), validatorKey.get())
+                                : new TransferResult(TRANSFER_SUBMITTED, signed.signature(), null, "broadcast uncertain: " + ex.getMessage(), validatorKey.get()))))
+                .onErrorResume(ex -> {
+                    log.warn("transfer_failed operationId={} destination={} lamports={} error={}", t.operationId(), t.destination(), t.lamports(), ex.toString(),
+                            LogFields.event("transfer_failed"), LogFields.status("failed"));
+                    return Mono.just(new TransferResult(TRANSFER_FAILED, null, null, ex.getMessage(), validatorKey.get()));
+                });
+    }
+
+    /** KAN-822: one look at a submitted transfer's signature — the reconciler's question, without the retry loop. */
+    public Mono<TransferResult> transferStatus(SolanaCluster cluster, String signature) {
+        return rpc.getSignatureStatus(cluster, signature)
+                .map(s -> s.failed()
+                        ? new TransferResult(TRANSFER_FAILED, signature, s.confirmationStatus(), "on-chain: " + s.error(), null)
+                        : "confirmed".equals(s.confirmationStatus()) || "finalized".equals(s.confirmationStatus())
+                                ? new TransferResult(TRANSFER_CONFIRMED, signature, s.confirmationStatus(), null, null)
+                                : new TransferResult(TRANSFER_SUBMITTED, signature, s.confirmationStatus(), null, null))
+                .onErrorResume(ex -> Mono.just(new TransferResult(TRANSFER_SUBMITTED, signature, null, null, null)));
     }
 
     /** El código de una falla antes del broadcast: la dependencia que faltó, o el paso (KAN-573). */
