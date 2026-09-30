@@ -72,6 +72,9 @@ public class CryptobotSecurityConfig {
                                         // KAN-822: an immediate reward moves devnet funds (the controller checks it too).
                                         .pathMatchers(HttpMethod.POST, "/api/cryptobot/value-events/*/distribute")
                                         .hasAuthority(AUTHORITY_ANCHOR_ADMIN)
+                                        // KAN-824: a revenue event pays its contributor pool (devnet funds) too.
+                                        .pathMatchers(HttpMethod.POST, "/api/cryptobot/revenue-events")
+                                        .hasAuthority(AUTHORITY_ANCHOR_ADMIN)
                                         .pathMatchers("/api/cryptobot/dead-letters/**")
                                         .hasAuthority(AUTHORITY_ANCHOR_ADMIN)
                                         // KAN-571: fault injection exists only in the demo stack (cryptobot.chaos.enabled); admin there too.

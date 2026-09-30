@@ -137,6 +137,12 @@ public class StubRepositoriesConfiguration {
         return InMemoryPovRepositories.payouts();
     }
 
+    /** KAN-824: revenue events (their payouts share the payouts store). */
+    @Bean
+    io.lifeengine.cryptobot.proofofvalue.RevenueRepository povRevenueRepository() {
+        return InMemoryPovRepositories.revenues();
+    }
+
     /** KAN-393: the DAG walks over the same in-memory receipts and edges. */
     @Bean
     io.lifeengine.cryptobot.infrastructure.persistence.controlplane.LineageRepository lineageRepository() {

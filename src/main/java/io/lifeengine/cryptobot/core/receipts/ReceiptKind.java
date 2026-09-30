@@ -30,5 +30,11 @@ public enum ReceiptKind {
      * Proof of Value V5 (KAN-822): the immediate reward of an ANCHORED ValueEvent. Parent = the VALUE_EVENT receipt;
      * {@code output.hash} = sha256 of the distribution's canonical JSON (every payout: identity, wallet, lamports, status, tx).
      */
-    VALUE_DISTRIBUTION
+    VALUE_DISTRIBUTION,
+    /**
+     * Proof of Value V7 (KAN-824): an economic result split with {@code pov/revenue-share/v1}. Parents = the VALUE_EVENT receipts
+     * it is attributed to; {@code output.hash} = sha256 of the revenue event's canonical JSON (amount, policy, pool/fee/retained,
+     * every allocation and payout).
+     */
+    REVENUE_EVENT
 }

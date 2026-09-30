@@ -15,9 +15,9 @@ import reactor.core.publisher.Mono;
 public class PayoutR2dbcStore implements PayoutRepository {
 
     private static final String DCOLS = "id, tenant_id, value_event_id, pool_lamports, policy, receipt_hash, status, created_at, updated_at";
-    private static final String PCOLS = "p.id, p.distribution_id, p.value_event_id, p.tenant_id, p.position, p.identity_id, i.display_name, p.wallet,"
-            + " p.lamports, p.status, p.tx_signature, p.explorer_url, p.error, p.policy, p.created_at, p.updated_at";
-    private static final String PFROM = " FROM pov_payout p JOIN pov_identity i ON i.tenant_id = p.tenant_id AND i.id = p.identity_id";
+    static final String PCOLS = "p.id, p.distribution_id, p.value_event_id, p.tenant_id, p.position, p.identity_id, i.display_name, p.wallet,"
+            + " p.lamports, p.status, p.tx_signature, p.explorer_url, p.error, p.policy, p.created_at, p.updated_at, p.revenue_event_id";
+    static final String PFROM = " FROM pov_payout p JOIN pov_identity i ON i.tenant_id = p.tenant_id AND i.id = p.identity_id";
 
     private final DatabaseClient db;
     private final TransactionalOperator tx;
@@ -122,7 +122,13 @@ public class PayoutR2dbcStore implements PayoutRepository {
                 .map((row, meta) -> ((Number) row.get("total")).longValue()).one().defaultIfEmpty(0L);
     }
 
-    private static PovPayout payout(io.r2dbc.spi.Row row) {
+    @Override
+    public Flux<PovPayout> findAll(String tenantId) {
+        return db.sql("SELECT " + PCOLS + PFROM + " WHERE p.tenant_id = :tenant ORDER BY p.created_at DESC, p.id")
+                .bind("tenant", tenantId).map((row, meta) -> payout(row)).all();
+    }
+
+    static PovPayout payout(io.r2dbc.spi.Row row) {
         return new PovPayout(
                 row.get("id", UUID.class),
                 row.get("distribution_id", UUID.class),
@@ -139,6 +145,7 @@ public class PayoutR2dbcStore implements PayoutRepository {
                 row.get("error", String.class),
                 row.get("policy", String.class),
                 row.get("created_at", Instant.class),
-                row.get("updated_at", Instant.class));
+                row.get("updated_at", Instant.class),
+                row.get("revenue_event_id", UUID.class));
     }
 }

@@ -72,6 +72,9 @@ import java.util.concurrent.atomic.AtomicLong;
  *   --- KAN-822 (Proof of Value V5, immediate reward: fed by proofofvalue.PovRewardService) ---
  *   pov.payouts                   → pov_payouts_total{status}             one per payout outcome: confirmed | submitted | failed | unfunded
  *   pov.payout.lamports           → pov_payout_lamports_total{status}     lamports of those payouts (confirmed = paid on devnet)
+ *   --- KAN-824 (Proof of Value V7, RevenueEvent: fed by proofofvalue.PovRevenueService) ---
+ *   pov.revenue.events            → pov_revenue_events_total{source,simulated}   revenue events recorded (an idempotent re-POST does not count)
+ *   pov.revenue.lamports          → pov_revenue_lamports_total{source,simulated} their amounts (simulated=true: not real profit)
  *   --- KAN-393 (provenance DAG: lineage API + REUSES edge) ---
  *   artifact.reuse                → artifact_reuse_total{external}       a STRATEGY that declared REUSES over an earlier MARKET_ANALYSIS; external=false until public receipts exist
  *   provenance.depth              → provenance_depth (distribution)       max depth of the graph a lineage query returned
@@ -143,6 +146,8 @@ public class CryptobotMetrics {
     static final String POV_COMPUTE_RECEIPTS = "pov.compute.receipts";
     static final String POV_PAYOUTS = "pov.payouts";
     static final String POV_PAYOUT_LAMPORTS = "pov.payout.lamports";
+    static final String POV_REVENUE_EVENTS = "pov.revenue.events";
+    static final String POV_REVENUE_LAMPORTS = "pov.revenue.lamports";
     static final String ARTIFACT_REUSE = "artifact.reuse";
     static final String PROVENANCE_DEPTH = "provenance.depth";
     static final String EXECUTION_REFUSED = "cryptobot.execution.refused";
@@ -490,6 +495,16 @@ public class CryptobotMetrics {
         counter(POV_PAYOUTS, "status", low(status)).increment();
         if (lamports > 0) {
             counter(POV_PAYOUT_LAMPORTS, "status", low(status)).increment(lamports);
+        }
+    }
+
+    // ---- KAN-824: Proof of Value V7 (RevenueEvent) ----------------------------------------------------
+
+    /** A revenue event was recorded: its {@code source} kind, whether it is {@code simulated}, and its amount. */
+    public void povRevenueEvent(String source, boolean simulated, long amountLamports) {
+        counter(POV_REVENUE_EVENTS, "source", low(source), "simulated", Boolean.toString(simulated)).increment();
+        if (amountLamports > 0) {
+            counter(POV_REVENUE_LAMPORTS, "source", low(source), "simulated", Boolean.toString(simulated)).increment(amountLamports);
         }
     }
 

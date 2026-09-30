@@ -336,7 +336,7 @@ class PovRewardServiceTest {
     private void anchored(boolean anchored) {
         when(valueEvents.view(any(), any())).thenReturn(Mono.just(new ValueEventView(event.id(), event.receiptHash(), event.valueEventHash(), null, null,
                 anchored ? ValueEventService.ANCHORED : ValueEventService.RECORDED, null, null, null, 100, List.of(), null, null, List.of(), List.of(), null,
-                null, null, NOW, NOW, null)));
+                null, null, NOW, NOW, null, List.of())));
     }
 
     private static void identity(String id, IdentityKind kind, String wallet) {

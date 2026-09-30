@@ -88,11 +88,15 @@ public class AttributionReadModel {
                 }));
     }
 
-    /** KAN-822 (V5): lamports of the identity's CONFIRMED payouts, and how many payouts it has in any state. */
+    /**
+     * KAN-822 (V5): lamports of the identity's CONFIRMED immediate-reward payouts, and how many payouts it has in any state;
+     * KAN-824 (V7): the CONFIRMED revenue-share payouts, apart.
+     */
     private Mono<ProofOfValueDtos.RewardsView> rewards(String tenant, String identityId) {
         return payouts.findByIdentity(tenant, identityId).collectList()
                 .map(ps -> new ProofOfValueDtos.RewardsView(
-                        ps.stream().filter(p -> PovPayout.CONFIRMED.equals(p.status())).mapToLong(PovPayout::lamports).sum(), ps.size()));
+                        ps.stream().filter(p -> !p.isRevenue() && PovPayout.CONFIRMED.equals(p.status())).mapToLong(PovPayout::lamports).sum(), ps.size(),
+                        ps.stream().filter(p -> p.isRevenue() && PovPayout.CONFIRMED.equals(p.status())).mapToLong(PovPayout::lamports).sum()));
     }
 
     /** The event's RECORDED/ANCHORED, read from its receipt like {@code GET /value-events/{id}}. */

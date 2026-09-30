@@ -7,6 +7,8 @@ import io.lifeengine.cryptobot.proofofvalue.PovPayout;
 import io.lifeengine.cryptobot.proofofvalue.PovIdentity;
 import io.lifeengine.cryptobot.proofofvalue.PovIdentityRepository;
 import io.lifeengine.cryptobot.proofofvalue.PovKnowledgeAsset;
+import io.lifeengine.cryptobot.proofofvalue.PovRevenueEvent;
+import io.lifeengine.cryptobot.proofofvalue.RevenueRepository;
 import io.lifeengine.cryptobot.proofofvalue.ValueEventRecord;
 import io.lifeengine.cryptobot.proofofvalue.ValueEventRepository;
 import java.time.Instant;
@@ -27,6 +29,8 @@ public final class InMemoryPovRepositories {
     /** KAN-822: distributions by id (payouts inside, the live rows by payout id). */
     public static final Map<UUID, PovDistribution> DISTRIBUTIONS = new ConcurrentHashMap<>();
     public static final Map<UUID, PovPayout> PAYOUTS = new ConcurrentHashMap<>();
+    /** KAN-824: revenue events by id (links inside; their payouts live in PAYOUTS). */
+    public static final Map<UUID, PovRevenueEvent> REVENUES = new ConcurrentHashMap<>();
 
     private InMemoryPovRepositories() {}
 
@@ -36,6 +40,7 @@ public final class InMemoryPovRepositories {
         ASSETS.clear();
         DISTRIBUTIONS.clear();
         PAYOUTS.clear();
+        REVENUES.clear();
     }
 
     private static String key(String tenant, String id) {
@@ -199,7 +204,7 @@ public final class InMemoryPovRepositories {
             @Override
             public Mono<PovDistribution> findByEvent(String tenantId, UUID valueEventId) {
                 return Flux.fromIterable(DISTRIBUTIONS.values()).filter(d -> d.tenantId().equals(tenantId) && d.valueEventId().equals(valueEventId)).next()
-                        .map(d -> d.withPayouts(PAYOUTS.values().stream().filter(p -> p.distributionId().equals(d.id()))
+                        .map(d -> d.withPayouts(PAYOUTS.values().stream().filter(p -> d.id().equals(p.distributionId()))
                                 .sorted(Comparator.comparingInt(PovPayout::position)).map(InMemoryPovRepositories::joined).toList()));
             }
 
@@ -221,6 +226,12 @@ public final class InMemoryPovRepositories {
             }
 
             @Override
+            public Flux<PovPayout> findAll(String tenantId) {
+                return Flux.fromIterable(PAYOUTS.values()).filter(p -> p.tenantId().equals(tenantId))
+                        .sort(Comparator.comparing(PovPayout::createdAt).reversed()).map(InMemoryPovRepositories::joined);
+            }
+
+            @Override
             public Mono<Long> lamportsSince(String tenantId, Instant since) {
                 return Mono.fromSupplier(() -> PAYOUTS.values().stream().filter(p -> p.tenantId().equals(tenantId)
                                 && (PovPayout.SUBMITTED.equals(p.status()) || PovPayout.CONFIRMED.equals(p.status())) && !p.updatedAt().isBefore(since))
@@ -231,8 +242,88 @@ public final class InMemoryPovRepositories {
 
     private static PovPayout joined(PovPayout p) {
         PovIdentity i = IDENTITIES.get(key(p.tenantId(), p.identityId()));
-        return new PovPayout(p.id(), p.distributionId(), p.valueEventId(), p.tenantId(), p.position(), p.identityId(), i == null ? null : i.displayName(),
-                p.wallet(), p.lamports(), p.status(), p.txSignature(), p.explorerUrl(), p.error(), p.policy(), p.createdAt(), p.updatedAt());
+        return p.withDisplayName(i == null ? null : i.displayName());
+    }
+
+    /** KAN-824: the same contract as RevenueR2dbcStore — unique source, FKs to value events and identities, titles and names joined on read. */
+    public static RevenueRepository revenues() {
+        return new RevenueRepository() {
+            @Override
+            public Mono<PovRevenueEvent> insert(PovRevenueEvent e) {
+                return Mono.fromCallable(() -> {
+                    synchronized (REVENUES) {
+                        if (REVENUES.values().stream().anyMatch(x -> x.tenantId().equals(e.tenantId()) && x.sourceKind().equals(e.sourceKind())
+                                && x.sourceRef().equals(e.sourceRef()))) {
+                            throw new IllegalStateException("duplicate key: uq_pov_revenue_source " + e.sourceKind() + " " + e.sourceRef());
+                        }
+                        if (e.contributorPoolLamports() + e.protocolFeeLamports() + e.retainedLamports() != e.amountLamports()) {
+                            throw new IllegalStateException("CHECK chk_pov_revenue_split");
+                        }
+                        for (PovRevenueEvent.Link l : e.links()) {
+                            ValueEventRecord v = EVENTS.get(l.valueEventId());
+                            if (v == null || !v.tenantId().equals(e.tenantId())) {
+                                throw new IllegalStateException("FK pov_revenue_link → pov_value_event: " + l.valueEventId());
+                            }
+                        }
+                        for (PovPayout p : e.payouts()) {
+                            if (!IDENTITIES.containsKey(key(e.tenantId(), p.identityId()))) {
+                                throw new IllegalStateException("FK pov_payout → pov_identity: " + p.identityId());
+                            }
+                        }
+                        REVENUES.put(e.id(), e.withPayouts(java.util.List.of()));
+                        e.payouts().forEach(p -> PAYOUTS.put(p.id(), p));
+                        return e;
+                    }
+                }).flatMap(x -> find(x.tenantId(), x.id()));
+            }
+
+            @Override
+            public Mono<PovRevenueEvent> find(String tenantId, UUID id) {
+                return Mono.justOrEmpty(REVENUES.get(id)).filter(e -> e.tenantId().equals(tenantId)).map(InMemoryPovRepositories::joined);
+            }
+
+            @Override
+            public Mono<PovRevenueEvent> findBySource(String tenantId, String sourceKind, String sourceRef) {
+                return Flux.fromIterable(REVENUES.values()).filter(e -> e.tenantId().equals(tenantId) && e.sourceKind().equals(sourceKind)
+                        && e.sourceRef().equals(sourceRef)).next().map(InMemoryPovRepositories::joined);
+            }
+
+            @Override
+            public Flux<PovRevenueEvent> findRecent(String tenantId, int limit) {
+                return Flux.fromIterable(REVENUES.values()).filter(e -> e.tenantId().equals(tenantId))
+                        .sort(Comparator.comparing(PovRevenueEvent::createdAt).reversed().thenComparing(PovRevenueEvent::id)).take(limit)
+                        .map(InMemoryPovRepositories::joined);
+            }
+
+            @Override
+            public Flux<PovRevenueEvent> findByTreasury(String tenantId, String identityId) {
+                return findRecent(tenantId, Integer.MAX_VALUE).filter(e -> identityId.equals(e.treasuryIdentityId()));
+            }
+
+            @Override
+            public Mono<Void> updateStatus(PovRevenueEvent e) {
+                return Mono.fromRunnable(() -> REVENUES.computeIfPresent(e.id(), (k, old) -> old.tenantId().equals(e.tenantId())
+                        ? old.with(e.status(), e.receiptHash(), e.updatedAt()) : old));
+            }
+
+            @Override
+            public Flux<Share> sharesOf(String tenantId, UUID valueEventId) {
+                return Flux.fromIterable(REVENUES.values()).filter(e -> e.tenantId().equals(tenantId))
+                        .sort(Comparator.comparing(PovRevenueEvent::createdAt).thenComparing(PovRevenueEvent::id))
+                        .flatMapIterable(e -> e.links().stream().filter(l -> l.valueEventId().equals(valueEventId))
+                                .map(l -> new Share(e.id(), l.shareLamports())).toList());
+            }
+        };
+    }
+
+    private static PovRevenueEvent joined(PovRevenueEvent e) {
+        return new PovRevenueEvent(e.id(), e.tenantId(), e.projectId(), e.sourceKind(), e.sourceRef(), e.simulated(), e.amountLamports(), e.policy(),
+                e.revenueShareBps(), e.protocolFeeBps(), e.contributorPoolLamports(), e.protocolFeeLamports(), e.retainedLamports(), e.treasuryIdentityId(),
+                e.receiptHash(), e.status(), e.createdAt(), e.updatedAt(),
+                e.links().stream().map(l -> new PovRevenueEvent.Link(l.valueEventId(), l.position(), l.shareLamports(),
+                        EVENTS.containsKey(l.valueEventId()) ? EVENTS.get(l.valueEventId()).title() : null)).toList(),
+                PAYOUTS.values().stream().filter(p -> e.id().equals(p.revenueEventId())).sorted(Comparator.comparingInt(PovPayout::position))
+                        .map(InMemoryPovRepositories::joined).toList());
     }
 
     private static PovKnowledgeAsset joined(PovKnowledgeAsset a) {

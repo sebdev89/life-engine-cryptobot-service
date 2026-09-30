@@ -109,6 +109,11 @@ class RouteContractTest {
             // KAN-822 (Proof of Value V5): immediate reward.
             "POST /api/cryptobot/value-events/{id}/distribute",
             "GET /api/cryptobot/value-events/{id}/distribution",
+            // KAN-824 / KAN-825 (Proof of Value V7 + V8): revenue events and the treasury read model.
+            "POST /api/cryptobot/revenue-events",
+            "GET /api/cryptobot/revenue-events",
+            "GET /api/cryptobot/revenue-events/{id}",
+            "GET /api/cryptobot/treasury/{identityId}",
             // KAN-819: Proof of Value V2–V4 + V6 — additive, new resources.
             "POST /api/cryptobot/knowledge-assets",
             "GET /api/cryptobot/knowledge-assets",

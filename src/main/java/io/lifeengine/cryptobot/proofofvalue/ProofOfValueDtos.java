@@ -75,11 +75,12 @@ public final class ProofOfValueDtos {
             Instant createdAt, ReputationView reputation, List<HistoryEntryView> history, RewardsView rewards) {}
 
     /**
-     * KAN-822 (V5): what the identity was paid by immediate rewards. {@code confirmedLamports} = devnet lamports of its CONFIRMED
-     * payouts; {@code payouts} = how many payouts it has in any state (UNFUNDED and FAILED included).
+     * KAN-822 (V5): what the identity was paid. {@code confirmedLamports} = devnet lamports of its CONFIRMED immediate-reward payouts
+     * only; KAN-824 (V7): {@code revenueLamports} = those of its CONFIRMED revenue-share payouts only. {@code payouts} = how many
+     * payouts it has, of both sources, in any state (UNFUNDED and FAILED included).
      */
-    public record RewardsView(long confirmedLamports, long payouts) {
-        public static final RewardsView NONE = new RewardsView(0, 0);
+    public record RewardsView(long confirmedLamports, long payouts, long revenueLamports) {
+        public static final RewardsView NONE = new RewardsView(0, 0, 0);
     }
 
     // ---- knowledge assets (V3) ----------------------------------------------------------------
@@ -195,7 +196,11 @@ public final class ProofOfValueDtos {
             String title,
             Instant acceptedAt,
             Instant createdAt,
-            DistributionSummaryView distribution) {}
+            DistributionSummaryView distribution,
+            List<RevenueShareView> revenueShares) {}
+
+    /** KAN-824 (V7): what the event's contributions were allocated by one RevenueEvent (future participation), in lamports. */
+    public record RevenueShareView(UUID revenueEventId, long lamports) {}
 
     /** KAN-822 (V5): the event's immediate reward at a glance; {@code null} on the event until one is distributed. */
     public record DistributionSummaryView(String status, long poolLamports, long confirmedLamports) {}
@@ -231,4 +236,56 @@ public final class ProofOfValueDtos {
             Long slot,
             String explorerUrl,
             boolean verified) {}
+
+    // ---- revenue events (V7, KAN-824) ---------------------------------------------------------
+
+    public record RevenueSourceRequest(
+            @NotBlank @Pattern(regexp = "^(PROPOSAL|SIMULATED|EXTERNAL)$", message = "must be PROPOSAL, SIMULATED or EXTERNAL") String kind,
+            @NotBlank @Size(max = 200) String ref) {}
+
+    /**
+     * {@code POST /revenue-events}. {@code simulated}: the amount is not a real economic result (the demo); it travels to every read
+     * and to the receipt. {@code source.kind=SIMULATED} requires it true.
+     */
+    public record RevenueEventRequest(
+            @NotBlank @Pattern(regexp = REF) String projectId,
+            @NotNull @Valid RevenueSourceRequest source,
+            @NotNull @Min(1) @Max(1_000_000_000_000L) Long amountLamports,
+            @NotEmpty @Size(max = 20) List<@NotNull UUID> linkedValueEventIds,
+            @NotNull Boolean simulated) {}
+
+    public record RevenueSourceView(String kind, String ref) {}
+
+    /** {@code pov/revenue-share/v1} and the basis points it was applied with (read them from here, never hardcode them). */
+    public record RevenuePolicyView(String name, int revenueShareBps, int protocolFeeBps) {}
+
+    /** A ValueEvent the revenue is attributed to, and what its contributions were allocated from it. */
+    public record LinkedValueEventView(UUID id, String title, long shareLamports) {}
+
+    /**
+     * KAN-824 (V7): {@code status} PARTIAL | COMPLETE | FAILED (IN_PROGRESS while a payout is PENDING), derived from the payouts.
+     * {@code contributorPoolLamports + protocolFeeLamports + retainedLamports = amountLamports}. {@code receiptHash}: the
+     * REVENUE_EVENT receipt; {@code anchor}: its Merkle batch on devnet once finalized, else {@code null}. Devnet SOL stands in
+     * for stablecoin settlement in this demo; {@code simulated=true} is a simulated economic result, not real profit.
+     */
+    public record RevenueEventView(UUID id, String projectId, RevenueSourceView source, boolean simulated, long amountLamports, RevenuePolicyView policy,
+            long contributorPoolLamports, long protocolFeeLamports, long retainedLamports, String status, String receiptHash, AnchorRef anchor,
+            List<LinkedValueEventView> linkedValueEvents, List<PayoutView> payouts, long confirmedLamports, String treasuryIdentityId, Instant createdAt) {}
+
+    // ---- treasury (V8, KAN-825) ---------------------------------------------------------------
+
+    public record TreasuryPoliciesView(long rewardPoolLamports, int revenueShareBps, int protocolFeeBps, Long signerMaxLamports) {}
+
+    /** {@code kind} VALUE | REVENUE | PAYOUT; {@code txSignature}: the anchor memo (VALUE, REVENUE) or the transfer (PAYOUT). */
+    public record TreasuryEventView(String kind, String id, long lamports, Instant at, String txSignature) {}
+
+    /**
+     * KAN-825 (V8): an agent's accounting treasury. {@code onChainBalanceLamports}: RPC {@code getBalance} of its wallet, {@code null}
+     * (with {@code balanceNote}) when it has none or the RPC failed. Income = Σ its revenue events; contributor payouts = Σ CONFIRMED
+     * payouts it paid (its revenue events, and the immediate rewards when it is the configured payer); compute cost = Σ compute
+     * receipts of the ValueEvents it contributed to. In this demo payouts are signed from the demo wallet.
+     */
+    public record TreasuryView(String identityId, String wallet, Long onChainBalanceLamports, String balanceNote, long incomeLamports,
+            long contributorPayoutsLamports, long protocolFeeLamports, long computeCostMicroUsd, long retainedLamports, TreasuryPoliciesView policies,
+            List<TreasuryEventView> recentEvents) {}
 }

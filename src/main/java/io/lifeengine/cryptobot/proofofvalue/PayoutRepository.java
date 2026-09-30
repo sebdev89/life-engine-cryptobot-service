@@ -20,9 +20,12 @@ public interface PayoutRepository {
     /** Status, receipt hash and updated_at of the distribution. */
     Mono<Void> updateDistribution(PovDistribution distribution);
 
-    /** Every payout of one identity, newest first (the rewards of {@code GET /identities/{id}}). */
+    /** KAN-825: every payout of the tenant (distributions and revenue events), newest first — the Treasury read model folds over it. */
+    Flux<PovPayout> findAll(String tenantId);
+
+    /** Every payout of one identity (V5 and, KAN-824, V7), newest first (the rewards of {@code GET /identities/{id}}). */
     Flux<PovPayout> findByIdentity(String tenantId, String identityId);
 
-    /** Lamports of payouts SUBMITTED or CONFIRMED since {@code since}: the daily exposure the policy sees. */
+    /** Lamports of payouts (of any source) SUBMITTED or CONFIRMED since {@code since}: the daily exposure the policy sees. */
     Mono<Long> lamportsSince(String tenantId, Instant since);
 }

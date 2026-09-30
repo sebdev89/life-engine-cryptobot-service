@@ -9,6 +9,9 @@ import io.lifeengine.cryptobot.proofofvalue.ProofOfValueDtos.KnowledgeAssetReque
 import io.lifeengine.cryptobot.proofofvalue.ProofOfValueDtos.KnowledgeAssetView;
 import io.lifeengine.cryptobot.proofofvalue.ProofOfValueDtos.LedgerView;
 import io.lifeengine.cryptobot.proofofvalue.ProofOfValueDtos.ProofView;
+import io.lifeengine.cryptobot.proofofvalue.ProofOfValueDtos.RevenueEventRequest;
+import io.lifeengine.cryptobot.proofofvalue.ProofOfValueDtos.RevenueEventView;
+import io.lifeengine.cryptobot.proofofvalue.ProofOfValueDtos.TreasuryView;
 import io.lifeengine.cryptobot.proofofvalue.ProofOfValueDtos.ValueEventRequest;
 import io.lifeengine.cryptobot.proofofvalue.ProofOfValueDtos.ValueEventView;
 import io.lifeengine.cryptobot.security.CryptobotPrincipal;
@@ -48,10 +51,14 @@ public class ProofOfValueController {
     private final KnowledgeAssetService knowledge;
     private final AttributionReadModel attribution;
     private final PovRewardService rewards;
+    private final PovRevenueService revenue;
+    private final TreasuryService treasury;
 
     public ProofOfValueController(IdentityService identities, ValueEventService events, KnowledgeAssetService knowledge,
-            AttributionReadModel attribution, PovRewardService rewards) {
+            AttributionReadModel attribution, PovRewardService rewards, PovRevenueService revenue, TreasuryService treasury) {
         this.rewards = rewards;
+        this.revenue = revenue;
+        this.treasury = treasury;
         this.identities = identities;
         this.events = events;
         this.knowledge = knowledge;
@@ -149,6 +156,40 @@ public class ProofOfValueController {
     @GetMapping("/value-events/{id}/distribution")
     public Mono<DistributionView> distribution(@PathVariable UUID id, @AuthenticationPrincipal CryptobotPrincipal principal) {
         return rewards.get(require(principal).userId(), id);
+    }
+
+    /**
+     * KAN-824 (V7): an economic result split with {@code pov/revenue-share/v1}; the contributor pool is paid with the V5 flow.
+     * {@code RUNTIME_ADMIN} (it moves funds). 201 recorded now, 200 the same source with the same content (idempotent), 409 the same
+     * source with other content or the reward flow disabled, 422 a linked event unknown or not ANCHORED, or a PROPOSAL source not
+     * EXECUTED. {@code ?anchor=true} also runs the sweep for the REVENUE_EVENT receipt.
+     */
+    @PostMapping(path = "/revenue-events", consumes = "application/json")
+    public Mono<ResponseEntity<RevenueEventView>> recordRevenue(@Valid @RequestBody RevenueEventRequest req, @RequestParam(defaultValue = "false") boolean anchor,
+            @AuthenticationPrincipal CryptobotPrincipal principal) {
+        CryptobotPrincipal p = require(principal);
+        if (!p.authorities().contains(CryptobotSecurityConfig.AUTHORITY_ANCHOR_ADMIN)) {
+            return Mono.error(new AccessDeniedException("a revenue event moves devnet funds: " + CryptobotSecurityConfig.AUTHORITY_ANCHOR_ADMIN));
+        }
+        return revenue.record(p.userId(), req, anchor)
+                .map(r -> ResponseEntity.status(r.created() ? HttpStatus.CREATED : HttpStatus.OK).body(r.view()));
+    }
+
+    /** KAN-824: newest first; payouts reconciled with the chain on read. */
+    @GetMapping("/revenue-events")
+    public Flux<RevenueEventView> revenueEvents(@RequestParam(required = false) Integer limit, @AuthenticationPrincipal CryptobotPrincipal principal) {
+        return revenue.list(require(principal).userId(), limit);
+    }
+
+    @GetMapping("/revenue-events/{id}")
+    public Mono<RevenueEventView> revenueEvent(@PathVariable UUID id, @AuthenticationPrincipal CryptobotPrincipal principal) {
+        return revenue.get(require(principal).userId(), id);
+    }
+
+    /** KAN-825 (V8): an identity's accounting treasury (on-chain balance, income, payouts, fee, compute cost, retained, policies, recent events). */
+    @GetMapping("/treasury/{identityId}")
+    public Mono<TreasuryView> treasury(@PathVariable String identityId, @AuthenticationPrincipal CryptobotPrincipal principal) {
+        return treasury.get(require(principal).userId(), identityId);
     }
 
     private static CryptobotPrincipal require(CryptobotPrincipal principal) {
