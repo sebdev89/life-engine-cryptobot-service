@@ -69,6 +69,9 @@ import java.util.concurrent.atomic.AtomicLong;
  *   --- KAN-819 (Proof of Value V3/V4: fed by proofofvalue.KnowledgeAssetService / ValueEventService) ---
  *   pov.knowledge.assets          → pov_knowledge_assets_total            knowledge assets registered (an idempotent re-POST does not count)
  *   pov.compute.receipts          → pov_compute_receipts_total            compute receipts attached to newly recorded value events
+ *   --- KAN-822 (Proof of Value V5, immediate reward: fed by proofofvalue.PovRewardService) ---
+ *   pov.payouts                   → pov_payouts_total{status}             one per payout outcome: confirmed | submitted | failed | unfunded
+ *   pov.payout.lamports           → pov_payout_lamports_total{status}     lamports of those payouts (confirmed = paid on devnet)
  *   --- KAN-393 (provenance DAG: lineage API + REUSES edge) ---
  *   artifact.reuse                → artifact_reuse_total{external}       a STRATEGY that declared REUSES over an earlier MARKET_ANALYSIS; external=false until public receipts exist
  *   provenance.depth              → provenance_depth (distribution)       max depth of the graph a lineage query returned
@@ -138,6 +141,8 @@ public class CryptobotMetrics {
     static final String POV_IDENTITIES = "pov.identities";
     static final String POV_KNOWLEDGE_ASSETS = "pov.knowledge.assets";
     static final String POV_COMPUTE_RECEIPTS = "pov.compute.receipts";
+    static final String POV_PAYOUTS = "pov.payouts";
+    static final String POV_PAYOUT_LAMPORTS = "pov.payout.lamports";
     static final String ARTIFACT_REUSE = "artifact.reuse";
     static final String PROVENANCE_DEPTH = "provenance.depth";
     static final String EXECUTION_REFUSED = "cryptobot.execution.refused";
@@ -475,6 +480,16 @@ public class CryptobotMetrics {
     public void povComputeReceipts(int n) {
         if (n > 0) {
             counter(POV_COMPUTE_RECEIPTS).increment(n);
+        }
+    }
+
+    // ---- KAN-822: Proof of Value V5 (immediate reward) ----------------------------------------------
+
+    /** One payout reached {@code status} ({@code confirmed | submitted | failed | unfunded}) moving {@code lamports}. */
+    public void povPayout(String status, long lamports) {
+        counter(POV_PAYOUTS, "status", low(status)).increment();
+        if (lamports > 0) {
+            counter(POV_PAYOUT_LAMPORTS, "status", low(status)).increment(lamports);
         }
     }
 

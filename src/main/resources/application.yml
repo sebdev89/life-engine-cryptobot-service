@@ -225,7 +225,9 @@ cryptobot:
       executor-slippage-bps: ${CRYPTOBOT_POLICY_EXECUTOR_SLIPPAGE_BPS:50}
       # A plan priced on an older snapshot is denied (ORACLE_FRESH): refresh the wallet first.
       max-oracle-age: ${CRYPTOBOT_POLICY_MAX_ORACLE_AGE:15m}
-      enabled-strategies: REBALANCE
+      # KAN-822: env-overridable so a stack can enable POV_REWARD (Proof of Value payouts). Changing it changes H_R: the
+      # validator's VALIDATOR_POLICY_ENABLED_STRATEGIES must match and VALIDATOR_POLICY_HASH be re-pinned (the demo does both).
+      enabled-strategies: ${CRYPTOBOT_POLICY_ENABLED_STRATEGIES:REBALANCE}
     # KAN-438 — timelock (paper §19): the wait between approval and the first moment the proposal can
     # be executed. A human can cancel (POST /proposals/{id}/cancel) while it runs. By tier of the
     # verdict: ALLOW ⇒ `autonomous` (none by default), ESCALATE ⇒ `escalated` (30 min). The
@@ -322,6 +324,15 @@ cryptobot:
     max-attempts: ${CRYPTOBOT_ANCHOR_MAX_ATTEMPTS:5}
     finality-wait: ${CRYPTOBOT_ANCHOR_FINALITY_WAIT:60s}
     poll-interval: 2s
+  # KAN-822 — Proof of Value V5, immediate reward: POST /api/cryptobot/value-events/{id}/distribute (RUNTIME_ADMIN) pays an
+  # ANCHORED event's pool to its contributors' wallets in devnet SOL, one attested + signed transfer per wallet. Off by default;
+  # the demo compose turns it on. The signer only pays wallets in SIGNER_ALLOWED_DESTINATIONS and never more than
+  # SIGNER_MAX_LAMPORTS per transaction; the policy must enable `strategy-id` (CRYPTOBOT_POLICY_ENABLED_STRATEGIES).
+  pov:
+    reward:
+      enabled: ${POV_REWARD_ENABLED:false}
+      pool-lamports: ${POV_REWARD_POOL_LAMPORTS:10000000}
+      strategy-id: ${POV_REWARD_STRATEGY_ID:POV_REWARD}
 
 lifeengine:
   # Deployment environment for build identity (/actuator/info) and metric common tags. From APP_ENV —

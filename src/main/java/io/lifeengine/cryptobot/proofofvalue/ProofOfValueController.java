@@ -1,5 +1,6 @@
 package io.lifeengine.cryptobot.proofofvalue;
 
+import io.lifeengine.cryptobot.proofofvalue.ProofOfValueDtos.DistributionView;
 import io.lifeengine.cryptobot.proofofvalue.ProofOfValueDtos.IdentityRequest;
 import io.lifeengine.cryptobot.proofofvalue.ProofOfValueDtos.IdentityProfileView;
 import io.lifeengine.cryptobot.proofofvalue.ProofOfValueDtos.IdentitySummaryView;
@@ -46,9 +47,11 @@ public class ProofOfValueController {
     private final ValueEventService events;
     private final KnowledgeAssetService knowledge;
     private final AttributionReadModel attribution;
+    private final PovRewardService rewards;
 
     public ProofOfValueController(IdentityService identities, ValueEventService events, KnowledgeAssetService knowledge,
-            AttributionReadModel attribution) {
+            AttributionReadModel attribution, PovRewardService rewards) {
+        this.rewards = rewards;
         this.identities = identities;
         this.events = events;
         this.knowledge = knowledge;
@@ -123,6 +126,29 @@ public class ProofOfValueController {
     @GetMapping("/value-events/{id}/proof")
     public Mono<ProofView> proof(@PathVariable UUID id, @AuthenticationPrincipal CryptobotPrincipal principal) {
         return events.proof(require(principal).userId(), id);
+    }
+
+    /**
+     * KAN-822 (V5): the immediate reward of an ANCHORED event — one devnet SOL transfer per contributor wallet, each attested by the
+     * validator and signed by the signer. {@code RUNTIME_ADMIN} (it moves funds). 201 when distributed now, 200 with the existing
+     * distribution on any later call (idempotent), 409 when the event is not ANCHORED or the reward is disabled.
+     * {@code ?anchor=true} also runs the sweep for the VALUE_DISTRIBUTION receipt.
+     */
+    @PostMapping("/value-events/{id}/distribute")
+    public Mono<ResponseEntity<DistributionView>> distribute(@PathVariable UUID id, @RequestParam(defaultValue = "false") boolean anchor,
+            @AuthenticationPrincipal CryptobotPrincipal principal) {
+        CryptobotPrincipal p = require(principal);
+        if (!p.authorities().contains(CryptobotSecurityConfig.AUTHORITY_ANCHOR_ADMIN)) {
+            return Mono.error(new AccessDeniedException("distribute moves devnet funds: " + CryptobotSecurityConfig.AUTHORITY_ANCHOR_ADMIN));
+        }
+        return rewards.distribute(p.userId(), id, anchor)
+                .map(r -> ResponseEntity.status(r.created() ? HttpStatus.CREATED : HttpStatus.OK).body(r.view()));
+    }
+
+    /** KAN-822 (V5): the event's distribution (payouts reconciled with the chain on read); 404 when it has none. */
+    @GetMapping("/value-events/{id}/distribution")
+    public Mono<DistributionView> distribution(@PathVariable UUID id, @AuthenticationPrincipal CryptobotPrincipal principal) {
+        return rewards.get(require(principal).userId(), id);
     }
 
     private static CryptobotPrincipal require(CryptobotPrincipal principal) {

@@ -72,7 +72,15 @@ public final class ProofOfValueDtos {
 
     /** {@code GET /identities/{id}}: the identity, its reputation and its history. */
     public record IdentityProfileView(String id, IdentityKind kind, String displayName, String wallet, String ownerId, String operatorId,
-            Instant createdAt, ReputationView reputation, List<HistoryEntryView> history) {}
+            Instant createdAt, ReputationView reputation, List<HistoryEntryView> history, RewardsView rewards) {}
+
+    /**
+     * KAN-822 (V5): what the identity was paid by immediate rewards. {@code confirmedLamports} = devnet lamports of its CONFIRMED
+     * payouts; {@code payouts} = how many payouts it has in any state (UNFUNDED and FAILED included).
+     */
+    public record RewardsView(long confirmedLamports, long payouts) {
+        public static final RewardsView NONE = new RewardsView(0, 0);
+    }
 
     // ---- knowledge assets (V3) ----------------------------------------------------------------
 
@@ -186,7 +194,24 @@ public final class ProofOfValueDtos {
             String taskId,
             String title,
             Instant acceptedAt,
-            Instant createdAt) {}
+            Instant createdAt,
+            DistributionSummaryView distribution) {}
+
+    /** KAN-822 (V5): the event's immediate reward at a glance; {@code null} on the event until one is distributed. */
+    public record DistributionSummaryView(String status, long poolLamports, long confirmedLamports) {}
+
+    /** KAN-822 (V5): one contributor's payout. {@code wallet} null ⇒ UNFUNDED; {@code error} only when FAILED (or broadcast uncertain). */
+    public record PayoutView(String identityId, String displayName, String wallet, long lamports, String status, String txSignature,
+            String explorerUrl, String error) {}
+
+    /**
+     * KAN-822 (V5): {@code POST /value-events/{id}/distribute} and {@code GET /value-events/{id}/distribution}. {@code status}
+     * IN_PROGRESS | PARTIAL | COMPLETE | FAILED, derived from the payouts. {@code receiptHash}: the VALUE_DISTRIBUTION receipt;
+     * {@code anchor}: its Merkle batch on devnet once finalized, else {@code null}. Amounts in lamports of devnet SOL — devnet SOL
+     * stands in for stablecoin settlement in this demo.
+     */
+    public record DistributionView(UUID id, UUID valueEventId, long poolLamports, String policy, String status, String receiptHash, AnchorRef anchor,
+            long confirmedLamports, List<PayoutView> payouts, Instant createdAt) {}
 
     /**
      * {@code GET /value-events/{id}/proof}: what {@code POST /receipts/{hash}/verify} returns for the

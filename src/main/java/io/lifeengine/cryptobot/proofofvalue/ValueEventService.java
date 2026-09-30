@@ -35,6 +35,7 @@ import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import org.slf4j.Logger;
@@ -93,15 +94,23 @@ public class ValueEventService {
     private final CryptobotMetrics metrics;
     private final ObjectMapper json;
     private final Clock clock;
+    /** KAN-822: the immediate reward of an event, shown on the event; {@code null} in unit tests that do not need it. */
+    private final PayoutRepository payouts;
 
     @Autowired
     public ValueEventService(ValueEventRepository events, PovIdentityRepository identities, KnowledgeAssetRepository assets, ReceiptService receipts,
-            AnchorService anchors, SolanaRpcProperties rpc, CryptobotMetrics metrics, ObjectMapper json) {
-        this(events, identities, assets, receipts, anchors, rpc, metrics, json, Clock.systemUTC());
+            AnchorService anchors, SolanaRpcProperties rpc, CryptobotMetrics metrics, ObjectMapper json, PayoutRepository payouts) {
+        this(events, identities, assets, receipts, anchors, rpc, metrics, json, Clock.systemUTC(), payouts);
     }
 
     ValueEventService(ValueEventRepository events, PovIdentityRepository identities, KnowledgeAssetRepository assets, ReceiptService receipts,
             AnchorService anchors, SolanaRpcProperties rpc, CryptobotMetrics metrics, ObjectMapper json, Clock clock) {
+        this(events, identities, assets, receipts, anchors, rpc, metrics, json, clock, null);
+    }
+
+    ValueEventService(ValueEventRepository events, PovIdentityRepository identities, KnowledgeAssetRepository assets, ReceiptService receipts,
+            AnchorService anchors, SolanaRpcProperties rpc, CryptobotMetrics metrics, ObjectMapper json, Clock clock, PayoutRepository payouts) {
+        this.payouts = payouts;
         this.events = events;
         this.identities = identities;
         this.assets = assets;
@@ -356,7 +365,20 @@ public class ValueEventService {
     }
 
     Mono<ValueEventView> view(UUID ownerUserId, ValueEventRecord r) {
-        return receipts.require(ownerUserId, r.receiptHash()).flatMap(anchors::inclusion).map(inc -> toView(r, inc));
+        Mono<ValueEventView> base = receipts.require(ownerUserId, r.receiptHash()).flatMap(anchors::inclusion).map(inc -> toView(r, inc));
+        if (payouts == null) {
+            return base;
+        }
+        // KAN-822: the immediate reward, if any, at a glance.
+        return base.zipWith(payouts.findByEvent(r.tenantId(), r.id()).map(Optional::of).defaultIfEmpty(Optional.empty()),
+                (v, d) -> d.isEmpty() ? v : withDistribution(v, new ProofOfValueDtos.DistributionSummaryView(PovDistribution.statusOf(d.get().payouts()),
+                        d.get().poolLamports(), d.get().confirmedLamports())));
+    }
+
+    private static ValueEventView withDistribution(ValueEventView v, ProofOfValueDtos.DistributionSummaryView d) {
+        return new ValueEventView(v.id(), v.receiptHash(), v.valueEventHash(), v.artifactHash(), v.acceptanceHash(), v.status(), v.anchorStatus(), v.anchor(),
+                v.distributionPolicy(), v.totalUnits(), v.contributions(), v.artifact(), v.acceptance(), v.knowledgeAssets(), v.computeReceipts(),
+                v.projectId(), v.taskId(), v.title(), v.acceptedAt(), v.createdAt(), d);
     }
 
     @SuppressWarnings("unchecked")
@@ -401,7 +423,7 @@ public class ValueEventService {
                 .toList();
         return new ValueEventView(r.id(), r.receiptHash(), r.valueEventHash(), r.artifactHash(), r.acceptanceHash(), anchored ? ANCHORED : RECORDED,
                 inc == null ? null : inc.status(), anchor, r.distributionPolicy(), r.totalUnits(), cs, artifact, acceptance,
-                knowledge, compute, r.projectId(), r.taskId(), r.title(), r.acceptedAt(), r.createdAt());
+                knowledge, compute, r.projectId(), r.taskId(), r.title(), r.acceptedAt(), r.createdAt(), null);
     }
 
     @SuppressWarnings("unchecked")
@@ -426,6 +448,18 @@ public class ValueEventService {
             return "https://explorer.solana.com/tx/" + inc.tx() + "?cluster=custom&customUrl=" + URLEncoder.encode(local, StandardCharsets.UTF_8);
         }
         return inc.explorerUrl() != null ? inc.explorerUrl() : AnchorService.explorerUrl("solana-devnet", inc.tx());
+    }
+
+    /** KAN-822: the same link for any devnet transaction (a payout): the custom-cluster link on a local validator, else devnet's. */
+    String explorerTxUrl(String tx) {
+        if (tx == null) {
+            return null;
+        }
+        String local = localRpcOrigin();
+        if (local != null) {
+            return "https://explorer.solana.com/tx/" + tx + "?cluster=custom&customUrl=" + URLEncoder.encode(local, StandardCharsets.UTF_8);
+        }
+        return AnchorService.explorerUrl("solana-devnet", tx);
     }
 
     private String localRpcOrigin() {

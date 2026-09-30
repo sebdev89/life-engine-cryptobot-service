@@ -106,6 +106,9 @@ class RouteContractTest {
             "GET /api/cryptobot/value-events",
             "GET /api/cryptobot/value-events/{id}",
             "GET /api/cryptobot/value-events/{id}/proof",
+            // KAN-822 (Proof of Value V5): immediate reward.
+            "POST /api/cryptobot/value-events/{id}/distribute",
+            "GET /api/cryptobot/value-events/{id}/distribution",
             // KAN-819: Proof of Value V2–V4 + V6 — additive, new resources.
             "POST /api/cryptobot/knowledge-assets",
             "GET /api/cryptobot/knowledge-assets",

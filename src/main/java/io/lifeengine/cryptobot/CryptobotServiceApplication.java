@@ -42,7 +42,8 @@ import org.springframework.boot.context.properties.EnableConfigurationProperties
     io.lifeengine.cryptobot.adapters.quotes.QuotesProperties.class,
     io.lifeengine.cryptobot.application.reliability.ReliabilityProperties.class,
     io.lifeengine.cryptobot.application.receipt.ReceiptProperties.class,
-    io.lifeengine.cryptobot.application.receipt.AnchorProperties.class
+    io.lifeengine.cryptobot.application.receipt.AnchorProperties.class,
+    io.lifeengine.cryptobot.proofofvalue.PovRewardProperties.class
 })
 public class CryptobotServiceApplication {
 
