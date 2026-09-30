@@ -1,4 +1,4 @@
-# Proof of Value V1 (KAN-818), V2–V4 + V6 (KAN-819) and V5 immediate reward (KAN-822)
+# Proof of Value V1 (KAN-818), V2–V4 + V6 (KAN-819), V5 immediate reward (KAN-822), V7 revenue (KAN-824) and V8 treasury (KAN-825)
 
 Life Engine records an **accepted** contribution as a `ValueEvent`, anchors it on Solana devnet and
 correlates the on-chain hash with the off-chain evidence. No new service, no signer change: a
@@ -152,6 +152,72 @@ docker compose -p <project> -f docker-compose.demo.yml --env-file .env.demo up -
 `scripts/demo/pov-v1.sh` ends with step 6: `distribute?anchor=true`, the payouts with tx and explorer link, and each wallet's
 balance before/after (RPC `getBalance`). `--no-distribute` skips it.
 
+## Revenue (V7, KAN-824)
+
+A **RevenueEvent** records an economic result and attributes it to one or more **ANCHORED** ValueEvents. In the demo the amount is
+a **simulated economic result** (`simulated=true`, labelled so in every read, in the receipt and in the metrics) — never presented as
+real profit. Devnet SOL stands in for stablecoin settlement.
+
+```
+POST /revenue-events[?anchor=true]   RUNTIME_ADMIN · 201 new · 200 same source + same content · 409 same source other content / reward disabled
+                                     422 linked event unknown or not ANCHORED · 422 PROPOSAL not EXECUTED · 422 SIMULATED without simulated=true
+GET  /revenue-events?limit=N         newest first (default 20, max 100)
+GET  /revenue-events/{id}            404 for another tenant
+```
+
+Request `{projectId, source:{kind: PROPOSAL|SIMULATED|EXTERNAL, ref}, amountLamports, linkedValueEventIds:[…], simulated}`.
+
+- **Policy `pov/revenue-share/v1`** — fixed and auditable, no percentage computed by an AI:
+  `protocolFee = floor(amount × POV_REVENUE_PROTOCOL_FEE_BPS / 10 000)` (default 500 = 5 %, **only recorded**, nothing is transferred);
+  nominal pool `= floor(amount × POV_REVENUE_CONTRIBUTOR_SHARE_BPS / 10 000)` (default 2000 = 20 %), split among **every contribution of
+  every linked event**, `floor(nominalPool × units / Σunits)`; `contributorPoolLamports` = the sum of those allocations; `retained` = the
+  rest (the floor's dust included). Always `contributorPool + protocolFee + retained = amount` (V15 CHECK).
+- **Payment** — one payout per identity (its allocations added up), paid with **the V5 flow unchanged** (`PovRewardService.payAll`:
+  `(I, S)` with `strategy_id = POV_REWARD` → deterministic policy → validator attestation → signer → confirmation). No wallet ⇒
+  `UNFUNDED`. Because it is that flow, it needs `POV_REWARD_ENABLED=true` (409 otherwise), the wallets in `SIGNER_ALLOWED_DESTINATIONS`,
+  and it counts toward the 24 h `daily_exposure`. Nothing new in the signer nor in the policy hash.
+- **Source** — `PROPOSAL`: `ref` is a proposal id of the same owner that is `EXECUTED` with a signature (the terminal state, reached only
+  once the chain confirmed it, directly or through the reconciler). `SIMULATED`: requires `simulated=true`. `EXTERNAL`: free reference.
+  **One revenue event per source** (`UNIQUE (tenant, kind, ref)`): a proposal is never counted twice.
+- **Receipt `REVENUE_EVENT`** (V15 widens the kind CHECK): parents = the linked `VALUE_EVENT` receipts; `output.hash` = sha256 of the
+  canonical revenue event (schema `pov/revenue-event/v1`: source, simulated, amount, policy + bps, nominal pool, pool/fee/retained,
+  treasury identity, each linked event with its receipt hash and share, every allocation — event, identity, role, units, lamports — and
+  every payout as it ended). Anchored by the next sweep; `?anchor=true` runs it right away.
+- **Response** `{id, projectId, source:{kind, ref}, simulated, amountLamports, policy:{name, revenueShareBps, protocolFeeBps},
+  contributorPoolLamports, protocolFeeLamports, retainedLamports, status, receiptHash, anchor|null, linkedValueEvents:[{id, title,
+  shareLamports}], payouts:[…the V5 shape…], confirmedLamports, treasuryIdentityId, createdAt}`. `status` as in V5 (PARTIAL · COMPLETE ·
+  FAILED, IN_PROGRESS while one is PENDING); a SUBMITTED payout is reconciled on every read.
+- **Read models** — a ValueEvent gains `revenueShares:[{revenueEventId, lamports}]` (what its contributions were allocated: future
+  participation); `GET /identities/{id}` → `rewards: {confirmedLamports (immediate only), revenueLamports (revenue only), payouts (both)}`.
+- **Tables (V15)** — `pov_revenue_event` (bps stored with the amounts), `pov_revenue_link (revenue_event_id, value_event_id, position,
+  share_lamports)`, and `pov_payout` gains `revenue_event_id` (nullable; `CHECK` exactly one of `value_event_id` / `revenue_event_id`).
+- **Metrics** — `pov_revenue_events_total{source,simulated}`, `pov_revenue_lamports_total{source,simulated}`.
+
+## Treasury (V8, KAN-825)
+
+`GET /treasury/{identityId}` (e.g. `cryptobot-001`) — a **read model**, nothing is moved:
+
+```
+{identityId, wallet, onChainBalanceLamports|null, balanceNote|null, incomeLamports, contributorPayoutsLamports, protocolFeeLamports,
+ computeCostMicroUsd, retainedLamports, policies:{rewardPoolLamports, revenueShareBps, protocolFeeBps, signerMaxLamports},
+ recentEvents:[{kind: VALUE|REVENUE|PAYOUT, id, lamports, at, txSignature}]}
+```
+
+- `onChainBalanceLamports`: RPC `getBalance` of the identity's wallet on the execution cluster (5 s timeout); `null` with `balanceNote`
+  when it has no wallet or the RPC failed (the note carries the error class only, never the RPC URL).
+- `incomeLamports` / `protocolFeeLamports` / `retainedLamports`: Σ over the revenue events whose treasury is this identity —
+  `POV_TREASURY_IDENTITY_ID` (default `cryptobot-001`) when they were recorded.
+- `contributorPayoutsLamports`: Σ **CONFIRMED** payouts it paid — its revenue events', plus the V5 immediate rewards when it is the
+  configured treasury identity (every PoV payout is paid on its behalf).
+- `computeCostMicroUsd`: Σ compute receipts of the ValueEvents it contributed to — cost, shown apart from value.
+- `recentEvents` (newest first, 20): `VALUE` = an event it contributed to (lamports = its confirmed immediate reward; tx = the anchor
+  memo), `REVENUE` = its income (tx = the anchor memo of the REVENUE_EVENT receipt), `PAYOUT` = what it paid (tx = the transfer).
+- `signerMaxLamports` comes from the signer's `/identity` (`null` when unavailable).
+
+**Honesty note:** in this demo the signer pays every payout from the **demo wallet**. The treasury per agent is an **accounting view**,
+not a separate wallet per agent yet. No unrestricted autonomy: every spend is a payout with a policy, the signer's per-transaction cap
+and an audit trail (receipt + anchor).
+
 ## Demo: `scripts/demo/pov-v1.sh`
 
 Against a running demo stack (`scripts/demo/run.sh --keep`, or the compose of `docker-compose.demo.yml`):
@@ -171,6 +237,12 @@ each wallet is the public key of `~/.cryptobot-demo/pov-<id>.json`, generated on
 date so the same commit is the same event; `--accepted-at` overrides it) with `?anchor=true`. It prints `receiptHash`, `root`,
 `txSignature`, `explorerUrl`, the units per contribution, knowledge and compute, the proof, the identities with their
 reputation and the ledger by identity. Exit 0 only when the event is ANCHORED and `verified` is true.
+
+Step 7 (KAN-824, `--no-revenue` skips it): `POST /revenue-events?anchor=true` with 0.05 devnet SOL, `simulated=true`, linked to the
+event. The source is the EXECUTED proposal of the demo run (`--proposal <id>` or `POV_REVENUE_PROPOSAL_ID`, else the newest EXECUTED
+proposal of `GET /proposals`); without one — or if that proposal already has a revenue event for another content — `SIMULATED` with
+`ref = pov-v1:<commit>`. It prints the split, the payouts with tx and explorer link, the REVENUE_EVENT receipt and its anchor, and
+`GET /treasury/cryptobot-001`.
 
 ## Verifying a hash on-chain by hand
 

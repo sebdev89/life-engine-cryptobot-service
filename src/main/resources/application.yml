@@ -333,6 +333,13 @@ cryptobot:
       enabled: ${POV_REWARD_ENABLED:false}
       pool-lamports: ${POV_REWARD_POOL_LAMPORTS:10000000}
       strategy-id: ${POV_REWARD_STRATEGY_ID:POV_REWARD}
+    # KAN-824 — Proof of Value V7, pov/revenue-share/v1 (fixed, auditable): POST /api/cryptobot/revenue-events (RUNTIME_ADMIN) splits an
+    # economic result: contributor pool (paid with the V5 flow, so it needs the reward enabled), protocol fee (only recorded), retained.
+    # KAN-825 — V8: treasury-identity-id is the agent whose accounting treasury earns revenue and pays the PoV payouts.
+    revenue:
+      contributor-share-bps: ${POV_REVENUE_CONTRIBUTOR_SHARE_BPS:2000}
+      protocol-fee-bps: ${POV_REVENUE_PROTOCOL_FEE_BPS:500}
+      treasury-identity-id: ${POV_TREASURY_IDENTITY_ID:cryptobot-001}
 
 lifeengine:
   # Deployment environment for build identity (/actuator/info) and metric common tags. From APP_ENV —

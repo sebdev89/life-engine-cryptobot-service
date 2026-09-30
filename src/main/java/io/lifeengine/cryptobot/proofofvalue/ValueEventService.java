@@ -96,11 +96,14 @@ public class ValueEventService {
     private final Clock clock;
     /** KAN-822: the immediate reward of an event, shown on the event; {@code null} in unit tests that do not need it. */
     private final PayoutRepository payouts;
+    /** KAN-824: the revenue shares of an event ("future participation"); {@code null} in unit tests that do not need it. */
+    private final RevenueRepository revenues;
 
     @Autowired
     public ValueEventService(ValueEventRepository events, PovIdentityRepository identities, KnowledgeAssetRepository assets, ReceiptService receipts,
-            AnchorService anchors, SolanaRpcProperties rpc, CryptobotMetrics metrics, ObjectMapper json, PayoutRepository payouts) {
-        this(events, identities, assets, receipts, anchors, rpc, metrics, json, Clock.systemUTC(), payouts);
+            AnchorService anchors, SolanaRpcProperties rpc, CryptobotMetrics metrics, ObjectMapper json, PayoutRepository payouts,
+            RevenueRepository revenues) {
+        this(events, identities, assets, receipts, anchors, rpc, metrics, json, Clock.systemUTC(), payouts, revenues);
     }
 
     ValueEventService(ValueEventRepository events, PovIdentityRepository identities, KnowledgeAssetRepository assets, ReceiptService receipts,
@@ -110,7 +113,14 @@ public class ValueEventService {
 
     ValueEventService(ValueEventRepository events, PovIdentityRepository identities, KnowledgeAssetRepository assets, ReceiptService receipts,
             AnchorService anchors, SolanaRpcProperties rpc, CryptobotMetrics metrics, ObjectMapper json, Clock clock, PayoutRepository payouts) {
+        this(events, identities, assets, receipts, anchors, rpc, metrics, json, clock, payouts, null);
+    }
+
+    ValueEventService(ValueEventRepository events, PovIdentityRepository identities, KnowledgeAssetRepository assets, ReceiptService receipts,
+            AnchorService anchors, SolanaRpcProperties rpc, CryptobotMetrics metrics, ObjectMapper json, Clock clock, PayoutRepository payouts,
+            RevenueRepository revenues) {
         this.payouts = payouts;
+        this.revenues = revenues;
         this.events = events;
         this.identities = identities;
         this.assets = assets;
@@ -366,6 +376,11 @@ public class ValueEventService {
 
     Mono<ValueEventView> view(UUID ownerUserId, ValueEventRecord r) {
         Mono<ValueEventView> base = receipts.require(ownerUserId, r.receiptHash()).flatMap(anchors::inclusion).map(inc -> toView(r, inc));
+        if (revenues != null) {
+            // KAN-824: what each RevenueEvent linked to this one allocated its contributions.
+            base = base.zipWith(revenues.sharesOf(r.tenantId(), r.id()).map(x -> new ProofOfValueDtos.RevenueShareView(x.revenueEventId(), x.lamports()))
+                    .collectList(), ValueEventService::withRevenueShares);
+        }
         if (payouts == null) {
             return base;
         }
@@ -375,10 +390,16 @@ public class ValueEventService {
                         d.get().poolLamports(), d.get().confirmedLamports())));
     }
 
+    private static ValueEventView withRevenueShares(ValueEventView v, List<ProofOfValueDtos.RevenueShareView> shares) {
+        return new ValueEventView(v.id(), v.receiptHash(), v.valueEventHash(), v.artifactHash(), v.acceptanceHash(), v.status(), v.anchorStatus(), v.anchor(),
+                v.distributionPolicy(), v.totalUnits(), v.contributions(), v.artifact(), v.acceptance(), v.knowledgeAssets(), v.computeReceipts(),
+                v.projectId(), v.taskId(), v.title(), v.acceptedAt(), v.createdAt(), v.distribution(), shares);
+    }
+
     private static ValueEventView withDistribution(ValueEventView v, ProofOfValueDtos.DistributionSummaryView d) {
         return new ValueEventView(v.id(), v.receiptHash(), v.valueEventHash(), v.artifactHash(), v.acceptanceHash(), v.status(), v.anchorStatus(), v.anchor(),
                 v.distributionPolicy(), v.totalUnits(), v.contributions(), v.artifact(), v.acceptance(), v.knowledgeAssets(), v.computeReceipts(),
-                v.projectId(), v.taskId(), v.title(), v.acceptedAt(), v.createdAt(), d);
+                v.projectId(), v.taskId(), v.title(), v.acceptedAt(), v.createdAt(), d, v.revenueShares());
     }
 
     @SuppressWarnings("unchecked")
@@ -423,7 +444,7 @@ public class ValueEventService {
                 .toList();
         return new ValueEventView(r.id(), r.receiptHash(), r.valueEventHash(), r.artifactHash(), r.acceptanceHash(), anchored ? ANCHORED : RECORDED,
                 inc == null ? null : inc.status(), anchor, r.distributionPolicy(), r.totalUnits(), cs, artifact, acceptance,
-                knowledge, compute, r.projectId(), r.taskId(), r.title(), r.acceptedAt(), r.createdAt(), null);
+                knowledge, compute, r.projectId(), r.taskId(), r.title(), r.acceptedAt(), r.createdAt(), null, List.of());
     }
 
     @SuppressWarnings("unchecked")

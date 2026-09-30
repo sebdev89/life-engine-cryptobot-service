@@ -195,41 +195,54 @@ public class PovRewardService {
 
     /** Every payable payout, one after the other, then the VALUE_DISTRIBUTION receipt. */
     private Mono<PovDistribution> pay(UUID ownerUserId, ValueEventRecord event, PovDistribution d) {
-        d.payouts().stream().filter(p -> PovPayout.UNFUNDED.equals(p.status())).forEach(p -> {
+        return payAll(d.id(), d.tenantId(), d.payouts()).flatMap(done -> issueReceipt(ownerUserId, event, d.withPayouts(done)));
+    }
+
+    /** Refused before anything is signed when the reward is off: a revenue event's payouts go through this same flow (KAN-824). */
+    boolean enabled() {
+        return props.isEnabled();
+    }
+
+    /**
+     * The payout pipeline, shared by a V5 distribution and (KAN-824) a V7 revenue event ({@code batchId} = the distribution or the
+     * revenue event, for the logs): UNFUNDED rows are only counted; every PENDING one, in order, through {@link #payOne}. A
+     * failure never cuts the rest. Returns every payout as it ended.
+     */
+    Mono<List<PovPayout>> payAll(UUID batchId, String tenant, List<PovPayout> rows) {
+        rows.stream().filter(p -> PovPayout.UNFUNDED.equals(p.status())).forEach(p -> {
             metrics.povPayout(PovPayout.UNFUNDED, p.lamports());
-            log.info("pov_payout_unfunded distribution={} identity={} lamports={}", d.id(), p.identityId(), p.lamports());
+            log.info("pov_payout_unfunded batch={} identity={} lamports={}", batchId, p.identityId(), p.lamports());
         });
-        String tenant = d.tenantId();
         Instant now = clock.instant();
         Mono<Optional<SignerClient.Identity>> signerId = signer.identity();
         Mono<Optional<OracleConsensus>> sol = oracle.read(List.of(ASSET)).map(r -> r.of(ASSET).filter(OracleConsensus::accepted))
                 .onErrorResume(ex -> {
-                    log.warn("pov_payout_oracle_unavailable distribution={} error={}", d.id(), ex.toString());
+                    log.warn("pov_payout_oracle_unavailable batch={} error={}", batchId, ex.toString());
                     return Mono.just(Optional.empty());
                 });
         Mono<Long> prior = payouts.lamportsSince(tenant, now.minus(Duration.ofHours(24))).defaultIfEmpty(0L);
         return Mono.zip(signerId, sol, prior).flatMap(ctx -> {
             AtomicLong exposureLamports = new AtomicLong(ctx.getT3());
-            return Flux.fromIterable(d.payouts())
+            return Flux.fromIterable(rows)
                     .concatMap(p -> PovPayout.PENDING.equals(p.status())
-                            ? payOne(d, p, ctx.getT1(), ctx.getT2(), exposureLamports)
+                            ? payOne(batchId, p, ctx.getT1(), ctx.getT2(), exposureLamports)
                             : Mono.just(p))
                     .collectList();
-        }).flatMap(done -> issueReceipt(ownerUserId, event, d.withPayouts(done)));
+        });
     }
 
-    private Mono<PovPayout> payOne(PovDistribution d, PovPayout p, Optional<SignerClient.Identity> signerId, Optional<OracleConsensus> sol,
+    private Mono<PovPayout> payOne(UUID batchId, PovPayout p, Optional<SignerClient.Identity> signerId, Optional<OracleConsensus> sol,
             AtomicLong exposureLamports) {
         Instant now = clock.instant();
         String refusal = preflight(p, signerId);
         if (refusal != null) {
-            return failed(d, p, refusal);
+            return failed(batchId, p, refusal);
         }
         SolanaCluster cluster = SolanaCluster.parse(policy.properties().executionCluster());
         PolicyInput input = facts(p, sol, exposureLamports.get(), now);
         PolicyVerdict verdict = DeterministicPolicyEngine.evaluate(policy.rules(), input);
         if (!verdict.allowed()) {
-            return failed(d, p, "policy " + verdict.policyVersion() + " " + verdict.decision() + (verdict.escalation() == PolicyVerdict.Escalation.NONE ? ""
+            return failed(batchId, p, "policy " + verdict.policyVersion() + " " + verdict.decision() + (verdict.escalation() == PolicyVerdict.Escalation.NONE ? ""
                     : " (" + verdict.escalation() + ": a payout is autonomous or it does not happen)") + " failed=" + verdict.failedPredicates());
         }
         String payer = signerId.get().publicKey();
@@ -248,7 +261,7 @@ public class PovRewardService {
                     }
                     PovPayout next = p.with(status, r.signature(), valueEvents.explorerTxUrl(r.signature()), r.error(), clock.instant());
                     metrics.povPayout(status, p.lamports());
-                    log.info("pov_payout distribution={} identity={} wallet={} lamports={} status={} tx={} error={}", d.id(), p.identityId(), p.wallet(),
+                    log.info("pov_payout batch={} identity={} wallet={} lamports={} status={} tx={} error={}", batchId, p.identityId(), p.wallet(),
                             p.lamports(), status, r.signature(), r.error());
                     return payouts.updatePayout(next).thenReturn(next);
                 });
@@ -291,10 +304,10 @@ public class PovRewardService {
         return BigDecimal.valueOf(lamports).multiply(priceUsd).movePointLeft(9).movePointRight(2).setScale(0, RoundingMode.CEILING).longValueExact();
     }
 
-    private Mono<PovPayout> failed(PovDistribution d, PovPayout p, String error) {
+    private Mono<PovPayout> failed(UUID batchId, PovPayout p, String error) {
         PovPayout next = p.with(PovPayout.FAILED, null, null, error, clock.instant());
         metrics.povPayout(PovPayout.FAILED, p.lamports());
-        log.warn("pov_payout distribution={} identity={} lamports={} status=FAILED error={}", d.id(), p.identityId(), p.lamports(), error);
+        log.warn("pov_payout batch={} identity={} lamports={} status=FAILED error={}", batchId, p.identityId(), p.lamports(), error);
         return payouts.updatePayout(next).thenReturn(next);
     }
 
@@ -386,11 +399,25 @@ public class PovRewardService {
      * the distribution as it ended, and the rows are the live state.
      */
     Mono<PovDistribution> reconcile(PovDistribution d) {
-        if (d.payouts().stream().noneMatch(p -> PovPayout.SUBMITTED.equals(p.status()) && p.txSignature() != null)) {
+        if (!needsReconcile(d.payouts())) {
             return Mono.just(d);
         }
+        return reconcilePayouts(d.id(), d.payouts()).flatMap(ps -> {
+            PovDistribution next = d.withPayouts(ps);
+            String status = PovDistribution.statusOf(ps);
+            return status.equals(d.status()) ? Mono.just(next)
+                    : Mono.just(next.with(status, d.receiptHash(), clock.instant())).flatMap(x -> payouts.updateDistribution(x).thenReturn(x));
+        });
+    }
+
+    static boolean needsReconcile(List<PovPayout> ps) {
+        return ps.stream().anyMatch(p -> PovPayout.SUBMITTED.equals(p.status()) && p.txSignature() != null);
+    }
+
+    /** Each SUBMITTED payout looked up on the chain once (shared with KAN-824's revenue events); the rows are updated when it moved. */
+    Mono<List<PovPayout>> reconcilePayouts(UUID batchId, List<PovPayout> ps) {
         SolanaCluster cluster = SolanaCluster.parse(policy.properties().executionCluster());
-        return Flux.fromIterable(d.payouts())
+        return Flux.fromIterable(ps)
                 .concatMap(p -> !PovPayout.SUBMITTED.equals(p.status()) || p.txSignature() == null ? Mono.just(p)
                         : execution.transferStatus(cluster, p.txSignature()).flatMap(r -> {
                             if (ExecutionService.TRANSFER_SUBMITTED.equals(r.status())) {
@@ -399,16 +426,14 @@ public class PovRewardService {
                             String status = ExecutionService.TRANSFER_CONFIRMED.equals(r.status()) ? PovPayout.CONFIRMED : PovPayout.FAILED;
                             PovPayout next = p.with(status, p.txSignature(), p.explorerUrl(), r.error(), clock.instant());
                             metrics.povPayout(status, p.lamports());
-                            log.info("pov_payout_reconciled distribution={} identity={} tx={} status={}", d.id(), p.identityId(), p.txSignature(), status);
+                            log.info("pov_payout_reconciled batch={} identity={} tx={} status={}", batchId, p.identityId(), p.txSignature(), status);
                             return payouts.updatePayout(next).thenReturn(next);
                         }))
-                .collectList()
-                .flatMap(ps -> {
-                    PovDistribution next = d.withPayouts(ps);
-                    String status = PovDistribution.statusOf(ps);
-                    return status.equals(d.status()) ? Mono.just(next)
-                            : Mono.just(next.with(status, d.receiptHash(), clock.instant())).flatMap(x -> payouts.updateDistribution(x).thenReturn(x));
-                });
+                .collectList();
+    }
+
+    static PayoutView payoutView(PovPayout p) {
+        return new PayoutView(p.identityId(), p.displayName(), p.wallet(), p.lamports(), p.status(), p.txSignature(), p.explorerUrl(), p.error());
     }
 
     Mono<DistributionView> view(UUID ownerUserId, PovDistribution d) {
@@ -418,8 +443,7 @@ public class PovRewardService {
                         .onErrorResume(ex -> Mono.just(Optional.empty()));
         return anchor.map(a -> new DistributionView(d.id(), d.valueEventId(), d.poolLamports(), d.policy(), PovDistribution.statusOf(d.payouts()), d.receiptHash(),
                 a.orElse(null), d.confirmedLamports(),
-                d.payouts().stream().map(p -> new PayoutView(p.identityId(), p.displayName(), p.wallet(), p.lamports(), p.status(), p.txSignature(),
-                        p.explorerUrl(), p.error())).toList(),
+                d.payouts().stream().map(PovRewardService::payoutView).toList(),
                 d.createdAt()));
     }
 }

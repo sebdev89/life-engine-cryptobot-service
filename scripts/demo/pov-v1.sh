@@ -1,11 +1,13 @@
 #!/usr/bin/env bash
 # shellcheck disable=SC2034  # TOKEN/BASE/CURL_OPTS are read by the helpers sourced from lib.sh
-# KAN-818 / KAN-819 / KAN-822 — Proof of Value V1–V6 against a running stack: identities with wallet →
+# KAN-818 / KAN-819 / KAN-822 / KAN-824 — Proof of Value V1–V8 against a running stack: identities with wallet →
 # knowledge assets → an ACCEPTED contribution that used them, with its compute receipt → ValueEvent →
 # VALUE_EVENT receipt → Merkle batch → memo on Solana devnet → proof → reputation and units ledger →
-# immediate reward: devnet SOL paid to the contributors' wallets (one attested + signed transfer each).
+# immediate reward: devnet SOL paid to the contributors' wallets (one attested + signed transfer each) →
+# revenue: a SIMULATED economic result of 0.05 SOL split with pov/revenue-share/v1 and paid the same way → treasury.
 #
-#   scripts/demo/pov-v1.sh [--env-file <f>] [--base-url <url>] [--commit <sha>] [--accepted-at <ISO>] [--no-distribute] [--dry-run]
+#   scripts/demo/pov-v1.sh [--env-file <f>] [--base-url <url>] [--commit <sha>] [--accepted-at <ISO>] [--no-distribute]
+#                          [--no-revenue] [--proposal <id>] [--dry-run]
 #
 # Steps: 1 identities  sebas (HUMAN), dev-agent-17 (AGENT, owner sebas), cryptobot-001 (AGENT, owner+operator
 #                       sebas), review-agent-3 (AGENT), compute-node-8 (AGENT, owner sebas). Each wallet (sebas's
@@ -26,8 +28,15 @@
 #                         docker compose -p <project> -f docker-compose.demo.yml --env-file .env.demo up -d --no-deps cryptobot-signer
 #                       (and the service/validator the same way if CRYPTOBOT_POLICY_ENABLED_STRATEGIES changed). Never `down`.
 #                       --no-distribute skips it.
-# Idempotent: identities, assets, the event and its distribution are returned as stored when they exist (200). Exit 0
-# only when the event is ANCHORED, the proof is verified and (unless --no-distribute) the distribution is not FAILED.
+#        7 revenue      KAN-824: POST /revenue-events?anchor=true (RUNTIME_ADMIN) — 0.05 devnet SOL, simulated=true (a simulated
+#                       economic result, never presented as profit), linked to the event. Source: the EXECUTED proposal of the
+#                       demo run (--proposal <id> / POV_REVENUE_PROPOSAL_ID, else the newest EXECUTED one of GET /proposals); if
+#                       there is none, SIMULATED with ref pov-v1:<commit>. pov/revenue-share/v1: 20 % contributor pool (paid
+#                       like step 6), 5 % protocol fee (recorded only), the rest retained. Then GET /treasury/cryptobot-001
+#                       (KAN-825: accounting view; payouts are signed from the demo wallet). --no-revenue skips it.
+# Idempotent: identities, assets, the event, its distribution and the revenue event (one per source) are returned as stored
+# when they exist (200). Exit 0 only when the event is ANCHORED, the proof is verified and (unless --no-distribute /
+# --no-revenue) neither the distribution nor the revenue event is FAILED.
 #
 # Auth: the same as run.sh/ui-url.sh — local target: an HS256 token (RUNTIME_OPERATOR + RUNTIME_ADMIN, 1 h)
 # minted with JWT_SECRET of the env file (default ./.env.demo), subject = the demo operator of ui-url.sh, so
@@ -39,7 +48,8 @@ PROJECT="$(cd "${HERE}/../.." && pwd)"
 # shellcheck source=lib.sh
 source "${HERE}/lib.sh"
 
-ENV_FILE="${PROJECT}/.env.demo"; BASE=""; COMMIT=""; ACCEPTED_AT=""; DRY_RUN=0; DISTRIBUTE=1
+ENV_FILE="${PROJECT}/.env.demo"; BASE=""; COMMIT=""; ACCEPTED_AT=""; DRY_RUN=0; DISTRIBUTE=1; REVENUE=1
+PROPOSAL_ID="${POV_REVENUE_PROPOSAL_ID:-}"; REVENUE_LAMPORTS=50000000
 while (( $# )); do
   case "$1" in
     --env-file) ENV_FILE="$2"; shift 2 ;;
@@ -47,8 +57,10 @@ while (( $# )); do
     --commit) COMMIT="$2"; shift 2 ;;
     --accepted-at) ACCEPTED_AT="$2"; shift 2 ;;
     --no-distribute) DISTRIBUTE=0; shift ;;
+    --no-revenue) REVENUE=0; shift ;;
+    --proposal) PROPOSAL_ID="$2"; shift 2 ;;
     --dry-run) DRY_RUN=1; shift ;;
-    -h|--help) sed -n '3,40p' "$0"; exit 0 ;;
+    -h|--help) sed -n '3,50p' "$0"; exit 0 ;;
     *) fail "unknown argument: $1 (see --help)" ;;
   esac
 done
@@ -128,6 +140,12 @@ if (( DRY_RUN )); then
     echo "  wallets: ${POV_WALLET_IDS[*]} (pov-<id>.json, allowlisted in SIGNER_ALLOWED_DESTINATIONS by wallet-devnet.sh)"
   else
     echo "6 distribute skipped (--no-distribute)"
+  fi
+  if (( REVENUE )); then
+    echo "7 POST ${BASE}/api/cryptobot/revenue-events?anchor=true  (${REVENUE_LAMPORTS} lamports, simulated=true, source PROPOSAL ${PROPOSAL_ID:-<newest EXECUTED>} or SIMULATED pov-v1:${COMMIT:0:12})"
+    echo "  GET  ${BASE}/api/cryptobot/treasury/cryptobot-001"
+  else
+    echo "7 revenue skipped (--no-revenue)"
   fi
   exit 0
 fi
@@ -218,11 +236,12 @@ VERIFIED="$(printf '%s' "$PROOF" | jget "['verified']")"
 [[ "$VERIFIED" == "True" ]] || fail "the proof is not verified"
 log "ValueEvent (with knowledge and compute attribution) anchored on devnet and verified"
 
-if (( ! DISTRIBUTE )); then
-  log "PASS — immediate reward skipped (--no-distribute)"
+if (( ! DISTRIBUTE && ! REVENUE )); then
+  log "PASS — immediate reward and revenue skipped (--no-distribute --no-revenue)"
   exit 0
 fi
 
+if (( DISTRIBUTE )); then
 step "6 immediate reward (KAN-822): devnet SOL to the contributors' wallets — devnet SOL stands in for stablecoin settlement"
 RPC_URL="${CRYPTOBOT_SOLANA_DEVNET_RPC:-}"
 if [[ -z "$RPC_URL" && -f "$ENV_FILE" ]]; then RPC_URL="$(sed -n 's/^CRYPTOBOT_SOLANA_DEVNET_RPC=//p' "$ENV_FILE" | tail -1)"; fi
@@ -255,8 +274,90 @@ for id in sebas "${AGENTS[@]}"; do
   printf '  %-15s before=%-12s after=%-12s %s\n' "$id" "${BEFORE[$id]}" "$after" "$w"
 done
 case "$DSTATE" in
-  COMPLETE) log "PASS — ValueEvent anchored, verified, and its contributors paid on devnet" ;;
-  PARTIAL|IN_PROGRESS) warn "distribution ${DSTATE}: see the payouts above (a wallet not in SIGNER_ALLOWED_DESTINATIONS? restart the signer with --no-deps)"
-           log "PASS (partial) — ValueEvent anchored and verified; some payouts are not CONFIRMED" ;;
+  COMPLETE) log "ValueEvent anchored, verified, and its contributors paid on devnet" ;;
+  PARTIAL|IN_PROGRESS) warn "distribution ${DSTATE}: see the payouts above (a wallet not in SIGNER_ALLOWED_DESTINATIONS? restart the signer with --no-deps)" ;;
   *) fail "distribution ${DSTATE}: nothing was paid (POV_REWARD_ENABLED? POV_REWARD in the policy of service AND validator? signer allowlist?)" ;;
+esac
+else
+  log "immediate reward skipped (--no-distribute)"
+fi
+
+if (( ! REVENUE )); then
+  log "PASS — revenue skipped (--no-revenue)"
+  exit 0
+fi
+
+step "7 revenue (KAN-824): a SIMULATED economic result of ${REVENUE_LAMPORTS} lamports — not real profit; devnet SOL stands in for stablecoin settlement"
+if [[ -z "$PROPOSAL_ID" ]]; then
+  RESP="$(api GET '/api/cryptobot/proposals?limit=50')"; split_status
+  if [[ "$STATUS" == 200 ]]; then
+    PROPOSAL_ID="$(printf '%s' "$BODY" | python3 -c '
+import json, sys
+for p in json.load(sys.stdin):
+    if p.get("status") == "EXECUTED" and (p.get("execution") or {}).get("signature"):
+        print(p["id"]); break' || true)"
+  fi
+fi
+revenue_body() { # <kind> <ref>
+  K="$1" R="$2" E="$ID" A="$REVENUE_LAMPORTS" python3 -c '
+import json, os
+print(json.dumps({"projectId": "cryptobot", "source": {"kind": os.environ["K"], "ref": os.environ["R"]}, "amountLamports": int(os.environ["A"]),
+                  "linkedValueEventIds": [os.environ["E"]], "simulated": True}, separators=(",", ":")))'
+}
+if [[ -n "$PROPOSAL_ID" ]]; then
+  log "source: PROPOSAL ${PROPOSAL_ID} (EXECUTED on devnet by the demo run); the amount is still simulated"
+  RESP="$(api POST '/api/cryptobot/revenue-events?anchor=true' "$(revenue_body PROPOSAL "$PROPOSAL_ID")")"; split_status
+  if [[ "$STATUS" == 409 || "$STATUS" == 422 ]]; then
+    warn "PROPOSAL source refused (${STATUS}: ${BODY}); falling back to SIMULATED"
+    PROPOSAL_ID=""
+  fi
+fi
+if [[ -z "$PROPOSAL_ID" ]]; then
+  log "source: SIMULATED pov-v1:${COMMIT:0:12} (no EXECUTED proposal available)"
+  RESP="$(api POST '/api/cryptobot/revenue-events?anchor=true' "$(revenue_body SIMULATED "pov-v1:${COMMIT:0:12}")")"; split_status
+fi
+[[ "$STATUS" == 201 || "$STATUS" == 200 ]] || fail "POST /revenue-events → ${STATUS}: ${BODY}"
+REV="$BODY"
+RSTATE="$(printf '%s' "$REV" | jget "['status']")"
+printf '%s' "$REV" | S="$STATUS" python3 -c '
+import json, os, sys
+r = json.load(sys.stdin)
+pol = r["policy"]
+print("revenue event   %s → %s %s  source=%s:%s simulated=%s" % (r["id"], os.environ["S"], r["status"], r["source"]["kind"], r["source"]["ref"], r["simulated"]))
+print("amount          %s lamports (%s)" % (r["amountLamports"], "SIMULATED economic result — not real profit" if r["simulated"] else "reported"))
+print("policy          %s  contributor pool %s bps · protocol fee %s bps · rest retained" % (pol["name"], pol["revenueShareBps"], pol["protocolFeeBps"]))
+print("split           pool=%s  fee=%s (recorded only)  retained=%s" % (r["contributorPoolLamports"], r["protocolFeeLamports"], r["retainedLamports"]))
+print("receipt         %s (REVENUE_EVENT, anchored: %s)" % (r["receiptHash"], (r.get("anchor") or {}).get("txSignature")))
+print("linked          " + " · ".join("%s (%s) share=%s" % (l["id"], l["title"], l.get("shareLamports")) for l in r["linkedValueEvents"]))
+print("payouts")
+for p in r["payouts"]:
+    print("  %-15s %-9s %10s lamports  wallet=%s" % (p["identityId"], p["status"], p["lamports"], p.get("wallet") or "-"))
+    if p.get("txSignature"):
+        print("  %-15s tx %s" % ("", p["txSignature"]))
+        print("  %-15s %s" % ("", p.get("explorerUrl") or ""))
+    if p.get("error"):
+        print("  %-15s error: %s" % ("", p["error"]))'
+
+RESP="$(api GET /api/cryptobot/treasury/cryptobot-001)"; split_status
+[[ "$STATUS" == 200 ]] || fail "GET /treasury/cryptobot-001 → ${STATUS}: ${BODY}"
+echo "treasury cryptobot-001 (accounting view; in this demo payouts are signed from the demo wallet)"
+printf '%s' "$BODY" | python3 -c '
+import json, sys
+t = json.load(sys.stdin)
+p = t["policies"]
+print("  wallet            %s  on-chain balance=%s%s" % (t.get("wallet") or "-", t.get("onChainBalanceLamports"), ("  (" + t["balanceNote"] + ")") if t.get("balanceNote") else ""))
+print("  income            %s lamports" % t["incomeLamports"])
+print("  contributor paid  %s lamports (CONFIRMED)" % t["contributorPayoutsLamports"])
+print("  protocol fee      %s lamports" % t["protocolFeeLamports"])
+print("  retained          %s lamports" % t["retainedLamports"])
+print("  compute cost      $%.2f (estimated; cost is not value)" % (t["computeCostMicroUsd"] / 1e6))
+print("  policies          reward pool=%s  revenue share=%s bps  fee=%s bps  signer max=%s" % (p["rewardPoolLamports"], p["revenueShareBps"], p["protocolFeeBps"], p.get("signerMaxLamports")))
+for e in t["recentEvents"][:8]:
+    print("  %-8s %-37s %12s  %s  %s" % (e["kind"], e["id"], e["lamports"], e["at"], e.get("txSignature") or ""))'
+
+case "$RSTATE" in
+  COMPLETE) log "PASS — ValueEvent anchored and verified, contributors paid, simulated revenue split, paid and anchored" ;;
+  PARTIAL|IN_PROGRESS) warn "revenue event ${RSTATE}: see the payouts above"
+           log "PASS (partial) — some payouts are not CONFIRMED (UNFUNDED or refused)" ;;
+  *) fail "revenue event ${RSTATE}: nothing was paid (POV_REWARD_ENABLED? signer allowlist?)" ;;
 esac
