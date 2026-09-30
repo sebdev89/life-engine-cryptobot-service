@@ -1,0 +1,12 @@
+# gitleaks false positives in the current tree (reviewed 2026-09-30). Format: <file>:<rule>:<line> (gitleaks dir).
+# Each entry is a test literal, never a credential of any environment. Re-review if the line moves.
+#
+# Public SPL mint address of the JUP token (mainnet registry constant), used as an oracle test input.
+src/test/java/io/lifeengine/cryptobot/application/oracle/PriceOracleServiceTest.java:generic-api-key:181
+# Test policy version label "test-policy-v1" passed to a fake validator identity.
+src/test/java/io/lifeengine/cryptobot/application/controlplane/PolicyEngineTest.java:generic-api-key:312
+# Test request id string in a log-line assertion.
+src/test/java/io/lifeengine/cryptobot/observability/JsonLogLineTest.java:generic-api-key:107
+# Receipt golden vectors: an Ed25519 TEST VECTOR key (key_id "test-vector-2026-09", documented in the file's "note"),
+# used only to pin the canonicalization/signature functions; no environment uses it.
+src/test/resources/receipt/vectors-v1.json:generic-api-key:8
