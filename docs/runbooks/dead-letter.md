@@ -1,9 +1,9 @@
 # Runbook — CryptoBot dead-letter queue (DLQ)
 
-**Alert:** `cryptobot_dead_letter_open > 0` (also `dlq_size > 0`, the KAN-403 name) for more than
+**Alert:** `cryptobot_dead_letter_open > 0` (also `dlq_size > 0`, the older name) for more than
 5 minutes. **Severity:** P1 while a `RECONCILIATION` letter is open — a trade is in flight and the
-system has stopped deciding about it. **Owner:** CryptoBot on-call (verticals). Issues: KAN-501 (this
-runbook and the API), KAN-571 (idempotent retry, fault injection, metrics).
+system has stopped deciding about it. **Owner:** CryptoBot on-call (verticals). Tracked in
+the internal tracker (this runbook and the API; idempotent retry, fault injection, metrics).
 
 A dead letter is *something the system refuses to guess about*. It is never dropped; a human
 closes it through the API below, and every decision leaves an `audit_event`. There are two sources:
@@ -127,7 +127,7 @@ confirmed, exactly one transfer into the vault.
 | `cryptobot_dead_letter_open` (gauge, = `dlq_size`) | unresolved letters — the alert |
 | `cryptobot_dead_letter_total{reason}` | `ambiguous` · `retries_exhausted` · `inconsistent` · `outbox` created; `resolved` · `requeued` closed |
 | `cryptobot_reconciliation_total{outcome}` | per row per sweep: `matched` · `corrected` · `retried` · `dead_lettered` · `skipped` |
-| `trade_reconciled_total{result}`, `reconciliation_mismatch_total` | the KAN-403 series, unchanged |
+| `trade_reconciled_total{result}`, `reconciliation_mismatch_total` | the reconciliation series, unchanged |
 
 Logs (service): `reconciliation_dead_letter`, `reconciliation_retry` / `reconciliation_retried`,
 `dead_letter_resolved` / `dead_letter_requeued`, `execution_retry`, `proposal_broadcast_uncertain`.
@@ -146,7 +146,7 @@ scripts/demo/e2e-devnet.sh --local-validator --chaos uncertain    # reconciler c
 scripts/demo/e2e-devnet.sh --local-validator --chaos confirm-timeout
 ```
 
-UAT (KAN-574/575): the same script against the UAT base URL once the signer/validator run there;
+UAT: the same script against the UAT base URL once the signer/validator run there;
 the chaos endpoint does **not** exist outside the demo compose (`CRYPTOBOT_CHAOS_ENABLED` unset), so
 in UAT the rehearsal is: stop the RPC (or point `CRYPTOBOT_SOLANA_DEVNET_RPC` at a closed port),
 execute, restore, requeue. Paste the evidence file into the issue.

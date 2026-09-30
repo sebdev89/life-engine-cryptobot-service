@@ -63,7 +63,7 @@ BREAKING CHANGE: metadata key renamed — update all consumers before deploying
 KAN-{number}-{short-description}
 ```
 
-Ejemplos: `KAN-200-branch-protection`, `KAN-RAG-CI-fix`
+Ejemplos: `KAN-{number}-branch-protection`, `KAN-RAG-CI-fix`
 
 ## Flujo de trabajo
 

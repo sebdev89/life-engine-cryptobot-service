@@ -1,4 +1,4 @@
-# Marca CryptoBot (borrador KAN-803)
+# Marca CryptoBot (borrador)
 
 Borrador para decisión de Sebastián. SVG a mano, sin fuentes remotas ni librerías.
 

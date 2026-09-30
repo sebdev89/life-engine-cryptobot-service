@@ -1,7 +1,7 @@
-# intent-authority — CryptoBot's on-chain authority (paper level 4, KAN-437)
+# intent-authority — CryptoBot's on-chain authority (paper level 4)
 
-Levels 1–3 live in the service: canonical intent and `H_I` (KAN-435), deterministic policy and
-`H_R` (KAN-436), Ed25519 signatures and the 10 000-intent benchmark (KAN-440). All of that is
+Levels 1–3 live in the service: canonical intent and `H_I`, deterministic policy and
+`H_R`, Ed25519 signatures and the 10 000-intent benchmark. All of that is
 **off-chain**: a compromised service could still lie about it. This program makes four facts
 unforgeable by the client, because the validator checks them, not the service:
 
