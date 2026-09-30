@@ -1,15 +1,21 @@
-# CryptoBot — AI control plane for Solana wallets
+# CryptoBot
 
-> Colosseum · Crypto World's Fair 2026 · Solana track. Submission write-up: [`SUBMISSION.md`](SUBMISSION.md).
-> **The agent proposes. You approve. An independent validator re-checks, a limited signer executes —
-> on devnet, under policy, after a timelock, with a full audit trail.** Built on Life Engine (Auth · Runtime · observability); this repo holds only
-> the crypto domain.
+**Agents can think. CryptoBot lets them safely act with money.**
 
-```
-wallet → portfolio → risk detection → AI analysis → rebalance proposal
-      → economic + on-chain simulation → policy → human approval → timelock
-      → independent validator → limited signer → devnet execution → audit trail
-```
+Trusted execution infrastructure for financial AI agents — reference implementation on Solana.
+
+`INTENT → POLICY → APPROVAL → SIGN → EXECUTE → FINALIZE → RECONCILE → PROVE`
+
+> Colosseum · Crypto World's Fair 2026 · Solana track. The agent proposes; policy, a human approval and
+> a timelock decide; an independent validator re-checks and an isolated signer executes on devnet —
+> with signed receipts anchored on Solana. Built on Life Engine (Auth · Runtime · observability); this
+> repo holds only the execution and crypto domain.
+
+1. [The demo, one command](#the-demo-one-command-from-zero-kan-575--hk-7)
+2. [Architecture](#architecture-documents-kan-583--trusted-agent-execution)
+3. [Decision Receipts](#decision-receipts-kan-391-endgame-67--10)
+4. [`scripts/demo/run.sh`](scripts/demo/run.sh)
+5. [Submission (`SUBMISSION.md`)](SUBMISSION.md)
 
 ## What it does today
 
@@ -18,7 +24,7 @@ wallet → portfolio → risk detection → AI analysis → rebalance proposal
 | Track a wallet | Any public Solana address (devnet, or mainnet read-only). SOL + SPL/Token-2022 balances, recent signatures. | `adapters/solana/SolanaRpcClient` |
 | Value it | **Multi-source oracle (KAN-439, paper §22)**: Jupiter Price v3, Pyth Hermes, CoinGecko and Coinbase spot (KAN-572; Pyth's public endpoint answers 401 without a key since 2026-09 and CoinGecko's public tier lags minutes, so Jupiter + Coinbase is the quorum that holds on a real run) — keyless, read-only, independent mechanisms — asked concurrently; the price is the **median** of the fresh sources, accepted only with quorum (≥ 2), every source within the deviation bound of the median and no circuit-breaker trip; otherwise there is no price. The portfolio view then shows the labelled static fallback and the policy denies. Devnet mints are valued as the mainnet asset they represent. | `domain/oracle/PriceOracle` · `application/oracle/PriceOracleService` · `adapters/marketdata` |
 | Detect risk | Deterministic rules: concentration (≥ 60 % HIGH, ≥ 40 % MEDIUM), no stablecoin buffer, dust, unpriced tokens, sharp move since the last snapshot. Since KAN-392 the rules are a **versioned pure-Java engine** (`risk-engine 1.0.0`): integer input in basis points / micro-dollars, integer weights in a hashed JSON (`weightsHash`), discrete output (action, 0–9 buckets, reason codes) — the only L1 step of the pipeline; the prose is rendered afterwards and never enters a hash. | `domain/risk/DeterministicRiskEngine` · `application/controlplane/RiskEngine` (adapter) |
-| Ask in natural language | *"¿Cuál es mi mayor riesgo?"* → Life Engine Runtime workflow `crypto.portfolio-advisor.v1` (one LLM stage, strict JSON). The model sees positions, weights and findings — **never a key, never a transaction**. | `AdvisorService` · runtime `ext/cryptomarketreview/portfolio` |
+| Ask in natural language | *"¿Cuál es mi mayor riesgo?"* → Life Engine Runtime workflow `crypto.portfolio-advisor.v1` (one LLM stage, strict JSON). The model sees positions, weights and findings — **never a key, never a transaction**. **Not yet in Runtime `main`** (Runtime PR #33 open) and outside the demo E2E: the execution layer is agnostic of which agent or model produces the intent. | `AdvisorService` · runtime `ext/cryptomarketreview/portfolio` |
 | Propose | *"SOL 70 % → 50 %"* → planner computes the legs; the LLM never sets amounts. | `RebalancePlanner` |
 | Simulate | Economic (spot × amount, fee) **and** on-chain: the exact unsigned transaction goes through `simulateTransaction` (`sigVerify=false`, so read-only wallets simulate too). | `SimulationService` |
 | Policy | Kill switch · asset allowlist · max USD · max % of portfolio · cooldown · devnet only · lamport cap · vault configured · simulation passed · signer controls the wallet · **the signer's own caps, visible before it refuses** (KAN-572: `SIGNER_DESTINATION_ALLOWLISTED`, `SIGNER_MAX_LAMPORTS`, `SIGNER_CLUSTER`). Each rule is named, with a message a human reads, in the proposal, the audit trail, the Decision Receipt and the UI (`/live`). | `PolicyEngine` |
@@ -596,7 +602,7 @@ Binance-public market data, watchlist / zones / observations / journal / indicat
 (wallet, portfolio, risk, strategy, policy, transactions, advisor), `application/controlplane/`,
 `integration/`, `infrastructure/persistence/controlplane/`, `api/controlplane/`, migration `V4`,
 `infrastructure/solana` + `SolanaSnapshotProvider`, the `signer/` module, the Runtime module
-`ext/cryptomarketreview/portfolio` (`crypto.portfolio-advisor.v1`), the control-plane UI, this
+`ext/cryptomarketreview/portfolio` (`crypto.portfolio-advisor.v1`, written in Runtime PR #33, not merged), the control-plane UI, this
 README and the Docker files. The exact list lives in the vault:
 `Products/CryptoBot-Colosseum/06-Preexistente-vs-Hackathon.md`.
 
