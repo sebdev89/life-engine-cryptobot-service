@@ -68,6 +68,14 @@ for want in 'value-events?anchor=true' 'http://127.0.0.1:18091' '"commitSha":"ab
 done
 check "pov dry run --no-distribute" 0 "${DEMO}/pov-v1.sh" --dry-run --no-distribute --env-file "${TMP}/demo.env" --commit abcdef1
 printf '%s' "$OUT" | grep -q -F 'distribute skipped (--no-distribute)' && ok "pov plan shows the reward skipped" || bad "pov plan does not show the reward skipped"
+check "pov dry run plans the revenue step (KAN-824)" 0 "${DEMO}/pov-v1.sh" --dry-run --env-file "${TMP}/demo.env" --commit abcdef1
+for want in '/revenue-events?anchor=true' 'simulated=true' '/treasury/cryptobot-001' 'SIMULATED pov-v1:abcdef1'; do
+  printf '%s' "$OUT" | grep -q -F -- "$want" && ok "pov plan mentions '${want}'" || bad "pov plan lacks '${want}'"
+done
+check "pov dry run --proposal" 0 "${DEMO}/pov-v1.sh" --dry-run --env-file "${TMP}/demo.env" --commit abcdef1 --proposal 11111111-2222-3333-4444-555555555555
+printf '%s' "$OUT" | grep -q -F 'PROPOSAL 11111111-2222-3333-4444-555555555555' && ok "pov plan uses --proposal" || bad "pov plan ignores --proposal"
+check "pov dry run --no-revenue" 0 "${DEMO}/pov-v1.sh" --dry-run --no-revenue --env-file "${TMP}/demo.env" --commit abcdef1
+printf '%s' "$OUT" | grep -q -F 'revenue skipped (--no-revenue)' && ok "pov plan shows the revenue skipped" || bad "pov plan does not show the revenue skipped"
 check "pov dry run with a fixed --accepted-at" 0 "${DEMO}/pov-v1.sh" --dry-run --env-file "${TMP}/demo.env" --commit abcdef1 --accepted-at 2026-09-30T10:00:00Z
 printf '%s' "$OUT" | grep -q -F '"acceptedAt":"2026-09-30T10:00:00Z"' && ok "pov uses --accepted-at" || bad "pov ignores --accepted-at"
 check "pov bad --accepted-at" 1 "${DEMO}/pov-v1.sh" --dry-run --env-file "${TMP}/demo.env" --commit abcdef1 --accepted-at yesterday
