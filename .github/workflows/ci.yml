@@ -285,6 +285,11 @@ jobs:
           echo "semver=${semver}" >> "$GITHUB_OUTPUT"
           echo "versión: ${semver}"
 
+      # KAN-833: label life-engine.commit/version = commit REAL de la build (7 chars, como los tags sha-).
+      - name: Commit corto
+        id: short
+        run: echo "sha7=${GITHUB_SHA:0:7}" >> "$GITHUB_OUTPUT"
+
       - name: Extract metadata
         id: meta
         uses: docker/metadata-action@v5
@@ -300,6 +305,8 @@ jobs:
             life-engine.semver=${{ steps.version.outputs.semver }}
             life-engine.build.source=github-actions
             life-engine.module=${{ matrix.module }}
+            life-engine.commit=${{ steps.short.outputs.sha7 }}
+            life-engine.version=sha-${{ steps.short.outputs.sha7 }}
 
       - name: Build and push
         id: build
@@ -316,6 +323,7 @@ jobs:
             GIT_COMMIT=${{ github.sha }}
             GIT_BRANCH=${{ github.ref_name }}
             GIT_COMMIT_TIME=${{ github.event.head_commit.timestamp }}
+            GIT_COMMIT_SHORT=${{ steps.short.outputs.sha7 }}
           # scope por módulo: sin él los tres legs comparten la cache `buildkit` y se pisan
           # (el último en exportar gana y los otros dos arrancan fríos en el próximo run).
           cache-from: type=gha,scope=${{ matrix.module }}
