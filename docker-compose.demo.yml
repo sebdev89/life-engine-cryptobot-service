@@ -115,8 +115,17 @@ services:
       CRYPTOBOT_VALIDATOR_ENABLED: "true"
       CRYPTOBOT_VALIDATOR_BASE_URL: http://cryptobot-validator:8097
       CRYPTOBOT_VALIDATOR_TOKEN: ${CRYPTOBOT_VALIDATOR_TOKEN:?}
+      # KAN-795 — "perfil video": the waits of the demo, all overridable from .env.demo or the shell with
+      # the SAME names (run.sh / e2e-devnet.sh read them too, to know how long to wait). Defaults = the
+      # rehearsed values. For the recording (measured 2026-09-29, see scripts/demo/README.md):
+      #   CRYPTOBOT_TIMELOCK_ESCALATED=10s  CRYPTOBOT_POLICY_COOLDOWN=15s
+      #   CRYPTOBOT_RECONCILIATION_INTERVAL=5s  CRYPTOBOT_RECONCILIATION_GRACE=10s
+      # (max attempts stays 3: "three reconciliation attempts, no verdict" is what the voice-over says.)
+      # COOLDOWN is not part of the pinned policy hash (H_R), so shortening it needs no VALIDATOR_POLICY_HASH re-pin.
       # Demo-only: a short timelock so an ESCALATE verdict is visible (409 + wait) without 30 minutes.
       CRYPTOBOT_TIMELOCK_ESCALATED: ${CRYPTOBOT_TIMELOCK_ESCALATED:-20s}
+      # Per-wallet cooldown after an execution (rule COOLDOWN; application.yml default 60s).
+      CRYPTOBOT_POLICY_COOLDOWN: ${CRYPTOBOT_POLICY_COOLDOWN:-60s}
       # Reconciliation runs for real (startup + periodic); demo knobs so recovery is visible in minutes, not hours:
       # sweep every 10 s, a 20 s grace, 3 attempts without a verdict ⇒ dead letter, 2 idempotent retries (KAN-571).
       CRYPTOBOT_RECONCILIATION_ENABLED: "true"
