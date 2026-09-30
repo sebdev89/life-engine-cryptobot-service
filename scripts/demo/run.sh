@@ -249,8 +249,9 @@ setup_local() {
   # KAN-833: identidad de build para la imagen (labels life-engine.commit y /actuator/info); sólo si el
   # usuario no la fijó y esto es un checkout git. Son hechos de git, nunca secretos.
   if [[ -z "${GIT_COMMIT:-}" ]] && git -C "$PROJECT" rev-parse --git-dir >/dev/null 2>&1; then
-    export GIT_COMMIT="$(git -C "$PROJECT" rev-parse HEAD)" GIT_COMMIT_SHORT="$(git -C "$PROJECT" rev-parse --short=7 HEAD)" \
-           GIT_BRANCH="$(git -C "$PROJECT" rev-parse --abbrev-ref HEAD)" GIT_COMMIT_TIME="$(git -C "$PROJECT" log -1 --format=%cI)"
+    GIT_COMMIT="$(git -C "$PROJECT" rev-parse HEAD)"; GIT_COMMIT_SHORT="$(git -C "$PROJECT" rev-parse --short=7 HEAD)"
+    GIT_BRANCH="$(git -C "$PROJECT" rev-parse --abbrev-ref HEAD)"; GIT_COMMIT_TIME="$(git -C "$PROJECT" log -1 --format=%cI)"
+    export GIT_COMMIT GIT_COMMIT_SHORT GIT_BRANCH GIT_COMMIT_TIME
   fi
   "${COMPOSE[@]}" up -d --build
   wait_health
