@@ -7,6 +7,13 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.security.Keys;
 import io.lifeengine.cryptobot.CryptobotServiceApplication;
+import io.lifeengine.cryptobot.application.receipt.ReceiptDraft;
+import io.lifeengine.cryptobot.application.receipt.ReceiptService;
+import io.lifeengine.cryptobot.core.receipts.Digests;
+import io.lifeengine.cryptobot.core.receipts.ReceiptBody;
+import io.lifeengine.cryptobot.core.receipts.ReceiptInput;
+import io.lifeengine.cryptobot.core.receipts.ReceiptKind;
+import io.lifeengine.cryptobot.core.receipts.ReproducibilityLevel;
 import io.lifeengine.cryptobot.testsupport.InMemoryControlPlaneRepositories;
 import io.lifeengine.cryptobot.testsupport.StubRepositoriesConfiguration;
 import io.micrometer.core.instrument.Counter;
@@ -16,6 +23,7 @@ import io.micrometer.core.instrument.Tag;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import javax.crypto.SecretKey;
 import okhttp3.mockwebserver.Dispatcher;
@@ -60,6 +68,7 @@ class ControlPlaneFlowTest {
     @Autowired private WebTestClient web;
     @Autowired private MeterRegistry meters;
     @Autowired private io.lifeengine.cryptobot.application.reliability.OutboxPublisher outboxPublisher;
+    @Autowired private ReceiptService receipts;
 
     private double counter(String name, String... tags) {
         Counter c = meters.find(name).tags(tags).counter();
@@ -481,6 +490,84 @@ class ControlPlaneFlowTest {
         assertThat(p.path("policy").path("violations").toString()).contains("MAX_TRADE_USD").contains("MAX_TRADE_PCT_OF_PORTFOLIO");
         web.post().uri("/api/cryptobot/proposals/" + p.path("id").asText() + "/approve").header(HttpHeaders.AUTHORIZATION, token)
                 .exchange().expectStatus().isEqualTo(409);
+    }
+
+    /**
+     * KAN-597 (TAE fase 2, mandato §28): the additive routes delegate into exactly the services
+     * {@code /wallets/**} and {@code /proposals/**} already use — same resource, same validation
+     * codes, same 404-not-403 ownership rule. Nothing above this test (the original flow) changes.
+     */
+    @Test
+    void intentsAndExecutionsMirrorProposalsAdditively() throws Exception {
+        UUID user = UUID.randomUUID();
+        String token = bearer(user);
+        JsonNode created = JSON.readTree(web.post().uri("/api/cryptobot/wallets").header(HttpHeaders.AUTHORIZATION, token)
+                .contentType(MediaType.APPLICATION_JSON).bodyValue("{\"address\":\"" + ADDRESS + "\",\"cluster\":\"devnet\"}")
+                .exchange().expectStatus().isCreated().expectBody().returnResult().getResponseBody());
+        String walletId = created.path("wallet").path("id").asText();
+
+        // POST /intents creates the same resource POST /wallets/{id}/proposals would; walletId moves into the body.
+        JsonNode intent = JSON.readTree(web.post().uri("/api/cryptobot/intents").header(HttpHeaders.AUTHORIZATION, token)
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue("{\"walletId\":\"" + walletId + "\",\"kind\":\"REBALANCE\",\"targetWeights\":{\"SOL\":50}}")
+                .exchange().expectStatus().isCreated().expectBody().returnResult().getResponseBody());
+        String proposalId = intent.path("proposal").path("id").asText();
+        assertThat(intent.path("executionId").asText()).isEqualTo(proposalId);
+        assertThat(intent.path("proposal").path("status").asText()).isEqualTo("AWAITING_APPROVAL");
+
+        // GET /executions/{id} is byte-identical to GET /proposals/{id} for the same id.
+        JsonNode viaProposals = JSON.readTree(web.get().uri("/api/cryptobot/proposals/" + proposalId).header(HttpHeaders.AUTHORIZATION, token)
+                .exchange().expectStatus().isOk().expectBody().returnResult().getResponseBody());
+        JsonNode viaExecutions = JSON.readTree(web.get().uri("/api/cryptobot/executions/" + proposalId).header(HttpHeaders.AUTHORIZATION, token)
+                .exchange().expectStatus().isOk().expectBody().returnResult().getResponseBody());
+        assertThat(viaExecutions).isEqualTo(viaProposals);
+
+        // /intents/{id}/approve delegates into the same ProposalService.approve as /proposals/{id}/approve.
+        JsonNode approved = JSON.readTree(web.post().uri("/api/cryptobot/intents/" + proposalId + "/approve").header(HttpHeaders.AUTHORIZATION, token)
+                .contentType(MediaType.APPLICATION_JSON).bodyValue("{\"note\":\"ok\"}")
+                .exchange().expectStatus().isOk().expectBody().returnResult().getResponseBody());
+        assertThat(approved.path("status").asText()).isEqualTo("APPROVED");
+
+        // /intents/{id}/execute delegates into the same ExecutionService.execute — refused for the same reason (no signer in tests).
+        web.post().uri("/api/cryptobot/intents/" + proposalId + "/execute").header(HttpHeaders.AUTHORIZATION, token)
+                .exchange().expectStatus().isEqualTo(409).expectBody().jsonPath("$.message").value(m -> assertThat(m.toString()).contains("not executable"));
+        web.post().uri("/api/cryptobot/intents/" + proposalId + "/execute").header(HttpHeaders.AUTHORIZATION, token)
+                .header("Idempotency-Key", "not-a-uuid")
+                .exchange().expectStatus().isBadRequest().expectBody().jsonPath("$.code").isEqualTo("INVALID_OPERATION_ID");
+        assertThat(SolanaDispatcher.sendCount).isZero();
+
+        // GET /executions/{id}/receipt: no EXECUTION receipt exists yet (nothing reached EXECUTED/FAILED) — 404, same rule as any other unknown id.
+        web.get().uri("/api/cryptobot/executions/" + proposalId + "/receipt").header(HttpHeaders.AUTHORIZATION, token)
+                .exchange().expectStatus().isNotFound();
+
+        // Issue the EXECUTION receipt directly (as ExecutionReceipts would at a terminal state) and confirm the alias finds exactly it.
+        ReceiptBody execBody = new ReceiptBody(null, ReceiptKind.EXECUTION, user.toString(), user.toString(), "execution-engine@1", List.of(),
+                List.of(new ReceiptInput(ReceiptInput.TRANSACTION, Digests.sha256("tx-" + proposalId))), null, null, null, null, Map.of(),
+                new ReceiptBody.Output(Digests.sha256("exec-output-" + proposalId), "execution/1", null),
+                new ReceiptBody.Compute(null, null, 1, null), null, ReproducibilityLevel.L0_SIGNED, Instant.now(), Instant.now(),
+                "exec:" + proposalId, new ReceiptBody.Refs(walletId, proposalId, null));
+        String executionReceiptHash = receipts.issue(ReceiptDraft.of(execBody)).block().receiptHash();
+        JsonNode executionReceipt = JSON.readTree(web.get().uri("/api/cryptobot/executions/" + proposalId + "/receipt").header(HttpHeaders.AUTHORIZATION, token)
+                .exchange().expectStatus().isOk().expectBody().returnResult().getResponseBody());
+        assertThat(executionReceipt.path("receiptHash").asText()).isEqualTo(executionReceiptHash);
+        assertThat(executionReceipt.path("body").path("kind").asText()).isEqualTo("EXECUTION");
+
+        // Another owner: 404, never 403 — same rule /proposals and /receipts already enforce.
+        web.get().uri("/api/cryptobot/executions/" + proposalId).header(HttpHeaders.AUTHORIZATION, bearer(UUID.randomUUID()))
+                .exchange().expectStatus().isNotFound();
+        web.get().uri("/api/cryptobot/executions/" + proposalId + "/receipt").header(HttpHeaders.AUTHORIZATION, bearer(UUID.randomUUID()))
+                .exchange().expectStatus().isNotFound();
+
+        // Validation on /intents mirrors /wallets/{id}/proposals, plus the one new rule (walletId lives in the body now).
+        web.post().uri("/api/cryptobot/intents").header(HttpHeaders.AUTHORIZATION, token)
+                .contentType(MediaType.APPLICATION_JSON).bodyValue("{\"kind\":\"REBALANCE\",\"targetWeights\":{\"SOL\":50}}")
+                .exchange().expectStatus().isBadRequest().expectBody().jsonPath("$.code").isEqualTo("MISSING_WALLET");
+        web.post().uri("/api/cryptobot/intents").header(HttpHeaders.AUTHORIZATION, token)
+                .contentType(MediaType.APPLICATION_JSON).bodyValue("{\"walletId\":\"" + walletId + "\"}")
+                .exchange().expectStatus().isBadRequest().expectBody().jsonPath("$.code").isEqualTo("MISSING_TARGETS");
+        web.post().uri("/api/cryptobot/intents").header(HttpHeaders.AUTHORIZATION, token)
+                .contentType(MediaType.APPLICATION_JSON).bodyValue("{\"walletId\":\"" + walletId + "\",\"kind\":\"YOLO\",\"targetWeights\":{\"SOL\":50}}")
+                .exchange().expectStatus().isBadRequest().expectBody().jsonPath("$.code").isEqualTo("UNSUPPORTED_KIND");
     }
 
     /**

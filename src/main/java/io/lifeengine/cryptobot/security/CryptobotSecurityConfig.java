@@ -60,6 +60,11 @@ public class CryptobotSecurityConfig {
                                         // /actuator/metrics and the rest stay denied. Carries no secrets.
                                         .pathMatchers(HttpMethod.GET, "/actuator/info")
                                         .permitAll()
+                                        // KAN-597: the OpenAPI schema is documentation, not data — same
+                                        // treatment as health/prometheus/info, never behind an authority.
+                                        .pathMatchers(HttpMethod.GET, "/v3/api-docs", "/v3/api-docs/**",
+                                                "/swagger-ui.html", "/swagger-ui/**")
+                                        .permitAll()
                                         .pathMatchers(HttpMethod.POST, "/api/cryptobot/market-review")
                                         .hasAuthority(AUTHORITY_MARKET_REVIEW)
                                         .pathMatchers(HttpMethod.POST, "/api/cryptobot/monitoring/**")
