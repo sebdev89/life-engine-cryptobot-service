@@ -25,5 +25,10 @@ public enum ReceiptKind {
     /** Reserved (§13): claims with hashed evidence. Not produced yet. */
     PROJECT_ANALYSIS,
     /** Proof of Value V1 (KAN-818): an accepted contribution. {@code output.hash} = sha256 of the ValueEvent canonical JSON (proofofvalue.ValueEventCanonical). */
-    VALUE_EVENT
+    VALUE_EVENT,
+    /**
+     * Proof of Value V5 (KAN-822): the immediate reward of an ANCHORED ValueEvent. Parent = the VALUE_EVENT receipt;
+     * {@code output.hash} = sha256 of the distribution's canonical JSON (every payout: identity, wallet, lamports, status, tx).
+     */
+    VALUE_DISTRIBUTION
 }

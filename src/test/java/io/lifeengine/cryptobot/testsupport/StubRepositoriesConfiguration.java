@@ -131,6 +131,12 @@ public class StubRepositoriesConfiguration {
         return InMemoryPovRepositories.assets();
     }
 
+    /** KAN-822: immediate-reward distributions and payouts. */
+    @Bean
+    io.lifeengine.cryptobot.proofofvalue.PayoutRepository povPayoutRepository() {
+        return InMemoryPovRepositories.payouts();
+    }
+
     /** KAN-393: the DAG walks over the same in-memory receipts and edges. */
     @Bean
     io.lifeengine.cryptobot.infrastructure.persistence.controlplane.LineageRepository lineageRepository() {

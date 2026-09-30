@@ -46,9 +46,11 @@ public class AttributionReadModel {
     private final KnowledgeAssetRepository assets;
     private final ReceiptService receipts;
     private final AnchorService anchors;
+    private final PayoutRepository payouts;
 
     public AttributionReadModel(ValueEventRepository events, PovIdentityRepository identities, KnowledgeAssetRepository assets, ReceiptService receipts,
-            AnchorService anchors) {
+            AnchorService anchors, PayoutRepository payouts) {
+        this.payouts = payouts;
         this.events = events;
         this.identities = identities;
         this.assets = assets;
@@ -80,9 +82,17 @@ public class AttributionReadModel {
                                     .filter(c -> c.identityId().equals(i.id()))
                                     .map(c -> new HistoryEntryView(e.id(), e.title(), c.role(), c.units(), e.acceptedAt(), status))))
                             .collectList()
-                            .map(history -> new IdentityProfileView(i.id(), i.kind(), i.displayName(), i.wallet(), i.ownerId(), i.operatorId(),
-                                    i.createdAt(), rep, history));
+                            .zipWith(rewards(tenant, i.id()))
+                            .map(t -> new IdentityProfileView(i.id(), i.kind(), i.displayName(), i.wallet(), i.ownerId(), i.operatorId(),
+                                    i.createdAt(), rep, t.getT1(), t.getT2()));
                 }));
+    }
+
+    /** KAN-822 (V5): lamports of the identity's CONFIRMED payouts, and how many payouts it has in any state. */
+    private Mono<ProofOfValueDtos.RewardsView> rewards(String tenant, String identityId) {
+        return payouts.findByIdentity(tenant, identityId).collectList()
+                .map(ps -> new ProofOfValueDtos.RewardsView(
+                        ps.stream().filter(p -> PovPayout.CONFIRMED.equals(p.status())).mapToLong(PovPayout::lamports).sum(), ps.size()));
     }
 
     /** The event's RECORDED/ANCHORED, read from its receipt like {@code GET /value-events/{id}}. */

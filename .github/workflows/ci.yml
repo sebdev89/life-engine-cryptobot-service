@@ -50,7 +50,7 @@ jobs:
       - name: Run Postgres integration tests (Testcontainers)
         run: |
           for attempt in 1 2; do
-            if ./mvnw -B -ntp -Dtest=ActionProposalR2dbcStoreIT,OutboxEventR2dbcStoreIT,DeadLetterR2dbcStoreIT,PovR2dbcStoreIT,ProofOfValueApiIT test; then
+            if ./mvnw -B -ntp -Dtest=ActionProposalR2dbcStoreIT,OutboxEventR2dbcStoreIT,DeadLetterR2dbcStoreIT,PovR2dbcStoreIT,ProofOfValueApiIT,ProofOfValueRewardApiIT test; then
               exit 0
             fi
             if [ "$attempt" -eq 1 ] && grep -q "bind: address already in use" target/surefire-reports/*.txt 2>/dev/null; then

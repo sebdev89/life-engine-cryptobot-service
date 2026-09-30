@@ -121,6 +121,21 @@ public class ValidatorClient {
         if (verdict == null || input == null) {
             return Mono.error(new ValidatorRefused("proposal has no recorded (I, S) and verdict to re-validate (evaluated before KAN-438): re-create it"));
         }
+        return authorize(proposal.id(), verdict, input, tx);
+    }
+
+    /**
+     * KAN-822: the same request for an operation that is not an {@link ActionProposal} — a Proof of Value payout. The
+     * caller recorded {@code (I, S)} and the verdict it derived over them; {@code operationId} is what the attestation
+     * binds as {@code proposal_id} (and what the signer is then asked to sign for). Same checks, same refusals.
+     */
+    public Mono<Response> authorize(java.util.UUID operationId, PolicyVerdict verdict, PolicyInput input, PreparedTransaction tx) {
+        if (!props.enabled()) {
+            return Mono.error(new ValidatorRefused("validator disabled"));
+        }
+        if (operationId == null || verdict == null || input == null) {
+            return Mono.error(new ValidatorRefused("no operation id, recorded (I, S) or verdict to re-validate"));
+        }
         if (tx == null || tx.messageBase64() == null || tx.messageBase64().isBlank()) {
             return Mono.error(new ValidatorRefused("no transaction message to attest"));
         }
@@ -130,7 +145,7 @@ public class ValidatorClient {
         String messageHash = sha256Hex(Base64.getDecoder().decode(tx.messageBase64()));
         String cluster = tx.cluster().trim().toLowerCase(java.util.Locale.ROOT);
         Map<String, Object> body = new LinkedHashMap<>();
-        body.put("proposalId", proposal.id().toString());
+        body.put("proposalId", operationId.toString());
         body.put("policyHash", verdict.policyHash());
         body.put("expectedVerdictHash", verdict.hash());
         body.put("messageHash", messageHash);

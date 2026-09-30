@@ -1,23 +1,33 @@
 #!/usr/bin/env bash
 # shellcheck disable=SC2034  # TOKEN/BASE/CURL_OPTS are read by the helpers sourced from lib.sh
-# KAN-818 / KAN-819 — Proof of Value V1–V4 + V6 against a running stack: identities with wallet →
+# KAN-818 / KAN-819 / KAN-822 — Proof of Value V1–V6 against a running stack: identities with wallet →
 # knowledge assets → an ACCEPTED contribution that used them, with its compute receipt → ValueEvent →
-# VALUE_EVENT receipt → Merkle batch → memo on Solana devnet → proof → reputation and units ledger.
+# VALUE_EVENT receipt → Merkle batch → memo on Solana devnet → proof → reputation and units ledger →
+# immediate reward: devnet SOL paid to the contributors' wallets (one attested + signed transfer each).
 #
-#   scripts/demo/pov-v1.sh [--env-file <f>] [--base-url <url>] [--commit <sha>] [--accepted-at <ISO>] [--dry-run]
+#   scripts/demo/pov-v1.sh [--env-file <f>] [--base-url <url>] [--commit <sha>] [--accepted-at <ISO>] [--no-distribute] [--dry-run]
 #
 # Steps: 1 identities  sebas (HUMAN), dev-agent-17 (AGENT, owner sebas), cryptobot-001 (AGENT, owner+operator
-#                       sebas), review-agent-3 (AGENT), compute-node-8 (AGENT, owner sebas). Each AGENT wallet is
-#                       a devnet keypair ~/.cryptobot-demo/pov-<id>.json, generated once (solana-keygen new
-#                       --no-bip39-passphrase, or the same layout from python) — ONLY the public key is sent.
+#                       sebas), review-agent-3 (AGENT), compute-node-8 (AGENT, owner sebas). Each wallet (sebas's
+#                       too, KAN-822) is a devnet keypair ~/.cryptobot-demo/pov-<id>.json, generated once by
+#                       wallet-devnet.sh (or here: solana-keygen new --no-bip39-passphrase, or the same layout from
+#                       python) — ONLY the public key is sent. An identity stored without wallet gets it backfilled.
 #        2 knowledge    production-acceptance-model@1 (RULESET) and strategy-knowledge@3 (STRATEGY), creator sebas
 #        3 value event  "Improve CryptoBot opportunity detection", taskId KAN-819, commitSha = HEAD (or --commit),
 #                       both assets, one compute receipt of compute-node-8, POST /value-events?anchor=true.
 #                       acceptedAt = the commit's date (or --accepted-at): the same commit is the same event.
 #        4 proof        GET /value-events/{id}/proof
 #        5 read models  GET /identities (reputation) and /units/ledger?groupBy=identity
-# Idempotent: identities, assets and the event are returned as stored when they exist (200). Exit 0 only
-# when the event is ANCHORED and the proof is verified; 1 otherwise.
+#        6 reward       KAN-822: POST /value-events/{id}/distribute?anchor=true (RUNTIME_ADMIN): the pool
+#                       (POV_REWARD_POOL_LAMPORTS, default 0.01 devnet SOL) split by units, one transfer per wallet,
+#                       each attested by the validator and signed by the signer; payouts with tx + explorer link and
+#                       every wallet's balance before/after (RPC getBalance). The signer only pays wallets in
+#                       SIGNER_ALLOWED_DESTINATIONS: a stack started before wallet-devnet.sh added them needs
+#                         docker compose -p <project> -f docker-compose.demo.yml --env-file .env.demo up -d --no-deps cryptobot-signer
+#                       (and the service/validator the same way if CRYPTOBOT_POLICY_ENABLED_STRATEGIES changed). Never `down`.
+#                       --no-distribute skips it.
+# Idempotent: identities, assets, the event and its distribution are returned as stored when they exist (200). Exit 0
+# only when the event is ANCHORED, the proof is verified and (unless --no-distribute) the distribution is not FAILED.
 #
 # Auth: the same as run.sh/ui-url.sh — local target: an HS256 token (RUNTIME_OPERATOR + RUNTIME_ADMIN, 1 h)
 # minted with JWT_SECRET of the env file (default ./.env.demo), subject = the demo operator of ui-url.sh, so
@@ -29,15 +39,16 @@ PROJECT="$(cd "${HERE}/../.." && pwd)"
 # shellcheck source=lib.sh
 source "${HERE}/lib.sh"
 
-ENV_FILE="${PROJECT}/.env.demo"; BASE=""; COMMIT=""; ACCEPTED_AT=""; DRY_RUN=0
+ENV_FILE="${PROJECT}/.env.demo"; BASE=""; COMMIT=""; ACCEPTED_AT=""; DRY_RUN=0; DISTRIBUTE=1
 while (( $# )); do
   case "$1" in
     --env-file) ENV_FILE="$2"; shift 2 ;;
     --base-url) BASE="${2%/}"; shift 2 ;;
     --commit) COMMIT="$2"; shift 2 ;;
     --accepted-at) ACCEPTED_AT="$2"; shift 2 ;;
+    --no-distribute) DISTRIBUTE=0; shift ;;
     --dry-run) DRY_RUN=1; shift ;;
-    -h|--help) sed -n '3,29p' "$0"; exit 0 ;;
+    -h|--help) sed -n '3,40p' "$0"; exit 0 ;;
     *) fail "unknown argument: $1 (see --help)" ;;
   esac
 done
@@ -62,7 +73,7 @@ AGENTS=(dev-agent-17 cryptobot-001 review-agent-3 compute-node-8)
 # identity_body <id> <wallet>: the POST /identities body of a seed identity.
 identity_body() {
   case "$1" in
-    sebas)          printf '{"id":"sebas","kind":"HUMAN","displayName":"Sebastián"}' ;;
+    sebas)          printf '{"id":"sebas","kind":"HUMAN","displayName":"Sebastián","wallet":"%s"}' "$2" ;;
     dev-agent-17)   printf '{"id":"dev-agent-17","kind":"AGENT","displayName":"Dev Agent 17","wallet":"%s","ownerId":"sebas"}' "$2" ;;
     cryptobot-001)  printf '{"id":"cryptobot-001","kind":"AGENT","displayName":"CryptoBot 001","wallet":"%s","ownerId":"sebas","operatorId":"sebas"}' "$2" ;;
     review-agent-3) printf '{"id":"review-agent-3","kind":"AGENT","displayName":"Review Agent 3","wallet":"%s"}' "$2" ;;
@@ -112,6 +123,12 @@ if (( DRY_RUN )); then
   echo "  ${EVENT}"
   echo "4 GET  ${BASE}/api/cryptobot/value-events/{id}/proof"
   echo "5 GET  ${BASE}/api/cryptobot/identities · ${BASE}/api/cryptobot/units/ledger?groupBy=identity"
+  if (( DISTRIBUTE )); then
+    echo "6 POST ${BASE}/api/cryptobot/value-events/{id}/distribute?anchor=true  (devnet SOL to each contributor wallet; balances before/after)"
+    echo "  wallets: ${POV_WALLET_IDS[*]} (pov-<id>.json, allowlisted in SIGNER_ALLOWED_DESTINATIONS by wallet-devnet.sh)"
+  else
+    echo "6 distribute skipped (--no-distribute)"
+  fi
   exit 0
 fi
 
@@ -126,15 +143,12 @@ else
   unset secret
 fi
 
-step "1 identities (agents: devnet keypair in ${DEMO_HOME}, only the public key is registered)"
+step "1 identities (devnet keypair in ${DEMO_HOME}, only the public key is registered)"
 mkdir -p "$DEMO_HOME"; chmod 700 "$DEMO_HOME"
 for id in sebas "${AGENTS[@]}"; do
-  wallet=""
-  if [[ "$id" != sebas ]]; then
-    kp="${DEMO_HOME}/pov-${id}.json"
-    [[ -f "$kp" ]] || { keygen "$kp"; log "keypair generated: ${kp}"; }
-    wallet="$(pubkey_of "$kp")"
-  fi
+  kp="${DEMO_HOME}/pov-${id}.json"
+  [[ -f "$kp" ]] || { keygen "$kp"; log "keypair generated: ${kp} (not in the signer's allowlist until wallet-devnet.sh runs again)"; }
+  wallet="$(pubkey_of "$kp")"
   RESP="$(api POST /api/cryptobot/identities "$(identity_body "$id" "$wallet")")"; split_status
   [[ "$STATUS" == 201 || "$STATUS" == 200 ]] || fail "POST /identities ${id} → ${STATUS}: ${BODY}"
   stored="$(printf '%s' "$BODY" | jget "['wallet']")"
@@ -202,4 +216,47 @@ echo "anchor tx       $(printf '%s' "$PROOF" | jget "['txSignature']")"
 VERIFIED="$(printf '%s' "$PROOF" | jget "['verified']")"
 [[ "$STATE" == "ANCHORED" ]] || fail "the value event is ${STATE}, not ANCHORED (is the signer up and funded? retry: POST /api/cryptobot/anchors?wait=true)"
 [[ "$VERIFIED" == "True" ]] || fail "the proof is not verified"
-log "PASS — ValueEvent (with knowledge and compute attribution) anchored on devnet and verified"
+log "ValueEvent (with knowledge and compute attribution) anchored on devnet and verified"
+
+if (( ! DISTRIBUTE )); then
+  log "PASS — immediate reward skipped (--no-distribute)"
+  exit 0
+fi
+
+step "6 immediate reward (KAN-822): devnet SOL to the contributors' wallets — devnet SOL stands in for stablecoin settlement"
+RPC_URL="${CRYPTOBOT_SOLANA_DEVNET_RPC:-}"
+if [[ -z "$RPC_URL" && -f "$ENV_FILE" ]]; then RPC_URL="$(sed -n 's/^CRYPTOBOT_SOLANA_DEVNET_RPC=//p' "$ENV_FILE" | tail -1)"; fi
+RPC_URL="${RPC_URL:-$DEVNET_RPC}"
+declare -A BEFORE=()
+for id in sebas "${AGENTS[@]}"; do
+  w="$(pubkey_of "${DEMO_HOME}/pov-${id}.json")"
+  BEFORE[$id]="$(balance_lamports "$RPC_URL" "$w" 2>/dev/null || echo '?')"
+done
+RESP="$(api POST "/api/cryptobot/value-events/${ID}/distribute?anchor=true" '')"; split_status
+[[ "$STATUS" == 201 || "$STATUS" == 200 ]] || fail "POST /distribute → ${STATUS}: ${BODY}"
+DIST="$BODY"
+DSTATE="$(printf '%s' "$DIST" | jget "['status']")"
+echo "distribution    $(printf '%s' "$DIST" | jget "['id']") → ${STATUS} ${DSTATE} policy=$(printf '%s' "$DIST" | jget "['policy']") pool=$(printf '%s' "$DIST" | jget "['poolLamports']") lamports"
+echo "receipt         $(printf '%s' "$DIST" | jget "['receiptHash']") (VALUE_DISTRIBUTION, anchored: $(printf '%s' "$DIST" | jget "['anchor']['txSignature']" || true))"
+echo "payouts"
+printf '%s' "$DIST" | python3 -c '
+import json, sys
+for p in json.load(sys.stdin)["payouts"]:
+    print("  %-15s %-9s %10s lamports  wallet=%s" % (p["identityId"], p["status"], p["lamports"], p.get("wallet") or "-"))
+    if p.get("txSignature"):
+        print("  %-15s tx %s" % ("", p["txSignature"]))
+        print("  %-15s %s" % ("", p.get("explorerUrl") or ""))
+    if p.get("error"):
+        print("  %-15s error: %s" % ("", p["error"]))'
+echo "balances (lamports, ${RPC_URL%%\?*})"
+for id in sebas "${AGENTS[@]}"; do
+  w="$(pubkey_of "${DEMO_HOME}/pov-${id}.json")"
+  after="$(balance_lamports "$RPC_URL" "$w" 2>/dev/null || echo '?')"
+  printf '  %-15s before=%-12s after=%-12s %s\n' "$id" "${BEFORE[$id]}" "$after" "$w"
+done
+case "$DSTATE" in
+  COMPLETE) log "PASS — ValueEvent anchored, verified, and its contributors paid on devnet" ;;
+  PARTIAL|IN_PROGRESS) warn "distribution ${DSTATE}: see the payouts above (a wallet not in SIGNER_ALLOWED_DESTINATIONS? restart the signer with --no-deps)"
+           log "PASS (partial) — ValueEvent anchored and verified; some payouts are not CONFIRMED" ;;
+  *) fail "distribution ${DSTATE}: nothing was paid (POV_REWARD_ENABLED? POV_REWARD in the policy of service AND validator? signer allowlist?)" ;;
+esac

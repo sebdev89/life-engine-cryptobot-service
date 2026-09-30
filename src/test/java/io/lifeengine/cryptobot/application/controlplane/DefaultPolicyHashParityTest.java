@@ -28,4 +28,22 @@ class DefaultPolicyHashParityTest {
         assertThat(rules.hash()).isEqualTo(new PolicyRules("cryptobot-policy-v1", java.util.List.of("SOL", "USDC", "USDT"), java.util.List.of("REBALANCE"),
                 50_000, 250_000, 8_000, 100, 900, 10_000, 25_000).hash());
     }
+
+    /**
+     * KAN-822: the demo stack enables POV_REWARD on both sides ({@code CRYPTOBOT_POLICY_ENABLED_STRATEGIES=REBALANCE,POV_REWARD});
+     * {@code scripts/demo/lib.sh default_policy_hash REBALANCE,POV_REWARD} pins this exact canonical string (sorted strategies).
+     */
+    static final String DEMO_POV_CANONICAL = VALIDATOR_DEFAULT_CANONICAL.replace("\"enabled_strategies\":[\"REBALANCE\"]",
+            "\"enabled_strategies\":[\"POV_REWARD\",\"REBALANCE\"]");
+
+    @Test
+    void demoPolicyWithPovRewardIsSortedAndStable() throws Exception {
+        PolicyProperties base = new PolicyProperties(true, null, null, null, null, null, null, 0, null);
+        AuthorizationProperties auth = new AuthorizationProperties(null, null, null, null, null, null, null, null,
+                java.util.List.of("REBALANCE", "POV_REWARD"));
+        assertThat(auth.rules(base).canonicalJson()).isEqualTo(DEMO_POV_CANONICAL);
+        String hex = java.util.HexFormat.of().formatHex(java.security.MessageDigest.getInstance("SHA-256")
+                .digest(DEMO_POV_CANONICAL.getBytes(java.nio.charset.StandardCharsets.UTF_8)));
+        assertThat(auth.rules(base).hash()).isEqualTo("sha256:" + hex);
+    }
 }

@@ -69,6 +69,9 @@ public class CryptobotSecurityConfig {
                                         .pathMatchers(HttpMethod.POST, "/api/cryptobot/anchors")
                                         .hasAuthority(AUTHORITY_ANCHOR_ADMIN)
                                         // KAN-571 / KAN-501: the global DLQ and its resolution are an admin's, not an operator's.
+                                        // KAN-822: an immediate reward moves devnet funds (the controller checks it too).
+                                        .pathMatchers(HttpMethod.POST, "/api/cryptobot/value-events/*/distribute")
+                                        .hasAuthority(AUTHORITY_ANCHOR_ADMIN)
                                         .pathMatchers("/api/cryptobot/dead-letters/**")
                                         .hasAuthority(AUTHORITY_ANCHOR_ADMIN)
                                         // KAN-571: fault injection exists only in the demo stack (cryptobot.chaos.enabled); admin there too.

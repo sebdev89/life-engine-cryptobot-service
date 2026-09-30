@@ -129,13 +129,27 @@ PY
 # DefaultPolicyHashParityTest (service) and PolicyStoreTest (validator). If you override any
 # CRYPTOBOT_POLICY_* / VALIDATOR_POLICY_* value, re-pin VALIDATOR_POLICY_HASH from the hash the
 # service logs (proposal_policy … policyHash=) — or leave it empty to run unpinned (WARN).
+# default_policy_hash [strategies]: a comma list (default REBALANCE). KAN-822: the demo runs with REBALANCE,POV_REWARD
+# (Proof of Value payouts) — pinned by DefaultPolicyHashParityTest.demoPolicyWithPovRewardIsSortedAndStable.
 default_policy_hash() {
-  python3 - <<'PY'
-import hashlib
+  python3 - "${1:-REBALANCE}" <<'PY'
+import hashlib, json, sys
+strategies = sorted({s.strip() for s in sys.argv[1].split(",") if s.strip()})
 canonical = ('{"allowed_assets":["SOL","USDC","USDT"],"autonomous_up_to_cents":10000,"daily_limit_cents":250000,'
-             '"enabled_strategies":["REBALANCE"],"max_asset_exposure_bps":8000,"max_oracle_age_seconds":900,'
+             '"enabled_strategies":' + json.dumps(strategies, separators=(",", ":")) + ','
+             '"max_asset_exposure_bps":8000,"max_oracle_age_seconds":900,'
              '"max_slippage_bps":100,"max_trade_value_cents":50000,"schema_version":"1","second_agent_up_to_cents":25000,'
              '"version":"cryptobot-policy-v1"}')
 print("sha256:" + hashlib.sha256(canonical.encode()).hexdigest())
 PY
 }
+
+# KAN-822: the Proof of Value identities of the demo that get a devnet wallet (~/.cryptobot-demo/pov-<id>.json) — sebas
+# (HUMAN) too, so the payment to the human shows. wallet-devnet.sh generates them BEFORE writing .env.demo and adds their
+# PUBLIC keys to SIGNER_ALLOWED_DESTINATIONS; pov-v1.sh registers them.
+# shellcheck disable=SC2034  # read by wallet-devnet.sh and pov-v1.sh
+POV_WALLET_IDS=(sebas dev-agent-17 cryptobot-001 review-agent-3 compute-node-8)
+# The strategies the demo policy enables on BOTH sides (service and validator): POV_REWARD is the payouts' strategy.
+# shellcheck disable=SC2034
+DEMO_POLICY_STRATEGIES="REBALANCE,POV_REWARD"
+
