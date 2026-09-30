@@ -71,6 +71,42 @@ timelock 409, `operationId`, **transaction signature**, slot and confirmation as
 them, the explorer link, the validator's attestation, the audit trail, the outbox events, the
 `EXECUTION` receipt hash with its `verify` result, and the mainnet 409.
 
+## The operator UI in the demo stack (KAN-794)
+
+The compose also builds and serves the operator UI (`cryptobot-ui`, the sibling repo, with its own
+`Dockerfile`: Angular build → nginx) under the **`ui` profile**. It is a profile, not always-on, so
+`run.sh` / `e2e-devnet.sh` and a checkout without the UI repo behave exactly as before.
+
+```bash
+# from active/cryptobot/cryptobot-service (the UI repo is ../cryptobot-ui)
+export CRYPTOBOT_DEMO_PROJECT=cryptobot-demo-main     # ALWAYS this project: a new name = a new network (the host ran out of subnets on 2026-09-29)
+docker compose -p cryptobot-demo-main -f docker-compose.demo.yml --env-file .env.demo --profile ui up -d --build
+scripts/demo/ui-url.sh                                # → http://127.0.0.1:4204/live?token=<1 h demo JWT>
+```
+
+Open the printed URL: the UI keeps the token (localStorage) and `/live` shows the demo path —
+timeline, approve/execute, chaos panel (visible because the demo enables it), dead letters.
+
+| knob | default | what |
+|---|---|---|
+| `UI_PORT` | `4204` | host port of the UI (`127.0.0.1` only). The service CORS is built from the **same** variable, so changing it keeps both in step. |
+| `CRYPTOBOT_UI_CONTEXT` | `../cryptobot-ui` | build context of the UI. From a worktree outside `active/cryptobot/`, set it to the absolute path of the UI checkout. |
+| `UI_DEMO_CLUSTER` | `devnet` | label + explorer links in the UI; `local` when the stack runs with `--profile local-validator`. |
+| `CRYPTOBOT_DEMO_PORT` | `8091` | the service's published port; `config.js` points the browser at `http://127.0.0.1:<it>`. |
+
+Notes:
+
+- The **browser** calls the API, so `config.js` holds the host URL of the service (`http://127.0.0.1:8091`),
+  not the compose-internal name. Check it with `curl -s http://127.0.0.1:4204/config.js`.
+- No Auth in the stack: `ui-url.sh` mints the token with the `JWT_SECRET` of `.env.demo` (the same
+  `jwt_hs256` the scripts use) for a fixed demo operator; it never prints the secret. Re-run it after 1 h.
+- Port 4204 busy (`address already in use`)? Something else listens there (`ss -ltnp | grep 4204`):
+  stop it, or use `UI_PORT=4214` on **both** the `up` and `ui-url.sh`.
+- To leave the demo, `docker compose -p cryptobot-demo-main … --profile ui stop` (not `down`: `down`
+  recreates the network on the next `up`).
+- `run.sh` with `--keep` plus a later `--profile ui up -d cryptobot-ui` puts the UI on top of a
+  rehearsal that is still running.
+
 ## Recovery, visible (KAN-571 / HK-3): `--chaos <mode>`
 
 The demo compose enables **fault injection** (`CRYPTOBOT_CHAOS_ENABLED=true`, demo only — UAT/PROD
