@@ -82,29 +82,8 @@ fi
 [[ "$ACCEPTED_AT" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$ ]] || fail "--accepted-at must be UTC ISO-8601 (YYYY-MM-DDTHH:MM:SSZ)"
 
 AGENTS=(dev-agent-17 cryptobot-001 review-agent-3 compute-node-8)
-# identity_body <id> <wallet>: the POST /identities body of a seed identity.
-identity_body() {
-  case "$1" in
-    sebas)          printf '{"id":"sebas","kind":"HUMAN","displayName":"Sebastián","wallet":"%s"}' "$2" ;;
-    dev-agent-17)   printf '{"id":"dev-agent-17","kind":"AGENT","displayName":"Dev Agent 17","wallet":"%s","ownerId":"sebas"}' "$2" ;;
-    cryptobot-001)  printf '{"id":"cryptobot-001","kind":"AGENT","displayName":"CryptoBot 001","wallet":"%s","ownerId":"sebas","operatorId":"sebas"}' "$2" ;;
-    review-agent-3) printf '{"id":"review-agent-3","kind":"AGENT","displayName":"Review Agent 3","wallet":"%s"}' "$2" ;;
-    compute-node-8) printf '{"id":"compute-node-8","kind":"AGENT","displayName":"Compute Node 8","wallet":"%s","ownerId":"sebas"}' "$2" ;;
-  esac
-}
-# The content of each asset is hashed here; only the hash is registered.
-ASSETS_JSON="$(python3 - <<'PY'
-import hashlib, json
-def h(t): return "sha256:" + hashlib.sha256(t.encode()).hexdigest()
-print(json.dumps([
-  {"id": "production-acceptance-model@1", "version": 1, "kind": "RULESET", "title": "Production acceptance model",
-   "creatorId": "sebas", "contentHash": h("A contribution is accepted only when MERGED -> BUILT -> DEPLOYED -> RUNNING -> ACCEPTED all hold, measured by release-truth."),
-   "parentIds": []},
-  {"id": "strategy-knowledge@3", "version": 3, "kind": "STRATEGY", "title": "CryptoBot strategy knowledge",
-   "creatorId": "sebas", "contentHash": h("cryptobot strategy knowledge v3: opportunity detection, risk gates, rebalance policy"),
-   "parentIds": []}], separators=(",", ":")))
-PY
-)"
+# pov_identity_body / pov_assets_json / pov_seed_* / pov_print_* live in lib.sh (shared with pov-e2e.sh, KAN-826).
+ASSETS_JSON="$(pov_assets_json)"
 EVENT="$(C="$COMMIT" T="$ACCEPTED_AT" python3 - <<'PY'
 import json, os
 print(json.dumps({
@@ -153,36 +132,14 @@ fi
 if [[ -n "${CRYPTOBOT_DEMO_TOKEN:-}" ]]; then
   TOKEN="$CRYPTOBOT_DEMO_TOKEN"
 else
-  [[ -f "$ENV_FILE" ]] || fail "no ${ENV_FILE} and no CRYPTOBOT_DEMO_TOKEN"
-  secret="$(sed -n 's/^JWT_SECRET=//p' "$ENV_FILE" | tail -1)"
-  [[ -n "$secret" ]] || fail "JWT_SECRET missing in ${ENV_FILE}"
-  sub="$(python3 -c 'import uuid; print(uuid.uuid5(uuid.NAMESPACE_DNS, "demo@cryptobot.local"))')"
-  TOKEN="$(jwt_hs256 "$secret" "$sub" "demo@cryptobot.local")"
-  unset secret
+  TOKEN="$(demo_token "$ENV_FILE")" || exit 1
 fi
 
 step "1 identities (devnet keypair in ${DEMO_HOME}, only the public key is registered)"
-mkdir -p "$DEMO_HOME"; chmod 700 "$DEMO_HOME"
-for id in sebas "${AGENTS[@]}"; do
-  kp="${DEMO_HOME}/pov-${id}.json"
-  [[ -f "$kp" ]] || { keygen "$kp"; log "keypair generated: ${kp} (not in the signer's allowlist until wallet-devnet.sh runs again)"; }
-  wallet="$(pubkey_of "$kp")"
-  RESP="$(api POST /api/cryptobot/identities "$(identity_body "$id" "$wallet")")"; split_status
-  [[ "$STATUS" == 201 || "$STATUS" == 200 ]] || fail "POST /identities ${id} → ${STATUS}: ${BODY}"
-  stored="$(printf '%s' "$BODY" | jget "['wallet']")"
-  [[ "$stored" == None ]] && stored=""
-  if [[ -n "$wallet" && "$stored" != "$wallet" ]]; then
-    warn "identity ${id} already has another wallet (${stored:-none}); the service never overwrites a wallet"
-  fi
-  log "identity ${id} ($(printf '%s' "$BODY" | jget "['kind']")) wallet=${stored:-none} → ${STATUS}"
-done
+pov_seed_identities
 
 step "2 knowledge assets"
-while IFS= read -r body; do
-  RESP="$(api POST /api/cryptobot/knowledge-assets "$body")"; split_status
-  [[ "$STATUS" == 201 || "$STATUS" == 200 ]] || fail "POST /knowledge-assets → ${STATUS}: ${BODY}"
-  log "asset $(printf '%s' "$BODY" | jget "['id']") ($(printf '%s' "$BODY" | jget "['kind']")) → ${STATUS}"
-done < <(printf '%s' "$ASSETS_JSON" | python3 -c 'import json,sys; [print(json.dumps(a, separators=(",", ":"))) for a in json.load(sys.stdin)]')
+pov_seed_assets
 
 step "3 value event (anchor=true: the sweep of POST /anchors?wait=true)"
 RESP="$(api POST '/api/cryptobot/value-events?anchor=true' "$EVENT")"; split_status
@@ -243,9 +200,7 @@ fi
 
 if (( DISTRIBUTE )); then
 step "6 immediate reward (KAN-822): devnet SOL to the contributors' wallets — devnet SOL stands in for stablecoin settlement"
-RPC_URL="${CRYPTOBOT_SOLANA_DEVNET_RPC:-}"
-if [[ -z "$RPC_URL" && -f "$ENV_FILE" ]]; then RPC_URL="$(sed -n 's/^CRYPTOBOT_SOLANA_DEVNET_RPC=//p' "$ENV_FILE" | tail -1)"; fi
-RPC_URL="${RPC_URL:-$DEVNET_RPC}"
+RPC_URL="$(pov_rpc_url "$ENV_FILE")"
 declare -A BEFORE=()
 for id in sebas "${AGENTS[@]}"; do
   w="$(pubkey_of "${DEMO_HOME}/pov-${id}.json")"
@@ -258,15 +213,7 @@ DSTATE="$(printf '%s' "$DIST" | jget "['status']")"
 echo "distribution    $(printf '%s' "$DIST" | jget "['id']") → ${STATUS} ${DSTATE} policy=$(printf '%s' "$DIST" | jget "['policy']") pool=$(printf '%s' "$DIST" | jget "['poolLamports']") lamports"
 echo "receipt         $(printf '%s' "$DIST" | jget "['receiptHash']") (VALUE_DISTRIBUTION, anchored: $(printf '%s' "$DIST" | jget "['anchor']['txSignature']" || true))"
 echo "payouts"
-printf '%s' "$DIST" | python3 -c '
-import json, sys
-for p in json.load(sys.stdin)["payouts"]:
-    print("  %-15s %-9s %10s lamports  wallet=%s" % (p["identityId"], p["status"], p["lamports"], p.get("wallet") or "-"))
-    if p.get("txSignature"):
-        print("  %-15s tx %s" % ("", p["txSignature"]))
-        print("  %-15s %s" % ("", p.get("explorerUrl") or ""))
-    if p.get("error"):
-        print("  %-15s error: %s" % ("", p["error"]))'
+printf '%s' "$DIST" | pov_print_payouts
 echo "balances (lamports, ${RPC_URL%%\?*})"
 for id in sebas "${AGENTS[@]}"; do
   w="$(pubkey_of "${DEMO_HOME}/pov-${id}.json")"
@@ -319,41 +266,14 @@ fi
 [[ "$STATUS" == 201 || "$STATUS" == 200 ]] || fail "POST /revenue-events → ${STATUS}: ${BODY}"
 REV="$BODY"
 RSTATE="$(printf '%s' "$REV" | jget "['status']")"
-printf '%s' "$REV" | S="$STATUS" python3 -c '
-import json, os, sys
-r = json.load(sys.stdin)
-pol = r["policy"]
-print("revenue event   %s → %s %s  source=%s:%s simulated=%s" % (r["id"], os.environ["S"], r["status"], r["source"]["kind"], r["source"]["ref"], r["simulated"]))
-print("amount          %s lamports (%s)" % (r["amountLamports"], "SIMULATED economic result — not real profit" if r["simulated"] else "reported"))
-print("policy          %s  contributor pool %s bps · protocol fee %s bps · rest retained" % (pol["name"], pol["revenueShareBps"], pol["protocolFeeBps"]))
-print("split           pool=%s  fee=%s (recorded only)  retained=%s" % (r["contributorPoolLamports"], r["protocolFeeLamports"], r["retainedLamports"]))
-print("receipt         %s (REVENUE_EVENT, anchored: %s)" % (r["receiptHash"], (r.get("anchor") or {}).get("txSignature")))
-print("linked          " + " · ".join("%s (%s) share=%s" % (l["id"], l["title"], l.get("shareLamports")) for l in r["linkedValueEvents"]))
-print("payouts")
-for p in r["payouts"]:
-    print("  %-15s %-9s %10s lamports  wallet=%s" % (p["identityId"], p["status"], p["lamports"], p.get("wallet") or "-"))
-    if p.get("txSignature"):
-        print("  %-15s tx %s" % ("", p["txSignature"]))
-        print("  %-15s %s" % ("", p.get("explorerUrl") or ""))
-    if p.get("error"):
-        print("  %-15s error: %s" % ("", p["error"]))'
+printf '%s' "$REV" | pov_print_revenue "$STATUS"
+echo "payouts"
+printf '%s' "$REV" | pov_print_payouts
 
 RESP="$(api GET /api/cryptobot/treasury/cryptobot-001)"; split_status
 [[ "$STATUS" == 200 ]] || fail "GET /treasury/cryptobot-001 → ${STATUS}: ${BODY}"
 echo "treasury cryptobot-001 (accounting view; in this demo payouts are signed from the demo wallet)"
-printf '%s' "$BODY" | python3 -c '
-import json, sys
-t = json.load(sys.stdin)
-p = t["policies"]
-print("  wallet            %s  on-chain balance=%s%s" % (t.get("wallet") or "-", t.get("onChainBalanceLamports"), ("  (" + t["balanceNote"] + ")") if t.get("balanceNote") else ""))
-print("  income            %s lamports" % t["incomeLamports"])
-print("  contributor paid  %s lamports (CONFIRMED)" % t["contributorPayoutsLamports"])
-print("  protocol fee      %s lamports" % t["protocolFeeLamports"])
-print("  retained          %s lamports" % t["retainedLamports"])
-print("  compute cost      $%.2f (estimated; cost is not value)" % (t["computeCostMicroUsd"] / 1e6))
-print("  policies          reward pool=%s  revenue share=%s bps  fee=%s bps  signer max=%s" % (p["rewardPoolLamports"], p["revenueShareBps"], p["protocolFeeBps"], p.get("signerMaxLamports")))
-for e in t["recentEvents"][:8]:
-    print("  %-8s %-37s %12s  %s  %s" % (e["kind"], e["id"], e["lamports"], e["at"], e.get("txSignature") or ""))'
+printf '%s' "$BODY" | pov_print_treasury
 
 case "$RSTATE" in
   COMPLETE) log "PASS — ValueEvent anchored and verified, contributors paid, simulated revenue split, paid and anchored" ;;
