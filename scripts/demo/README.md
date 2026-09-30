@@ -107,6 +107,35 @@ Notes:
 - `run.sh` with `--keep` plus a later `--profile ui up -d cryptobot-ui` puts the UI on top of a
   rehearsal that is still running.
 
+## Timings for the video (KAN-795)
+
+Every wait of the demo is a compose variable with the rehearsed value as default; put the short
+values in `.env.demo` (or a copy passed with `--env-file`) — `run.sh` and `e2e-devnet.sh` source
+the same file, so the service and the scripts agree on how long to wait:
+
+```bash
+CRYPTOBOT_TIMELOCK_ESCALATED=10s        # default 20s — only an ESCALATE verdict has a timelock
+CRYPTOBOT_POLICY_COOLDOWN=15s           # default 60s — rule COOLDOWN; not in H_R, no re-pin needed
+CRYPTOBOT_RECONCILIATION_INTERVAL=5s    # default 10s
+CRYPTOBOT_RECONCILIATION_GRACE=10s      # default 20s
+# CRYPTOBOT_RECONCILIATION_MAX_ATTEMPTS stays 3 ("three attempts, no verdict: dead letter")
+```
+
+Measured 2026-09-29, `run.sh --rpc local --target local`, project `cryptobot-demo-main`:
+
+| act | defaults | video values |
+|---|---|---|
+| 0 setup | 12s | 12s |
+| 1 execute (scene A) | 8s | 8s |
+| 2 risk (cooldown inside) | 62s | 18s |
+| 3 recovery rpc-down (scene B) | 94s | 65s |
+| 4 evidence | 15s | 15s |
+| total | 3m21s | 2m08s |
+
+On the local validator act 1 is `ALLOW` (no timelock); a larger devnet position can be `ESCALATE`,
+which adds `CRYPTOBOT_TIMELOCK_ESCALATED` to scene A. Always the project `cryptobot-demo-main`, and
+one run at a time: two sessions on the same project recreate each other's service mid-run.
+
 ## Recovery, visible (KAN-571 / HK-3): `--chaos <mode>`
 
 The demo compose enables **fault injection** (`CRYPTOBOT_CHAOS_ENABLED=true`, demo only — UAT/PROD

@@ -76,7 +76,11 @@ TS="$(date +%Y%m%d-%H%M%S)"
 RUN_DIR="${OUT}/run-${TS}"
 REPORT="${OUT}/demo-report-${TS}.md"
 LOG="${RUN_DIR}/demo.log"
-COOLDOWN_S="${CRYPTOBOT_POLICY_COOLDOWN:-60s}"; COOLDOWN_S="${COOLDOWN_S%s}"
+# cooldown_seconds <duration> → seconds ("60s", "90", "2m"). KAN-795: read again after the env file is
+# sourced (below), so a CRYPTOBOT_POLICY_COOLDOWN set in .env.demo — the value the service gets — is
+# also the one the demo waits for.
+cooldown_seconds() { local d="${1:-60s}"; case "$d" in *m) echo $(( ${d%m} * 60 )) ;; *s) echo "${d%s}" ;; *) echo "$d" ;; esac; }
+COOLDOWN_S="$(cooldown_seconds "${CRYPTOBOT_POLICY_COOLDOWN:-60s}")"
 COMPOSE=(); BASE=""; TOKEN=""; CURL_OPTS=(); HOST_RPC=""; RPC_LABEL=""; PRICE_ARMED=0; PRICE_NOTE=""; SERVICE_COMMIT="$(git -C "$PROJECT" rev-parse --short HEAD 2>/dev/null || echo unknown)"
 declare -A A1=() A3=()
 
@@ -200,8 +204,14 @@ secrets_check() {
     fi
   done < "$ENV_FILE"
   if git -C "$PROJECT" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
-    git -C "$PROJECT" check-ignore -q "$ENV_FILE" || { printf '\033[1;31m[demo]\033[0m %s is NOT gitignored\n' "$ENV_FILE" >&2; hits=$((hits + 1)); }
-    git -C "$PROJECT" check-ignore -q "$REPORT" || { printf '\033[1;31m[demo]\033[0m %s is NOT gitignored\n' "$REPORT" >&2; hits=$((hits + 1)); }
+    # A file outside the repo (e.g. --out /tmp/…) cannot be committed: `git check-ignore` answers
+    # "fatal: … is outside repository" (rc 128), which is not a leak. Only paths inside are checked.
+    local f abs
+    for f in "$ENV_FILE" "$REPORT"; do
+      abs="$(cd "$(dirname "$f")" && pwd)/$(basename "$f")"
+      [[ "$abs" == "$PROJECT"/* ]] || continue
+      git -C "$PROJECT" check-ignore -q "$abs" || { printf '\033[1;31m[demo]\033[0m %s is NOT gitignored\n' "$f" >&2; hits=$((hits + 1)); }
+    done
   fi
   log "secrets check: ${n} secret values searched in the report and the log, ${hits} hits; env file and out/ gitignored"
   (( hits == 0 ))
@@ -327,6 +337,7 @@ act_risk() {
   # The cooldown: after act 1 this wallet cannot trade again for CRYPTOBOT_POLICY_COOLDOWN (60 s in
   # production config). Act 3 needs an approvable proposal, so the demo waits it out — visibly.
   local executed_at="${A1[EXECUTED_AT]:-0}" ago wait_s
+  COOLDOWN_S="$(cooldown_seconds "${CRYPTOBOT_POLICY_COOLDOWN:-60s}")"
   ago=$(( $(date +%s) - executed_at )); wait_s=$(( COOLDOWN_S + 3 - ago ))
   if (( wait_s > 0 )); then
     log "policy COOLDOWN: this wallet executed ${ago}s ago; the next trade is only approvable after ${COOLDOWN_S}s — waiting ${wait_s}s"
