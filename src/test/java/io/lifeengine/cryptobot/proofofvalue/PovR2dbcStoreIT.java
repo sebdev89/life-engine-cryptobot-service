@@ -34,7 +34,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.utility.DockerImageName;
 
 /**
- * KAN-818 persistence against a real Postgres (Testcontainers, Flyway V1..V13): the VALUE_EVENT
+ * persistence against a real Postgres (Testcontainers, Flyway V1..V13): the VALUE_EVENT
  * kind passes the receipt CHECK, identities are idempotent by {@code (tenant, id)} with FK owner,
  * a value event and its contributions are written in one transaction and read back with the
  * identity join, the unique {@code (tenant, value_event_hash)} and the role CHECK are the
@@ -138,7 +138,7 @@ class PovR2dbcStoreIT {
     }
 
     @Test
-    @DisplayName("KAN-819: knowledge assets (parent_ids[], join del creator), links y compute receipts en la misma transacción; wallet backfill")
+    @DisplayName("knowledge assets (parent_ids[], join del creator), links y compute receipts en la misma transacción; wallet backfill")
     void attribution() {
         UUID owner = UUID.randomUUID();
         String tenant = owner.toString();

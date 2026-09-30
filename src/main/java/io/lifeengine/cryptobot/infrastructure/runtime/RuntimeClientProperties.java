@@ -7,7 +7,7 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 public record RuntimeClientProperties(String baseUrl, String workflowId, String authMode) {
 
     /**
-     * Con qué credencial CryptoBot llama a Runtime (KAN-69).
+     * Con qué credencial CryptoBot llama a Runtime.
      *
      * <ul>
      *   <li>{@link #PASSTHROUGH} (default): las llamadas disparadas por un usuario viajan con el

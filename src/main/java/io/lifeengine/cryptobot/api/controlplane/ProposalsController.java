@@ -63,7 +63,7 @@ public class ProposalsController {
     }
 
     /**
-     * The durable event stream of the proposal (KAN-403): outbox events with their delivery state,
+     * The durable event stream of the proposal: outbox events with their delivery state,
      * plus any dead letters. Owner-scoped through the proposal lookup — never a cross-owner list.
      */
     @GetMapping("/{proposalId}/events")
@@ -87,7 +87,7 @@ public class ProposalsController {
     }
 
     /**
-     * KAN-438 (paper §19): during the timelock that starts at approval a human may cancel. Only
+     * (paper §19): during the timelock that starts at approval a human may cancel. Only
      * APPROVED proposals; anything in flight or terminal is a 409.
      */
     @PostMapping(path = "/{proposalId}/cancel")
@@ -99,9 +99,9 @@ public class ProposalsController {
     /**
      * Second, explicit click. Only APPROVED + executable + devnet. Everything else is a 409 with the
      * reason. Idempotent on {@code Idempotency-Key} (or body {@code operationId}): the same key
-     * never produces a second transaction; a different key while in flight is a 409 (KAN-403).
+     * never produces a second transaction; a different key while in flight is a 409.
      *
-     * <p>The key is either a UUID or an intent hash {@code sha256:<64 hex>} (KAN-435): the hash of
+     * <p>The key is either a UUID or an intent hash {@code sha256:<64 hex>}: the hash of
      * the canonical intent is the identity of the operation, so re-submitting the same intent is
      * idempotent by construction — the operationId is derived from the hash, never invented.
      */
@@ -125,7 +125,7 @@ public class ProposalsController {
                         "Idempotency-Key / operationId must be a UUID or an intent hash sha256:<64 hex>"));
             }
         }
-        // KAN-500 (CB-03): the hash itself is persisted with the row (action_proposal.intent_hash), not only folded into the id.
+        // (CB-03): the hash itself is persisted with the row (action_proposal.intent_hash), not only folded into the id.
         return execution.execute(p.userId(), proposalId, Principals.actor(p), operationId, intentHash);
     }
 

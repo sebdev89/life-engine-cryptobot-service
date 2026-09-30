@@ -46,7 +46,7 @@ import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
 /**
- * Proof of Value V1 (KAN-818): an ACCEPTED contribution becomes a {@code VALUE_EVENT} receipt.
+ * Proof of Value V1: an ACCEPTED contribution becomes a {@code VALUE_EVENT} receipt.
  *
  * <pre>
  *   request ─▶ AcceptancePolicy V1 (5 stages true, else 422)
@@ -64,7 +64,7 @@ import reactor.core.publisher.Mono;
  *
  * <p>Idempotent by content: the same event posted again returns the stored one ({@code created=false}).
  *
- * <p>KAN-819 (V3/V4): {@code knowledgeAssets} must be registered (422 otherwise) and enter the canonical event expanded;
+ * <p>an internal ticket (V3/V4): {@code knowledgeAssets} must be registered (422 otherwise) and enter the canonical event expanded;
  * a creator of one of them who is not among the KNOWLEDGE_PROVIDER contributions gets one, added after the request's
  * contributions and before the split, with {@code derivedFrom} = those assets (provenance, not an economic decision:
  * the policy is still {@code pov/equal-split/v1}). {@code computeReceipts} name a registered provider with a wallet
@@ -94,9 +94,9 @@ public class ValueEventService {
     private final CryptobotMetrics metrics;
     private final ObjectMapper json;
     private final Clock clock;
-    /** KAN-822: the immediate reward of an event, shown on the event; {@code null} in unit tests that do not need it. */
+    /** the immediate reward of an event, shown on the event; {@code null} in unit tests that do not need it. */
     private final PayoutRepository payouts;
-    /** KAN-824: the revenue shares of an event ("future participation"); {@code null} in unit tests that do not need it. */
+    /** the revenue shares of an event ("future participation"); {@code null} in unit tests that do not need it. */
     private final RevenueRepository revenues;
 
     @Autowired
@@ -377,14 +377,14 @@ public class ValueEventService {
     Mono<ValueEventView> view(UUID ownerUserId, ValueEventRecord r) {
         Mono<ValueEventView> base = receipts.require(ownerUserId, r.receiptHash()).flatMap(anchors::inclusion).map(inc -> toView(r, inc));
         if (revenues != null) {
-            // KAN-824: what each RevenueEvent linked to this one allocated its contributions.
+            // what each RevenueEvent linked to this one allocated its contributions.
             base = base.zipWith(revenues.sharesOf(r.tenantId(), r.id()).map(x -> new ProofOfValueDtos.RevenueShareView(x.revenueEventId(), x.lamports()))
                     .collectList(), ValueEventService::withRevenueShares);
         }
         if (payouts == null) {
             return base;
         }
-        // KAN-822: the immediate reward, if any, at a glance.
+        // the immediate reward, if any, at a glance.
         return base.zipWith(payouts.findByEvent(r.tenantId(), r.id()).map(Optional::of).defaultIfEmpty(Optional.empty()),
                 (v, d) -> d.isEmpty() ? v : withDistribution(v, new ProofOfValueDtos.DistributionSummaryView(PovDistribution.statusOf(d.get().payouts()),
                         d.get().poolLamports(), d.get().confirmedLamports())));
@@ -471,7 +471,7 @@ public class ValueEventService {
         return inc.explorerUrl() != null ? inc.explorerUrl() : AnchorService.explorerUrl("solana-devnet", inc.tx());
     }
 
-    /** KAN-822: the same link for any devnet transaction (a payout): the custom-cluster link on a local validator, else devnet's. */
+    /** the same link for any devnet transaction (a payout): the custom-cluster link on a local validator, else devnet's. */
     String explorerTxUrl(String tx) {
         if (tx == null) {
             return null;

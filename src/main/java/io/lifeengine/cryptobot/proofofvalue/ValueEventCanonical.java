@@ -9,7 +9,7 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * The value trees of a ValueEvent and their hashes (KAN-818). Canonical JSON is RFC 8785 (the same
+ * The value trees of a ValueEvent and their hashes. Canonical JSON is RFC 8785 (the same
  * {@link JsonCanonicalizer} the intents and the receipts use); every hash is a plain
  * {@code sha256:<hex>} of those bytes, so {@code sha256sum} over the stored {@code canonical}
  * recomputes it. Absent optional fields are omitted, never {@code null}; timestamps are
@@ -21,7 +21,7 @@ import java.util.Map;
  *   valueEventHash = sha256(JCS(event))   ← the VALUE_EVENT receipt's output.hash
  * </pre>
  *
- * <p>KAN-819: an event with knowledge assets or compute receipts is {@link #SCHEMA_V2}; its {@code knowledgeAssets}
+ * <p>an internal ticket: an event with knowledge assets or compute receipts is {@link #SCHEMA_V2}; its {@code knowledgeAssets}
  * and {@code computeReceipts} carry the expanded objects (asset id, version, kind, title, creator, content hash; provider,
  * provider wallet, node, model, tokens, GPU milliseconds, estimated cost in micro-USD), so the hash anchored on-chain
  * covers them. An event without either stays {@link #SCHEMA} byte for byte — V1 hashes and idempotency do not move.

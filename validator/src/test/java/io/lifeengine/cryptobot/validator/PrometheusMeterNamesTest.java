@@ -27,7 +27,7 @@ import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.web.reactive.server.WebTestClient;
 
 /**
- * KAN-582 (HK-5b): the validator publishes its own series. What the demo dashboard will read
+ * (HK-5b): the validator publishes its own series. What the demo dashboard will read
  * ({@code validator_attestations_total{outcome,rule}} with {@code service="cryptobot-validator"})
  * exists from boot with the build-identity common tags, moves with real requests, and no name is
  * registered under two label sets.

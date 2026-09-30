@@ -9,7 +9,7 @@ import java.util.Map;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
 /**
- * {@code cryptobot.quotes.*} — ARS quotes across exchanges (KAN-355).
+ * {@code cryptobot.quotes.*} — ARS quotes across exchanges.
  *
  * <ul>
  *   <li>{@code cache-ttl}: how long one exchange's board is served from memory (30–60 s by design).

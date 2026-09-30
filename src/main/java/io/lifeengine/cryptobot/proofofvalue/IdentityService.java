@@ -15,11 +15,11 @@ import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
 /**
- * Minimal contributor registry (KAN-818): create, list, get — idempotent by id. The tenant is the
+ * Minimal contributor registry: create, list, get — idempotent by id. The tenant is the
  * JWT owner ({@link Receipts#tenantOf}), the same key the receipts use; an identity of another
  * tenant does not exist for the caller (404).
  *
- * <p>KAN-819 (V2 AgentIdentity): an {@code AGENT} must have a wallet (422 {@code AGENT_WALLET_REQUIRED}); a wallet,
+ * <p>an internal ticket (V2 AgentIdentity): an {@code AGENT} must have a wallet (422 {@code AGENT_WALLET_REQUIRED}); a wallet,
  * when present, must be a Solana public key — Base58 of exactly 32 bytes (422 {@code INVALID_WALLET}). Only the public
  * key is registered: keypairs never reach the service. An identity registered before this rule without a wallet (a V1
  * agent) gets it set once when it is posted again with one; a stored wallet is never overwritten.

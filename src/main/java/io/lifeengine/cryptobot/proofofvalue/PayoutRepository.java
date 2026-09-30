@@ -5,7 +5,7 @@ import java.util.UUID;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
-/** KAN-822 (V5): distributions and their payouts. Everything is tenant-scoped; one distribution per value event. */
+/** (V5): distributions and their payouts. Everything is tenant-scoped; one distribution per value event. */
 public interface PayoutRepository {
 
     /** The distribution and its payouts in one transaction; errors when the event already has one (unique value_event_id). */
@@ -20,10 +20,10 @@ public interface PayoutRepository {
     /** Status, receipt hash and updated_at of the distribution. */
     Mono<Void> updateDistribution(PovDistribution distribution);
 
-    /** KAN-825: every payout of the tenant (distributions and revenue events), newest first — the Treasury read model folds over it. */
+    /** every payout of the tenant (distributions and revenue events), newest first — the Treasury read model folds over it. */
     Flux<PovPayout> findAll(String tenantId);
 
-    /** Every payout of one identity (V5 and, KAN-824, V7), newest first (the rewards of {@code GET /identities/{id}}). */
+    /** Every payout of one identity (V5 and, an internal ticket, V7), newest first (the rewards of {@code GET /identities/{id}}). */
     Flux<PovPayout> findByIdentity(String tenantId, String identityId);
 
     /** Lamports of payouts (of any source) SUBMITTED or CONFIRMED since {@code since}: the daily exposure the policy sees. */

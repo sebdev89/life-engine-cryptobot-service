@@ -23,13 +23,13 @@ import reactor.core.publisher.Mono;
 
 /**
  * {@link ArsQuotesPort} over every {@link ExchangeQuoteSource} bean, with one in-memory board per
- * exchange refreshed at most every {@code cryptobot.quotes.cache-ttl} (KAN-355).
+ * exchange refreshed at most every {@code cryptobot.quotes.cache-ttl}.
  *
  * <p>Failure policy per exchange: a refresh that fails serves the previous board flagged
  * {@code stale} while it is younger than {@code stale-max}; after that the exchange is reported
  * {@code FETCH_FAILED}. Exchanges are fetched concurrently and one slow exchange never delays the
  * others beyond its own timeout. Metrics: {@code cryptobot_quotes_fetch_total{exchange,ok}} and
- * {@code cryptobot_quotes_fetch_latency_seconds{exchange}} (KAN-353 dashboard).
+ * {@code cryptobot_quotes_fetch_latency_seconds{exchange}} (internal ticket dashboard).
  */
 @Service
 public class CachedArsQuotesService implements ArsQuotesPort {

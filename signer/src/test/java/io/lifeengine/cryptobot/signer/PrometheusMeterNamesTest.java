@@ -28,7 +28,7 @@ import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.web.reactive.server.WebTestClient;
 
 /**
- * KAN-582 (HK-5b): the signer publishes its own series, so "firmados" on the demo dashboard is
+ * (HK-5b): the signer publishes its own series, so "firmados" on the demo dashboard is
  * {@code signer_signatures_total{outcome="signed",kind="transfer"}} and not a derived value.
  * Signed, refused-by-rule (own cap, mainnet, attestation) and anchors are scraped with the
  * build-identity common tags; every known rule exists at 0; no name has two label sets.

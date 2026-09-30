@@ -16,7 +16,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
 
 /**
- * Business metrics of CryptoBot (KAN-425, Platform-Baseline-v1 §Observabilidad · nivel 3).
+ * Business metrics of CryptoBot (Platform-Baseline-v1 §Observabilidad · nivel 3).
  *
  * <p>The single place where the product's meters are named. Every service that emits a business
  * event calls one method here; nobody else touches the {@link MeterRegistry} for business data.
@@ -40,51 +40,51 @@ import java.util.concurrent.atomic.AtomicLong;
  *   trade.failed                  → trade_failed_total{stage,asset}        preflight | sign | broadcast | onchain | rpc | other
  *   solana.rpc.errors             → solana_rpc_errors_total{method,cluster,kind}
  *   solana.confirmation.latency   → solana_confirmation_latency_seconds{result,cluster}
- *   --- KAN-403 (outbox / reconciliación / duplicados) ---
+ *   --- an internal ticket (outbox / reconciliación / duplicados) ---
  *   trade.reconciled              → trade_reconciled_total{result}         matched (still pending, consistent) | corrected (row moved by the chain's verdict)
  *   reconciliation.mismatch       → reconciliation_mismatch_total          a SUBMITTED row the chain never saw (blockhash expired)
  *   duplicate.trade.suppressed    → duplicate_trade_suppressed_total       same operationId replayed: no new transaction
  *   outbox.pending                → outbox_pending          (gauge)       PENDING outbox rows, refreshed every publisher tick
  *   outbox.failed                 → outbox_failed           (gauge)       retries exhausted (each one has a dead letter)
  *   dlq.size                      → dlq_size                (gauge)       unresolved dead letters — > 0 is the alert
- *   --- KAN-571 (reconciliación + recovery visibles; KAN-501 DLQ resolve/requeue) ---
+ *   --- an internal ticket (reconciliación + recovery visibles; an internal ticket DLQ resolve/requeue) ---
  *   cryptobot.reconciliation      → cryptobot_reconciliation_total{outcome}  matched | corrected | retried | dead_lettered | skipped (one per row looked at)
  *   cryptobot.dead.letter         → cryptobot_dead_letter_total{reason}      ambiguous | retries_exhausted | inconsistent | outbox (created) — and resolved | requeued (closed)
  *   cryptobot.dead.letter.open    → cryptobot_dead_letter_open (gauge)       = dlq_size under the product's name; falls when a letter is resolved or requeued
- *   --- KAN-440 (authority layer: the deterministic verdict, what the funnel's "blocked" is made of) ---
+ *   --- an internal ticket (authority layer: the deterministic verdict, what the funnel's "blocked" is made of) ---
  *   policy.verdicts               → policy_verdicts_total{decision,escalation}  allow | deny | escalate × none | require_second_agent | require_human_signature
  *   policy.predicate.failed       → policy_predicate_failed_total{predicate}    one increment per failed predicate of a DENY (a verdict may count several)
- *   --- KAN-391 (Decision Receipts: fed by ReceiptService; mismatch waits for the L1 re-execution of KAN-392) ---
+ *   --- an internal ticket (Decision Receipts: fed by ReceiptService; mismatch waits for the L1 re-execution of an internal ticket) ---
  *   intelligence.receipts         → intelligence_receipts_total{result}    issued | verified | invalid (verify failed a check) | failed (could not be written)
  *   deterministic.inference       → deterministic_inference_total          one per L1 receipt (risk engine, planner)
  *   deterministic.mismatch        → deterministic_mismatch_total
- *   --- KAN-394 (anchoring on devnet: fed by AnchorService) ---
+ *   --- an internal ticket (anchoring on devnet: fed by AnchorService) ---
  *   receipt.anchors               → receipt_anchors_total{result}         submitted | finalized | failed | abandoned (one per batch transition)
  *   anchored.receipts             → anchored_receipts_total               receipts stamped by a FINALIZED batch
  *   anchor.pending                → anchor_pending          (gauge)       receipts without a finalized anchor (Endgame §24)
  *   anchor.finality.latency       → anchor_finality_latency_seconds       broadcast → finalized, per batch
- *   --- KAN-818 (Proof of Value V1: fed by proofofvalue.ValueEventService / IdentityService) ---
+ *   --- an internal ticket (Proof of Value V1: fed by proofofvalue.ValueEventService / IdentityService) ---
  *   pov.value.events              → pov_value_events_total{status}        recorded | anchored | rejected (AcceptancePolicy 422) — one per POST outcome
  *   pov.identities                → pov_identities_total                  contributor identities created (an idempotent re-POST does not count)
- *   --- KAN-819 (Proof of Value V3/V4: fed by proofofvalue.KnowledgeAssetService / ValueEventService) ---
+ *   --- an internal ticket (Proof of Value V3/V4: fed by proofofvalue.KnowledgeAssetService / ValueEventService) ---
  *   pov.knowledge.assets          → pov_knowledge_assets_total            knowledge assets registered (an idempotent re-POST does not count)
  *   pov.compute.receipts          → pov_compute_receipts_total            compute receipts attached to newly recorded value events
- *   --- KAN-822 (Proof of Value V5, immediate reward: fed by proofofvalue.PovRewardService) ---
+ *   --- an internal ticket (Proof of Value V5, immediate reward: fed by proofofvalue.PovRewardService) ---
  *   pov.payouts                   → pov_payouts_total{status}             one per payout outcome: confirmed | submitted | failed | unfunded
  *   pov.payout.lamports           → pov_payout_lamports_total{status}     lamports of those payouts (confirmed = paid on devnet)
- *   --- KAN-824 (Proof of Value V7, RevenueEvent: fed by proofofvalue.PovRevenueService) ---
+ *   --- an internal ticket (Proof of Value V7, RevenueEvent: fed by proofofvalue.PovRevenueService) ---
  *   pov.revenue.events            → pov_revenue_events_total{source,simulated}   revenue events recorded (an idempotent re-POST does not count)
  *   pov.revenue.lamports          → pov_revenue_lamports_total{source,simulated} their amounts (simulated=true: not real profit)
- *   --- KAN-393 (provenance DAG: lineage API + REUSES edge) ---
+ *   --- an internal ticket (provenance DAG: lineage API + REUSES edge) ---
  *   artifact.reuse                → artifact_reuse_total{external}       a STRATEGY that declared REUSES over an earlier MARKET_ANALYSIS; external=false until public receipts exist
  *   provenance.depth              → provenance_depth (distribution)       max depth of the graph a lineage query returned
- *   --- KAN-582 (HK-5b: the 409 of /execute says WHY, and every stage of the demo path has a histogram) ---
+ *   --- an internal ticket (HK-5b: the 409 of /execute says WHY, and every stage of the demo path has a histogram) ---
  *   cryptobot.execution.refused   → cryptobot_execution_refused_total{reason}   mainnet | timelock | policy | state | cooldown | oracle — one per refused
  *                                                                              POST /execute (409), before any state change; see {@link RefusalReason}
  *   cryptobot.stage.latency       → cryptobot_stage_latency_seconds{stage}      histogram (_bucket/_sum/_count) per stage of the demo path:
  *                                                                              simulate | policy | validate | sign | submit | confirm | reconcile;
  *                                                                              buckets per stage in {@link Stage#buckets()}
- *   --- KAN-353 (glossary usage: fed by GlossaryEventsService from the UI's batched events) ---
+ *   --- an internal ticket (glossary usage: fed by GlossaryEventsService from the UI's batched events) ---
  *   cryptobot.glossary.term       → cryptobot_glossary_term_total{term,action}  open | search | copy — one series per (term, action)
  *   cryptobot.glossary.search     → cryptobot_glossary_search_total{hit}        true | false (a search with no result is the product signal)
  * </pre>
@@ -96,7 +96,7 @@ import java.util.concurrent.atomic.AtomicLong;
  * configured allow-list, otherwise {@code other}: the market-review symbol is user input and would
  * otherwise be an unbounded series. Never a wallet, a proposal id, a signature or a message.
  *
- * <p>{@code term} (KAN-353) is the glossary term as the UI names it — the service does not carry a
+ * <p>{@code term} is the glossary term as the UI names it — the service does not carry a
  * copy of the 864-entry list, so it cannot allow-list it. Instead the number of distinct terms is
  * capped at {@link #MAX_GLOSSARY_TERMS}: past the cap every new term is reported as {@code other}.
  * The caller ({@code GlossaryEventsService}) has already validated shape and length. Never a user,
@@ -154,7 +154,7 @@ public class CryptobotMetrics {
     static final String STAGE_LATENCY = "cryptobot.stage.latency";
 
     /**
-     * KAN-582: why {@code POST /execute} answered 409 before touching the proposal. Bounded and
+     * why {@code POST /execute} answered 409 before touching the proposal. Bounded and
      * ordered by specificity: when several preconditions fail at once (a BLOCKED_BY_POLICY proposal
      * is also "not APPROVED"), the <em>first</em> in this order is the one counted, so the dashboard
      * says "policy", not "state". {@code COOLDOWN} is a proposal-time blocking rule today
@@ -162,7 +162,7 @@ public class CryptobotMetrics {
      * proposal that rule blocked, so the label exists and reads 0 when it never happened.
      */
     public enum RefusalReason {
-        /** Wallet or proposal on mainnet with {@code allow-mainnet=false} (KAN-493). */
+        /** Wallet or proposal on mainnet with {@code allow-mainnet=false}. */
         MAINNET,
         /** The approval's timelock has not elapsed (paper §19). */
         TIMELOCK,
@@ -170,7 +170,7 @@ public class CryptobotMetrics {
         COOLDOWN,
         /** Kill switch, not executable, DENY, policy hash changed, no (I, S) or no oracle reading on the decision. */
         POLICY,
-        /** The fresh oracle reading refused the trade at execution time (KAN-439). */
+        /** The fresh oracle reading refused the trade at execution time. */
         ORACLE,
         /** Not APPROVED, in flight under another operation, expired, no approval record, cluster mismatch. */
         STATE;
@@ -181,7 +181,7 @@ public class CryptobotMetrics {
     }
 
     /**
-     * KAN-582: the stages of the demo path, each with the buckets its latency lives in. Simulation,
+     * the stages of the demo path, each with the buckets its latency lives in. Simulation,
      * policy, validation and signing are local/RPC round-trips (tens of ms to seconds); submit is one
      * {@code sendTransaction}; confirm waits for the chain (seconds to a couple of minutes);
      * reconcile is one row of the sweep (an RPC lookup, sometimes a retry).
@@ -220,7 +220,7 @@ public class CryptobotMetrics {
     /** Stages of {@code ExecutionService.run}; the one reached when it failed is the label. */
     public enum FailureStage {
         PREFLIGHT,
-        /** The independent validator refused, disagreed or could not be reached (KAN-438). */
+        /** The independent validator refused, disagreed or could not be reached. */
         VALIDATE,
         SIGN,
         BROADCAST,
@@ -236,13 +236,13 @@ public class CryptobotMetrics {
     private final MeterRegistry registry;
     private final Set<String> knownAssets;
 
-    // Gauges owned here so KAN-403 only has to call the setters.
+    // Gauges owned here so an internal ticket only has to call the setters.
     private final AtomicLong outboxPending = new AtomicLong();
     private final AtomicLong outboxFailed = new AtomicLong();
     private final AtomicLong dlqSize = new AtomicLong();
     private final AtomicLong anchorPending = new AtomicLong();
 
-    // KAN-353: the distinct glossary terms seen so far, so the `term` label stays bounded.
+    // the distinct glossary terms seen so far, so the `term` label stays bounded.
     private final Set<String> glossaryTerms = ConcurrentHashMap.newKeySet();
 
     public CryptobotMetrics(MeterRegistry registry, Collection<String> knownAssets) {
@@ -296,7 +296,7 @@ public class CryptobotMetrics {
         counter(TRADE_SUBMITTED, "asset", asset(symbol)).increment();
     }
 
-    /** Terminal on-chain status: {@code confirmed} | {@code finalized}; {@code pending} = gave up waiting (KAN-403 reconciles). */
+    /** Terminal on-chain status: {@code confirmed} | {@code finalized}; {@code pending} = gave up waiting (internal ticket reconciles). */
     public void tradeConfirmed(String confirmationStatus, String symbol) {
         counter(TRADE_CONFIRMED, "result", low(confirmationStatus == null ? "pending" : confirmationStatus), "asset", asset(symbol)).increment();
     }
@@ -305,7 +305,7 @@ public class CryptobotMetrics {
         counter(TRADE_FAILED, "stage", stage.label(), "asset", asset(symbol)).increment();
     }
 
-    // ---- KAN-440: the deterministic verdict (paper §18) ---------------------------------------
+    // ---- an internal ticket: the deterministic verdict (paper §18) ---------------------------------------
 
     /** One {@code DeterministicPolicyEngine} verdict: {@code decision} ALLOW | DENY | ESCALATE, {@code escalation} NONE | REQUIRE_SECOND_AGENT | REQUIRE_HUMAN_SIGNATURE. */
     public void policyVerdict(String decision, String escalation) {
@@ -317,14 +317,14 @@ public class CryptobotMetrics {
         counter(POLICY_PREDICATE_FAILED, "predicate", low(predicate)).increment();
     }
 
-    // ---- KAN-439: oracle integrity at execution (paper §22) ------------------------------------
+    // ---- an internal ticket: oracle integrity at execution (paper §22) ------------------------------------
 
     /** The fresh reading right before signing refused the trade: no consensus, breaker tripped, or the plan's price drifted. */
     public void oracleExecutionRefused() {
         counter(ORACLE_EXECUTION_REFUSED).increment();
     }
 
-    // ---- KAN-582: the 409 of /execute, by reason; the demo path, by stage --------------------
+    // ---- an internal ticket: the 409 of /execute, by reason; the demo path, by stage --------------------
 
     /** {@code POST /execute} refused before any state change; {@code reason} is the most specific one that applied. */
     public void executionRefused(RefusalReason reason) {
@@ -372,7 +372,7 @@ public class CryptobotMetrics {
                 .record(elapsed);
     }
 
-    // ---- KAN-403: outbox / reconciliación / duplicados (registered now, fed later) -------------
+    // ---- an internal ticket: outbox / reconciliación / duplicados (registered now, fed later) -------------
 
     public void tradeReconciled(String result) {
         counter(TRADE_RECONCILED, "result", low(result)).increment();
@@ -394,12 +394,12 @@ public class CryptobotMetrics {
         outboxFailed.set(size);
     }
 
-    /** Unresolved dead letters: feeds both {@code dlq_size} (KAN-403 dashboards) and {@code cryptobot_dead_letter_open} (KAN-571). */
+    /** Unresolved dead letters: feeds both {@code dlq_size} (internal ticket dashboards) and {@code cryptobot_dead_letter_open}. */
     public void dlqSize(long size) {
         dlqSize.set(Math.max(0, size));
     }
 
-    // ---- KAN-571: reconciliation + recovery, visible ------------------------------------------
+    // ---- an internal ticket: reconciliation + recovery, visible ------------------------------------------
 
     /** One reconciled row: {@code matched | corrected | retried | dead_lettered | skipped}. */
     public void reconciliation(String outcome) {
@@ -414,7 +414,7 @@ public class CryptobotMetrics {
         counter(DEAD_LETTER, "reason", low(reason)).increment();
     }
 
-    // ---- KAN-391: Decision Receipts / determinismo --------------------------------------------
+    // ---- an internal ticket: Decision Receipts / determinismo --------------------------------------------
 
     public void intelligenceReceipt(String result) {
         counter(INTELLIGENCE_RECEIPTS, "result", low(result)).increment();
@@ -428,14 +428,14 @@ public class CryptobotMetrics {
         counter(DETERMINISTIC_MISMATCH).increment();
     }
 
-    // ---- KAN-438: independent validator (paper §20) --------------------------------------------
+    // ---- an internal ticket: independent validator (paper §20) --------------------------------------------
 
     /** {@code result}: {@code issued} (attestation obtained) | {@code refused} (DENY, disagreement, unreachable). */
     public void validatorAttestation(String result) {
         counter(VALIDATOR_ATTESTATIONS, "result", low(result)).increment();
     }
 
-    // ---- KAN-394: anchoring on devnet ---------------------------------------------------------
+    // ---- an internal ticket: anchoring on devnet ---------------------------------------------------------
 
     /** {@code submitted | finalized | failed | abandoned}: one per transition of a batch. */
     public void receiptAnchor(String result) {
@@ -462,7 +462,7 @@ public class CryptobotMetrics {
                 .record(elapsed);
     }
 
-    // ---- KAN-818: Proof of Value V1 ------------------------------------------------------------------
+    // ---- an internal ticket: Proof of Value V1 ------------------------------------------------------------------
 
     /** One outcome of {@code POST /value-events}: {@code recorded | anchored | rejected}. */
     public void povValueEvent(String status) {
@@ -474,7 +474,7 @@ public class CryptobotMetrics {
         counter(POV_IDENTITIES).increment();
     }
 
-    // ---- KAN-819: Proof of Value V3/V4 -------------------------------------------------------------
+    // ---- an internal ticket: Proof of Value V3/V4 -------------------------------------------------------------
 
     /** A knowledge asset was registered. */
     public void povKnowledgeAsset() {
@@ -488,7 +488,7 @@ public class CryptobotMetrics {
         }
     }
 
-    // ---- KAN-822: Proof of Value V5 (immediate reward) ----------------------------------------------
+    // ---- an internal ticket: Proof of Value V5 (immediate reward) ----------------------------------------------
 
     /** One payout reached {@code status} ({@code confirmed | submitted | failed | unfunded}) moving {@code lamports}. */
     public void povPayout(String status, long lamports) {
@@ -498,7 +498,7 @@ public class CryptobotMetrics {
         }
     }
 
-    // ---- KAN-824: Proof of Value V7 (RevenueEvent) ----------------------------------------------------
+    // ---- an internal ticket: Proof of Value V7 (RevenueEvent) ----------------------------------------------------
 
     /** A revenue event was recorded: its {@code source} kind, whether it is {@code simulated}, and its amount. */
     public void povRevenueEvent(String source, boolean simulated, long amountLamports) {
@@ -508,7 +508,7 @@ public class CryptobotMetrics {
         }
     }
 
-    // ---- KAN-393: provenance DAG ------------------------------------------------------------------
+    // ---- an internal ticket: provenance DAG ------------------------------------------------------------------
 
     /** A receipt reused an earlier artifact ({@code REUSES} edge) instead of recomputing it. {@code external}: the artifact came from another tenant (P1). */
     public void artifactReuse(boolean external) {
@@ -521,7 +521,7 @@ public class CryptobotMetrics {
                 .register(registry).record(Math.max(0, depth));
     }
 
-    // ---- KAN-353: glossary usage (the UI batches, GlossaryEventsService validates) --------------
+    // ---- an internal ticket: glossary usage (the UI batches, GlossaryEventsService validates) --------------
 
     /**
      * One glossary interaction on a term: {@code action} is {@code open | search | copy} (already
@@ -584,7 +584,7 @@ public class CryptobotMetrics {
         counter(DETERMINISTIC_MISMATCH);
         counter(VALIDATOR_ATTESTATIONS, "result", "issued");
         counter(VALIDATOR_ATTESTATIONS, "result", "refused");
-        // KAN-394: the anchoring batch, so "0 abandoned" is measured and the gauge exists before the first sweep.
+        // the anchoring batch, so "0 abandoned" is measured and the gauge exists before the first sweep.
         Gauge.builder(ANCHOR_PENDING, anchorPending, AtomicLong::doubleValue)
                 .description("Receipts without a finalized devnet anchor (KAN-394)").register(registry);
         for (String r : new String[] {"submitted", "finalized", "failed", "abandoned"}) {
@@ -608,14 +608,14 @@ public class CryptobotMetrics {
         for (FailureStage s : FailureStage.values()) {
             counter(TRADE_FAILED, "stage", s.label(), "asset", ASSET_NONE);
         }
-        // The verdict panel (KAN-440): every decision at 0 so "0 DENY" reads as measured, not missing.
+        // The verdict panel: every decision at 0 so "0 DENY" reads as measured, not missing.
         counter(POLICY_VERDICTS, "decision", "allow", "escalation", "none");
         counter(POLICY_VERDICTS, "decision", "deny", "escalation", "none");
         counter(POLICY_VERDICTS, "decision", "escalate", "escalation", "require_second_agent");
         counter(POLICY_VERDICTS, "decision", "escalate", "escalation", "require_human_signature");
-        // KAN-439: "0 refused by the oracle at execution" is measured, not missing.
+        // "0 refused by the oracle at execution" is measured, not missing.
         counter(ORACLE_EXECUTION_REFUSED);
-        // KAN-582: every reason of the 409 at 0, and every stage histogram registered with its buckets,
+        // every reason of the 409 at 0, and every stage histogram registered with its buckets,
         // so "Mainnet bloqueado · 409" reads a real series and the latency row is never "No data".
         for (RefusalReason r : RefusalReason.values()) {
             counter(EXECUTION_REFUSED, "reason", r.label());
@@ -623,7 +623,7 @@ public class CryptobotMetrics {
         for (Stage s : Stage.values()) {
             stageTimer(s);
         }
-        // KAN-353: the "búsquedas sin resultado" panel reads 0, not "No data", before the first search.
+        // the "búsquedas sin resultado" panel reads 0, not "No data", before the first search.
         counter(GLOSSARY_SEARCH, "hit", "true");
         counter(GLOSSARY_SEARCH, "hit", "false");
     }

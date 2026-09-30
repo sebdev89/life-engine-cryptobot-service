@@ -25,7 +25,7 @@ import org.springframework.web.reactive.function.client.WebClientResponseExcepti
 import reactor.core.publisher.Mono;
 
 /**
- * HTTP client for {@code cryptobot-validator} (KAN-438, paper §20). Before signing, this service
+ * HTTP client for {@code cryptobot-validator} (paper §20). Before signing, this service
  * hands the validator the facts {@code (I, S)} it recorded when it decided, the {@code H_R} it
  * decided under, the verdict hash it recorded, and the SHA-256 of the exact message bytes it is
  * about to have signed. The validator re-derives the verdict in its own process and returns a
@@ -125,7 +125,7 @@ public class ValidatorClient {
     }
 
     /**
-     * KAN-822: the same request for an operation that is not an {@link ActionProposal} — a Proof of Value payout. The
+     * the same request for an operation that is not an {@link ActionProposal} — a Proof of Value payout. The
      * caller recorded {@code (I, S)} and the verdict it derived over them; {@code operationId} is what the attestation
      * binds as {@code proposal_id} (and what the signer is then asked to sign for). Same checks, same refusals.
      */
@@ -149,7 +149,7 @@ public class ValidatorClient {
         body.put("policyHash", verdict.policyHash());
         body.put("expectedVerdictHash", verdict.hash());
         body.put("messageHash", messageHash);
-        // KAN-493: the attestation is bound to the cluster the bytes are for; the signer checks it.
+        // the attestation is bound to the cluster the bytes are for; the signer checks it.
         body.put("cluster", cluster);
         Map<String, Object> facts = input.canonicalMap();
         body.put("intent", facts.get("intent"));
@@ -163,7 +163,7 @@ public class ValidatorClient {
                 .retrieve()
                 .bodyToMono(Response.class)
                 .timeout(props.timeout())
-                // KAN-500: a 2xx with no body completes empty — and an empty Mono here let the pipeline skip the
+                // a 2xx with no body completes empty — and an empty Mono here let the pipeline skip the
                 // validator AND the signer (HTTP 200, no proposal, row stuck EXECUTING). No answer is a refusal.
                 .switchIfEmpty(Mono.error(new ValidatorRefused("no answer from the validator (empty response)")))
                 .onErrorMap(WebClientResponseException.class, ex -> new ValidatorRefused("HTTP " + ex.getStatusCode().value() + " " + ex.getResponseBodyAsString()))

@@ -16,7 +16,7 @@ import org.springframework.boot.builder.SpringApplicationBuilder;
 import org.springframework.mock.env.MockEnvironment;
 
 /**
- * KAN-69: en un ambiente real, con el camino S2S activo y sin credencial, CryptoBot no arranca —
+ * en un ambiente real, con el camino S2S activo y sin credencial, CryptoBot no arranca —
  * y el mensaje dice QUÉ variable falta sin mostrar ningún valor.
  */
 class ServiceTokenStartupValidatorTest {

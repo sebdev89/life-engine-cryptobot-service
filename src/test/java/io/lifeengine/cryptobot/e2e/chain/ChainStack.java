@@ -140,7 +140,7 @@ final class ChainStack implements AutoCloseable {
         runtimeServer = new MockWebServer();
         runtimeServer.setDispatcher(new RuntimeDispatcher());
         runtimeServer.start();
-        // KAN-439/KAN-500: the multi-source oracle needs its own fake feed here too — see PriceFeedDispatcher.
+        // the multi-source oracle needs its own fake feed here too — see PriceFeedDispatcher.
         pricesServer = new MockWebServer();
         pricesServer.setDispatcher(new PriceFeedDispatcher());
         pricesServer.start();
@@ -378,7 +378,7 @@ final class ChainStack implements AutoCloseable {
     }
 
     /**
-     * KAN-439/KAN-500: pyth + coingecko both agreeing on SOL $100 / USDC $1 — quorum 2, no breaker, no
+     * pyth + coingecko both agreeing on SOL $100 / USDC $1 — quorum 2, no breaker, no
      * network. Same shape as {@code ControlPlaneFlowTest.PriceFeedDispatcher}; jupiter and coinbase stay
      * disabled (application-e2e.yml), so only these two paths are ever hit.
      */

@@ -19,7 +19,7 @@ import reactor.core.publisher.Mono;
 
 /**
  * Jupiter Price API v3 ({@code GET /price/v3?ids=<mint,...>}), keyless — a DEX-aggregator view of
- * the price. One of the oracle's independent sources (KAN-439); it no longer falls back to static
+ * the price. One of the oracle's independent sources; it no longer falls back to static
  * prices itself: what it cannot price it does not observe, and the oracle counts that against the
  * quorum. Jupiter publishes no timestamp, so an observation is dated at fetch time.
  */

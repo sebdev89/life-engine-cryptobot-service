@@ -14,7 +14,7 @@ import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
 /**
- * Same contract as {@code AnchorR2dbcStore} (KAN-394) over {@link InMemoryControlPlaneRepositories#RECEIPTS}:
+ * Same contract as {@code AnchorR2dbcStore} over {@link InMemoryControlPlaneRepositories#RECEIPTS}:
  * a root is inserted once, members are written with it, receipts are stamped only from a FINALIZED anchor.
  */
 public class InMemoryAnchorRepository implements AnchorRepository {

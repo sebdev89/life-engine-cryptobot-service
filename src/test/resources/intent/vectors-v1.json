@@ -1,5 +1,5 @@
 {
-  "_comment": "KAN-435 — fixed test vectors for intent schema_version 1. `input` is what an agent may emit (loose order, whitespace, lower-case action, numbers as numbers or strings, explicit nulls); `canonical` is RFC 8785 of the parsed intent; `hash` is sha256 of the canonical bytes, computed independently with `printf '%s' <canonical> | sha256sum`. Changing any of these is a schema change: bump schema_version.",
+  "_comment": "Fixed test vectors for intent schema_version 1. `input` is what an agent may emit (loose order, whitespace, lower-case action, numbers as numbers or strings, explicit nulls); `canonical` is RFC 8785 of the parsed intent; `hash` is sha256 of the canonical bytes, computed independently with `printf '%s' <canonical> | sha256sum`. Changing any of these is a schema change: bump schema_version.",
   "vectors": [
     {
       "name": "paper §6 example — SWAP",

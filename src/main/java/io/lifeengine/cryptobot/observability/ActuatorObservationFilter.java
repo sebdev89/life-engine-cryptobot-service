@@ -7,7 +7,7 @@ import org.springframework.http.server.reactive.observation.ServerRequestObserva
 
 /**
  * Las sondas ({@code /actuator/health*}, {@code /actuator/prometheus}) no generan observaciones ni
- * spans. Medido en KAN-397: el 100 % de las trazas que había en Jaeger eran sondas, y tapaban las
+ * spans. Medido en un ticket interno: el 100 % de las trazas que había en Jaeger eran sondas, y tapaban las
  * pocas trazas reales. Las métricas de esas rutas tampoco dicen nada que Prometheus no sepa ya.
  */
 @Configuration

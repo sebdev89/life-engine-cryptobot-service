@@ -324,7 +324,7 @@ class IntentSchemaTest {
         assertThat(IntentAction.HOLD.isTrade()).isFalse();
     }
 
-    // ---- found by the adversarial benchmark (KAN-440) ---------------------------------------
+    // ---- found by the adversarial benchmark ---------------------------------------
 
     @Test
     void trailingTokensAfterTheDocumentAreRefused_notSilentlyDropped() {

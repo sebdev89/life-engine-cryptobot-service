@@ -16,7 +16,7 @@ import okhttp3.mockwebserver.MockResponse;
 import okhttp3.mockwebserver.RecordedRequest;
 
 /**
- * KAN-822: the signer and the validator as the service sees them for a payout — both HTTP fakes, the chain is
+ * the signer and the validator as the service sees them for a payout — both HTTP fakes, the chain is
  * {@link AnchorFlowTest.DevnetDispatcher}. The signer really signs (with {@link AnchorFlowTest#SIGNER_KEY}) and, like
  * {@code SIGNER_ALLOWED_DESTINATIONS}, refuses bytes that pay a destination it does not allow; it also refuses a request
  * whose attestation is not for these bytes. The validator answers ALLOW for the facts it is handed and records them.

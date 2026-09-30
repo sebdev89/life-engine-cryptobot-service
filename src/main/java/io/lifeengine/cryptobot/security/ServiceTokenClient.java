@@ -14,10 +14,10 @@ import org.springframework.web.reactive.function.client.WebClientResponseExcepti
 import reactor.core.publisher.Mono;
 
 /**
- * Obtiene y cachea tokens service-to-service emitidos por Auth (KAN-69).
+ * Obtiene y cachea tokens service-to-service emitidos por Auth.
  *
  * <p>Mismo contrato y mismo comportamiento que el {@code ServiceTokenClient} de Business Chat
- * (KAN-173): {@code POST {authBaseUrl}/api/auth/internal/service-token} con
+ *: {@code POST {authBaseUrl}/api/auth/internal/service-token} con
  * {@code {clientId, clientSecret, audience}} → {@code {access_token, expires_in, …}}, RS256,
  * firmado por Auth. CryptoBot no firma nada: pide.
  *

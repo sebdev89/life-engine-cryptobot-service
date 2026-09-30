@@ -8,10 +8,10 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.boot.context.properties.bind.ConstructorBinding;
 
 /**
- * Price oracle configuration (KAN-439, paper §22). Four independent, keyless, read-only sources
+ * Price oracle configuration (paper §22). Four independent, keyless, read-only sources
  * — Jupiter (DEX aggregator), Pyth Hermes (pull oracle network; since 2026-09 its public endpoint
  * answers 401 without a key, so it counts only where a key-less path exists), CoinGecko (CEX
- * aggregator) and Coinbase spot (one exchange, KAN-572) — and the {@link OracleLimits} their
+ * aggregator) and Coinbase spot (one exchange) — and the {@link OracleLimits} their
  * observations must satisfy. {@code fallbackPrices} (keyed by
  * symbol) only keep the <em>portfolio view</em> alive when no consensus exists: they are labelled
  * {@code fallback-static}, never count as a source, and the policy denies on them.
@@ -51,7 +51,7 @@ public record MarketDataProperties(
         this(jupiterBaseUrl, timeout, aliases, fallbackPrices, jupiterEnabled, null, null, null, null);
     }
 
-    /** Pre-KAN-572 shape (no Coinbase). */
+    /** Legacy shape (no Coinbase). */
     public MarketDataProperties(String jupiterBaseUrl, Duration timeout, Map<String, String> aliases, Map<String, BigDecimal> fallbackPrices,
             boolean jupiterEnabled, Pyth pyth, CoinGecko coingecko, Oracle oracle) {
         this(jupiterBaseUrl, timeout, aliases, fallbackPrices, jupiterEnabled, pyth, coingecko, null, oracle);
@@ -73,7 +73,7 @@ public record MarketDataProperties(
         }
     }
 
-    /** KAN-572: Coinbase spot, keyless; {@code products} maps a symbol to {@code SOL-USD}. */
+    /** Coinbase spot, keyless; {@code products} maps a symbol to {@code SOL-USD}. */
     public record Coinbase(Boolean enabled, String baseUrl, Map<String, String> products) {
         public Coinbase {
             enabled = enabled == null ? Boolean.TRUE : enabled;

@@ -14,7 +14,7 @@ import reactor.util.context.ContextView;
 
 /**
  * Las claves de contexto que aparecen en cada línea de log, y el mecanismo que las hace viajar
- * (KAN-426 / KAN-573; el modelo es el de life-engine-runtime, copiado de ATP/Dev Agent).
+ * (el modelo es el de life-engine-runtime, copiado de ATP/Dev Agent).
  *
  * <p>En una app WebFlux el MDC de SLF4J es un {@code ThreadLocal} y un pedido reactivo no tiene un
  * hilo. Escribirle al MDC en un punto de la cadena no hace que el valor exista en el siguiente. Por

@@ -17,7 +17,7 @@ import org.junit.jupiter.api.Test;
 import reactor.core.publisher.Mono;
 
 /**
- * KAN-425 — the trade funnel as seen by {@code ExecutionService}: {@code trade_submitted_total},
+ * the trade funnel as seen by {@code ExecutionService}: {@code trade_submitted_total},
  * {@code trade_confirmed_total}, {@code trade_failed_total{stage}} and the confirmation latency
  * timer. Runs on {@link ExecutionHarness} (real in-memory store, real signature).
  */

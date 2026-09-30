@@ -13,7 +13,7 @@ import java.util.Map;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
-/** The tree of KAN-394 against vectors written by python {@code hashlib}, plus the properties a verifier relies on. */
+/** The tree of an internal ticket against vectors written by python {@code hashlib}, plus the properties a verifier relies on. */
 class MerkleTreeTest {
 
     static JsonNode vectors() throws Exception {

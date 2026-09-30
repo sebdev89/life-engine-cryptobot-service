@@ -1,7 +1,7 @@
 {
   "uid": "le-cryptobot-glosario",
   "title": "Life Engine — CryptoBot (glosario: uso medible)",
-  "description": "KAN-353. Eventos open/search/copy del glosario (864 términos, KAN-325) que cryptobot-ui manda en batch a POST /api/cryptobot/glossary/events; cryptobot-service los vuelve cryptobot_glossary_term_total{term,action} y cryptobot_glossary_search_total{hit}. La UI nunca habla con Prometheus/Grafana; Runtime no participa.",
+  "description": "an internal ticket. Eventos open/search/copy del glosario (864 términos) que cryptobot-ui manda en batch a POST /api/cryptobot/glossary/events; cryptobot-service los vuelve cryptobot_glossary_term_total{term,action} y cryptobot_glossary_search_total{hit}. La UI nunca habla con Prometheus/Grafana; Runtime no participa.",
   "tags": [
     "life-engine",
     "cryptobot",
@@ -36,7 +36,7 @@
           "text": "uat",
           "value": "uat"
         },
-        "description": "Por defecto uat (donde CryptoBot tiene scrape desde KAN-352). El mismo tablero sirve para prod y local."
+        "description": "Por defecto uat (donde CryptoBot tiene scrape desde un cambio anterior). El mismo tablero sirve para prod y local."
       }
     ]
   },
@@ -58,7 +58,7 @@
   "panels": [
     {
       "type": "row",
-      "title": "GLOSARIO  ·  qué abren, qué buscan, qué no encuentran  (KAN-353 — eventos de cryptobot-ui → cryptobot-service → Prometheus)",
+      "title": "GLOSARIO  ·  qué abren, qué buscan, qué no encuentran  (eventos de cryptobot-ui → cryptobot-service → Prometheus)",
       "collapsed": false,
       "gridPos": {
         "x": 0,
@@ -750,7 +750,7 @@
     {
       "type": "stat",
       "title": "Scrape de cryptobot-service",
-      "description": "up del target de CryptoBot en el ambiente (service=\"cryptobot\" en compose, \"cryptobot-service\" en k8s). 0 = sin scrape (KAN-352): el tablero no puede mostrar nada.",
+      "description": "up del target de CryptoBot en el ambiente (service=\"cryptobot\" en compose, \"cryptobot-service\" en k8s). 0 = sin scrape: el tablero no puede mostrar nada.",
       "datasource": {
         "type": "prometheus",
         "uid": "Prometheus"

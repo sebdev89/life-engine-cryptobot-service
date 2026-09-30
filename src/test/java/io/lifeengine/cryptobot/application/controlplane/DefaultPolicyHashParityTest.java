@@ -6,7 +6,7 @@ import io.lifeengine.cryptobot.core.policy.PolicyRules;
 import org.junit.jupiter.api.Test;
 
 /**
- * KAN-438: the service's default {@code R_v} (USD in {@code application.yml}, converted to cents at
+ * the service's default {@code R_v} (USD in {@code application.yml}, converted to cents at
  * startup) and the validator's default {@code R_v} ({@code validator/src/main/resources/application.yml},
  * already in cents) must be the same policy, or every execution is {@code POLICY_HASH_MISMATCH}.
  * The validator asserts the same canonical string in its own {@code PolicyStoreTest}; a drift on
@@ -30,7 +30,7 @@ class DefaultPolicyHashParityTest {
     }
 
     /**
-     * KAN-822: the demo stack enables POV_REWARD on both sides ({@code CRYPTOBOT_POLICY_ENABLED_STRATEGIES=REBALANCE,POV_REWARD});
+     * the demo stack enables POV_REWARD on both sides ({@code CRYPTOBOT_POLICY_ENABLED_STRATEGIES=REBALANCE,POV_REWARD});
      * {@code scripts/demo/lib.sh default_policy_hash REBALANCE,POV_REWARD} pins this exact canonical string (sorted strategies).
      */
     static final String DEMO_POV_CANONICAL = VALIDATOR_DEFAULT_CANONICAL.replace("\"enabled_strategies\":[\"REBALANCE\"]",

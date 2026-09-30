@@ -6,7 +6,7 @@ import java.util.List;
 /**
  * SPL Memo v2: the instruction data is the UTF-8 text, logged by the program; with no accounts
  * nothing but the fee payer signs. It is how a receipt batch's Merkle root reaches devnet without
- * a program of our own (Endgame §11, KAN-394).
+ * a program of our own (Endgame §11).
  */
 public final class MemoProgram {
 

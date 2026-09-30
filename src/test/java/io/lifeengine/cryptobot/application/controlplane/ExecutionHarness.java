@@ -55,13 +55,13 @@ final class ExecutionHarness {
     final SimulationService simulation = mock(SimulationService.class);
     final PolicyEngine policy = mock(PolicyEngine.class);
     final SignerClient signer = mock(SignerClient.class);
-    // KAN-438: the independent validator attests by default; tests that exercise refusals override it.
+    // the independent validator attests by default; tests that exercise refusals override it.
     final ValidatorClient validator = mock(ValidatorClient.class);
     final SolanaRpcClient rpc = mock(SolanaRpcClient.class);
-    // KAN-439: the oracle re-read at execution; by default the world agrees with the plan (SOL $100).
+    // the oracle re-read at execution; by default the world agrees with the plan (SOL $100).
     final PriceOracleService oracle = mock(PriceOracleService.class);
     final AuditService audit = new AuditService(InMemoryControlPlaneRepositories.audit());
-    // KAN-391: a real receipt pipeline (ephemeral key, in-memory store) so EXECUTION receipts are asserted, not mocked.
+    // a real receipt pipeline (ephemeral key, in-memory store) so EXECUTION receipts are asserted, not mocked.
     final ReceiptService receiptService = new ReceiptService(InMemoryControlPlaneRepositories.receipts(),
             ReceiptSigningKey.generate("test-key"), metrics);
     final Receipts receiptOf = new Receipts(new TenantSalts("test-salt-secret".getBytes(StandardCharsets.UTF_8)),
@@ -103,7 +103,7 @@ final class ExecutionHarness {
                 .thenReturn(Mono.just(new SolanaRpcClient.SimulationResult(true, null, List.of(), 150L)));
         when(validator.authorize(any(), any())).thenReturn(Mono.just(attestation()));
 
-        // KAN-493: mainnet fail-closed by default here too; the wallet above is on devnet.
+        // mainnet fail-closed by default here too; the wallet above is on devnet.
         service = new ExecutionService(proposals, wallets, simulation, policy, signer, validator, rpc, oracle, audit, metrics, executionReceipts,
                 io.lifeengine.cryptobot.solana.rpc.ExecutionProperties.failClosed());
     }
@@ -122,7 +122,7 @@ final class ExecutionHarness {
     }
 
     /**
-     * KAN-571: the signer signs whatever message it is handed (so a retry on a fresh blockhash gets
+     * the signer signs whatever message it is handed (so a retry on a fresh blockhash gets
      * a different signature), and {@code prepareTransfer} hands out {@code tx} first and then
      * {@code tx2} (another blockhash ⇒ other bytes). Returns the signature of {@code tx2}'s message.
      */

@@ -3,7 +3,7 @@ package io.lifeengine.cryptobot.proofofvalue;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
 /**
- * KAN-824 (V7): the fixed, auditable policy {@code pov/revenue-share/v1}. No percentage is computed by anything else.
+ * (V7): the fixed, auditable policy {@code pov/revenue-share/v1}. No percentage is computed by anything else.
  *
  * @param contributorShareBps {@code POV_REVENUE_CONTRIBUTOR_SHARE_BPS} (default 2000 = 20 %): the contributor pool, split among the
  *     contributions of the linked ValueEvents pro rata to their units.

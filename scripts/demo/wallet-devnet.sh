@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# KAN-570 — the devnet test wallet and the demo secrets, generated once, never committed.
+# the devnet test wallet and the demo secrets, generated once, never committed.
 #
 #   scripts/demo/wallet-devnet.sh [--airdrop-sol N] [--no-airdrop]
 #
@@ -7,7 +7,7 @@
 #   demo-wallet.json      the wallet the signer controls (64-byte solana-keygen layout)  — SECRET
 #   rebalance-vault.json  the destination of the executable SOL leg                       — SECRET (devnet, holds what the demo sends)
 #   validator.json        the validator's attestation key (moves no funds)                — SECRET
-#   pov-<id>.json         KAN-822: the devnet wallets of the Proof of Value identities (sebas, dev-agent-17,
+#   pov-<id>.json         an internal ticket: the devnet wallets of the Proof of Value identities (sebas, dev-agent-17,
 #                         cryptobot-001, review-agent-3, compute-node-8) that receive immediate rewards — SECRET
 #                         (devnet, holds what the demo pays them); only their PUBLIC keys leave this directory:
 #                         SIGNER_ALLOWED_DESTINATIONS = <vault>,<pov public keys> in .env.demo
@@ -44,7 +44,7 @@ umask 077
 mkdir -p "$DEMO_HOME"
 chmod 700 "$DEMO_HOME"
 
-# keygen <path>: lib.sh (shared with pov-v1.sh since KAN-819).
+# keygen <path>: lib.sh (shared with pov-v1.sh since an earlier change).
 
 for name in demo-wallet rebalance-vault validator; do
   f="${DEMO_HOME}/${name}.json"
@@ -60,7 +60,7 @@ WALLET="$(pubkey_of "${DEMO_HOME}/demo-wallet.json")"
 VAULT="$(pubkey_of "${DEMO_HOME}/rebalance-vault.json")"
 VALIDATOR_PUB="$(pubkey_of "${DEMO_HOME}/validator.json")"
 
-# KAN-822 — Proof of Value payouts: the contributors' devnet wallets exist BEFORE .env.demo is written, so the signer's
+# Proof of Value payouts: the contributors' devnet wallets exist BEFORE .env.demo is written, so the signer's
 # allowlist names them (it pays nothing else). pov-v1.sh registers the same public keys as the identities' wallets.
 ALLOWED="${VAULT}"
 for id in "${POV_WALLET_IDS[@]}"; do
@@ -107,8 +107,8 @@ VALIDATOR_TOKEN="$(keep VALIDATOR_TOKEN "$(rand_hex 24)")"
 DB_PASSWORD="$(keep CRYPTOBOT_DB_PASSWORD "$(rand_hex 16)")"
 RECEIPT_KEY="$(keep CRYPTOBOT_RECEIPT_SIGNING_KEY "$(receipt_key_b64)")"
 RECEIPT_SALT="$(keep CRYPTOBOT_RECEIPT_SALT_SECRET "$(rand_hex 32)")"
-# KAN-822: the demo policy enables POV_REWARD (the payouts' strategy) on both sides, so its H_R is not the default one.
-# A pin that is still the REBALANCE-only default (an .env.demo from before KAN-822) is migrated; any other pin is yours: kept.
+# the demo policy enables POV_REWARD (the payouts' strategy) on both sides, so its H_R is not the default one.
+# A pin that is still the REBALANCE-only default (an .env.demo from before a later change) is migrated; any other pin is yours: kept.
 POLICY_HASH_POV="$(default_policy_hash "$DEMO_POLICY_STRATEGIES")"
 POLICY_HASH="$(keep VALIDATOR_POLICY_HASH "$POLICY_HASH_POV")"
 if [[ "$POLICY_HASH" == "$(default_policy_hash REBALANCE)" ]]; then
@@ -123,7 +123,7 @@ cat > "$ENV_FILE" <<EOF
 # --- devnet wallet (public halves only; the key files are mounted read-only into the containers) ---
 DEMO_WALLET_ADDRESS=${WALLET}
 CRYPTOBOT_REBALANCE_VAULT=${VAULT}
-# KAN-822: the rebalance vault + the Proof of Value wallets (public keys only). A running signer reads this at start:
+# the rebalance vault + the Proof of Value wallets (public keys only). A running signer reads this at start:
 #   docker compose -p <project> -f docker-compose.demo.yml --env-file .env.demo up -d --no-deps cryptobot-signer
 SIGNER_ALLOWED_DESTINATIONS=${ALLOWED}
 SIGNER_VALIDATOR_PUBLIC_KEY=${VALIDATOR_PUB}
@@ -145,11 +145,11 @@ CRYPTOBOT_RECEIPT_KEY_ID=demo-$(date +%Y%m%d)
 CRYPTOBOT_RECEIPT_SIGNING_KEY=${RECEIPT_KEY}
 CRYPTOBOT_RECEIPT_SALT_SECRET=${RECEIPT_SALT}
 
-# --- policy pin: H_R the validator must hold (defaults of cryptobot.policy.authorization + POV_REWARD, KAN-822) ---
+# --- policy pin: H_R the validator must hold (defaults of cryptobot.policy.authorization + POV_REWARD) ---
 VALIDATOR_POLICY_HASH=${POLICY_HASH}
 CRYPTOBOT_POLICY_ENABLED_STRATEGIES=${DEMO_POLICY_STRATEGIES}
 
-# --- KAN-822: Proof of Value immediate reward (devnet SOL; 0.01 SOL per ValueEvent by default) ---
+# --- an internal ticket: Proof of Value immediate reward (devnet SOL; 0.01 SOL per ValueEvent by default) ---
 POV_REWARD_ENABLED=$(keep POV_REWARD_ENABLED true)
 POV_REWARD_POOL_LAMPORTS=$(keep POV_REWARD_POOL_LAMPORTS 10000000)
 

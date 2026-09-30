@@ -15,7 +15,7 @@ import java.util.stream.Collectors;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
-/** KAN-353: what the UI sends becomes bounded counters; anything that is not a glossary event is dropped, never a label. */
+/** what the UI sends becomes bounded counters; anything that is not a glossary event is dropped, never a label. */
 class GlossaryEventsServiceTest {
 
     private final SimpleMeterRegistry registry = new SimpleMeterRegistry();

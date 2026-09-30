@@ -22,7 +22,7 @@ public final class ProofOfValueExceptions {
     }
 
     /**
-     * KAN-819: a well-formed request that breaks an attribution rule — an AGENT without wallet, a wallet that is not a
+     * a well-formed request that breaks an attribution rule — an AGENT without wallet, a wallet that is not a
      * 32-byte public key, a knowledge asset or compute provider that is not registered. 422 with {@code code}.
      */
     public static class Unprocessable extends RuntimeException {

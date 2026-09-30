@@ -31,7 +31,7 @@ import java.util.List;
 public final class DeterministicPolicyEngine {
 
     /**
-     * The engine id a Decision Receipt names (KAN-572). Its "version" is the policy version
+     * The engine id a Decision Receipt names. Its "version" is the policy version
      * ({@code R_v}) and its "weights hash" is {@code H_R}: the code is this table, the numbers are
      * the rules, and a verifier re-runs {@link #evaluate} on the stored {@code (I, S)}.
      */

@@ -95,7 +95,7 @@ class ValidationServiceTest {
         assertThat(a.validator()).isEqualTo(KEY.publicKeyBase58());
         assertThat(a.payload()).contains("\"message_hash\":\"" + MSG + "\"").contains("\"proposal_id\":\"prop-1\"")
                 .contains("\"decision\":\"ESCALATE\"").contains("\"verdict_hash\":\"" + expected.hash() + "\"")
-                // KAN-493: ... and to the cluster the bytes are for.
+                // ... and to the cluster the bytes are for.
                 .contains("\"cluster\":\"devnet\"");
         assertThat(SolanaKeypair.verify(KEY.publicKeyBytes(), a.payload().getBytes(StandardCharsets.UTF_8), Base58.decode(a.signature()))).isTrue();
         // A byte flipped in the payload no longer verifies: the signer cannot be fooled by editing it.

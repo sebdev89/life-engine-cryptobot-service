@@ -6,14 +6,14 @@ spring:
   main:
     web-application-type: reactive
   reactor:
-    # KAN-573: el Reactor Context se proyecta al MDC alrededor de cada operador (LogContext). Sin
+    # el Reactor Context se proyecta al MDC alrededor de cada operador (LogContext). Sin
     # esto, traceId/requestId/tenantId/proposalId salen vacíos en cualquier hilo que no sea el del filtro.
     context-propagation: auto
 
   # R2DBC is the runtime data plane (used by application services & controllers).
   r2dbc:
     url: ${CRYPTOBOT_R2DBC_URL:r2dbc:postgresql://localhost:5433/life_engine_cryptobot}
-    # KAN-69 — sin default de credencial en el archivo común: CRYPTOBOT_DB_USER / _PASSWORD llegan
+    # sin default de credencial en el archivo común: CRYPTOBOT_DB_USER / _PASSWORD llegan
     # por entorno (.env.local en local; SOPS/compose en los ambientes). application-local.yml
     # conserva el par de desarrollo, que sólo aplica con el perfil `local`.
     username: ${CRYPTOBOT_DB_USER:}
@@ -45,13 +45,13 @@ cryptobot:
   runtime:
     base-url: ${CRYPTOBOT_RUNTIME_BASE_URL:http://localhost:8090}
     workflow-id: crypto.market-review.v1
-    # KAN-69 — con qué credencial se llama a Runtime.
+    # con qué credencial se llama a Runtime.
     #   passthrough (default): las llamadas de un usuario viajan con SU JWT (Runtime ve identidad y
     #     tenant reales; modelo de fase 1). El loop de monitoreo, sin usuario, usa el token S2S.
     #   service: TODAS las llamadas con el token S2S (aud=runtime, sub=service:cryptobot). Exige el
     #     cliente `cryptobot` en Auth y `service:cryptobot` en el allowlist de Runtime.
     auth-mode: ${CRYPTOBOT_RUNTIME_AUTH_MODE:passthrough}
-  # KAN-69 — credencial service-to-service de CryptoBot: POST {AUTH_INTERNAL_BASE_URL}
+  # credencial service-to-service de CryptoBot: POST {AUTH_INTERNAL_BASE_URL}
   # /api/auth/internal/service-token (RS256, TTL corto, una audiencia por token). Sin defaults de
   # credencial; en un ambiente real el servicio no arranca si el camino S2S está activo
   # (auth-mode=service o monitoring.enabled=true) y faltan. No hay fallback a token estático ni a
@@ -94,7 +94,7 @@ cryptobot:
       devnet-url: ${CRYPTOBOT_SOLANA_DEVNET_RPC:https://api.devnet.solana.com}
       mainnet-url: ${CRYPTOBOT_SOLANA_MAINNET_RPC:https://api.mainnet-beta.solana.com}
       timeout: ${CRYPTOBOT_SOLANA_RPC_TIMEOUT:8s}
-  # ---- Price oracle (KAN-439, paper §22): ≥2 independent keyless sources, median, freshness, deviation
+  # ---- Price oracle (paper §22): ≥2 independent keyless sources, median, freshness, deviation
   # bound, circuit breaker. No consensus ⇒ the portfolio view falls back to the static prices below
   # (labelled "fallback-static") and the policy DENIES every proposal: CorrectRules + CorruptState ⇏ SafeExecution.
   marketdata:
@@ -126,7 +126,7 @@ cryptobot:
         WIF: dogwifcoin
         PYTH: pyth-network
         JTO: jito-governance-token
-    # KAN-572: Coinbase spot, keyless, one exchange — the source that keeps the quorum when Pyth answers 401
+    # Coinbase spot, keyless, one exchange — the source that keeps the quorum when Pyth answers 401
     # (its public endpoint needs a key since 2026-09) and CoinGecko's public tier lags.
     coinbase:
       enabled: ${CRYPTOBOT_COINBASE_ENABLED:true}
@@ -159,7 +159,7 @@ cryptobot:
       JITOSOL: 118
     # devnet mint → mainnet mint it is valued as. Circle devnet USDC is built in; add your own here.
     aliases: {}
-  # ---- ARS quotes across Argentine exchanges (KAN-355): GET /api/cryptobot/quotes/{asset} ----
+  # ---- ARS quotes across Argentine exchanges: GET /api/cryptobot/quotes/{asset} ----
   # Public, keyless, read-only price feeds only. One board per exchange, cached cache-ttl (30–60 s by
   # design); a failed refresh serves the previous board flagged stale while younger than stale-max.
   quotes:
@@ -191,7 +191,7 @@ cryptobot:
     min-stable-pct: ${CRYPTOBOT_RISK_MIN_STABLE:10}
     dust-usd: 1
     sharp-move-pct: 5
-  # KAN-493 — mainnet is fail-closed. false (default) ⇒ a mainnet wallet or proposal is refused at
+  # mainnet is fail-closed. false (default) ⇒ a mainnet wallet or proposal is refused at
   # ExecutionService.execute (409 MAINNET_DISABLED) and at SolanaRpcClient.sendTransaction, before
   # anything is signed or sent; the signer has its own SIGNER_ALLOW_MAINNET. Do not flip this without
   # the readiness gate (CB-13). policy.execution-cluster below stays devnet regardless (belt and braces).
@@ -209,7 +209,7 @@ cryptobot:
     rebalance-vault: ${CRYPTOBOT_REBALANCE_VAULT:}
     max-lamports-per-tx: ${CRYPTOBOT_POLICY_MAX_LAMPORTS:2000000000}
     proposal-ttl: 30m
-    # KAN-436 — versioned deterministic policy R_v (paper §8/§11/§18). Converted to integers at
+    # versioned deterministic policy R_v (paper §8/§11/§18). Converted to integers at
     # startup; H_R = SHA-256 of the canonical record is committed in every verdict. Tiers by trade
     # value: ≤ autonomous-up-to ⇒ ALLOW · ≤ second-agent-up-to ⇒ ESCALATE(second agent) ·
     # ≤ max-trade-usd (above) ⇒ ESCALATE(human signature) · beyond ⇒ DENY. Bump `version` when
@@ -225,10 +225,10 @@ cryptobot:
       executor-slippage-bps: ${CRYPTOBOT_POLICY_EXECUTOR_SLIPPAGE_BPS:50}
       # A plan priced on an older snapshot is denied (ORACLE_FRESH): refresh the wallet first.
       max-oracle-age: ${CRYPTOBOT_POLICY_MAX_ORACLE_AGE:15m}
-      # KAN-822: env-overridable so a stack can enable POV_REWARD (Proof of Value payouts). Changing it changes H_R: the
+      # env-overridable so a stack can enable POV_REWARD (Proof of Value payouts). Changing it changes H_R: the
       # validator's VALIDATOR_POLICY_ENABLED_STRATEGIES must match and VALIDATOR_POLICY_HASH be re-pinned (the demo does both).
       enabled-strategies: ${CRYPTOBOT_POLICY_ENABLED_STRATEGIES:REBALANCE}
-    # KAN-438 — timelock (paper §19): the wait between approval and the first moment the proposal can
+    # timelock (paper §19): the wait between approval and the first moment the proposal can
     # be executed. A human can cancel (POST /proposals/{id}/cancel) while it runs. By tier of the
     # verdict: ALLOW ⇒ `autonomous` (none by default), ESCALATE ⇒ `escalated` (30 min). The
     # proposal's expiry is pushed to executable-at + execution-window at approval so the lock fits.
@@ -242,7 +242,7 @@ cryptobot:
     # Shared service token (NOT a key). Must match SIGNER_TOKEN of cryptobot-signer.
     token: ${CRYPTOBOT_SIGNER_TOKEN:}
     timeout: 8s
-  # KAN-438 — independent validator (paper §20, level 5). A separate process with its own copy of
+  # independent validator (paper §20, level 5). A separate process with its own copy of
   # R_v pinned by hash; before signing, it re-derives the verdict over the recorded (I, S) and attests
   # the exact transaction bytes. The signer refuses without that attestation. Disabled or unreachable
   # ⇒ every proposal is a paper trade (VALIDATOR_AVAILABLE) and execution fails closed.
@@ -252,9 +252,9 @@ cryptobot:
     # Shared service token (NOT a key). Must match VALIDATOR_TOKEN of cryptobot-validator.
     token: ${CRYPTOBOT_VALIDATOR_TOKEN:}
     timeout: 8s
-  # ---- Reliable execution (KAN-403, Endgame §31) ----
+  # ---- Reliable execution (Endgame §31) ----
   # Outbox: events are written in the same transaction as the proposal state; the publisher hands
-  # them to the OutboxSink (a structured log line until the broker of KAN-402) with backoff, and
+  # them to the OutboxSink (a structured log line until the broker of an internal ticket) with backoff, and
   # dead-letters them after max-attempts. Reconciliation: at startup and every `interval`, in-flight
   # proposals (EXECUTING/SUBMITTED) older than `grace` are resolved against getSignatureStatuses —
   # never re-sent. Ambiguous after max-attempts ⇒ dead letter (dlq_size > 0 is the alert).
@@ -273,11 +273,11 @@ cryptobot:
       grace: ${CRYPTOBOT_RECONCILIATION_GRACE:2m}
       max-attempts: ${CRYPTOBOT_RECONCILIATION_MAX_ATTEMPTS:20}
       batch-size: 100
-      # KAN-571: a signature the chain never saw whose blockhash expired can never land — it is
+      # a signature the chain never saw whose blockhash expired can never land — it is
       # re-executed under the SAME operationId (fresh blockhash, new signature) up to this many
       # times; then the trade is dead-lettered (retries_exhausted) for a human. 0 ⇒ never retried.
       max-retries: ${CRYPTOBOT_RECONCILIATION_MAX_RETRIES:2}
-  # ---- KAN-571: fault injection for the DEMO stack only (docker-compose.demo.yml). enabled=false ⇒ no
+  # ---- an internal ticket: fault injection for the DEMO stack only (docker-compose.demo.yml). enabled=false ⇒ no
   # chaos bean, no /api/cryptobot/demo endpoint, the production SolanaRpcClient is the only one.
   chaos:
     enabled: ${CRYPTOBOT_CHAOS_ENABLED:false}
@@ -285,10 +285,10 @@ cryptobot:
     # PUT /api/cryptobot/demo/chaos {"broadcast":"rpc-down","shots":-1}; shots -1 = until disarmed.
     broadcast: ${CRYPTOBOT_CHAOS_BROADCAST:}
     shots: ${CRYPTOBOT_CHAOS_SHOTS:1}
-    # KAN-572: adversarial price armed at startup, e.g. "SOL:pyth-hermes:factor=0.1" (one source −90 % ⇒ PRICE_DEVIATION),
+    # adversarial price armed at startup, e.g. "SOL:pyth-hermes:factor=0.1" (one source −90 % ⇒ PRICE_DEVIATION),
     # "SOL:*:age=900" (every source 15 min old ⇒ PRICE_STALE). Runtime: PUT /api/cryptobot/demo/price.
     price-override: ${CRYPTOBOT_DEMO_PRICE_OVERRIDE:}
-  # ---- Business metrics (KAN-425): /actuator/prometheus, names in observability/CryptobotMetrics ----
+  # ---- Business metrics: /actuator/prometheus, names in observability/CryptobotMetrics ----
   metrics:
     # Extra values allowed in the `asset` label, on top of policy.allowed-assets and monitoring.symbols.
     # Any other symbol is reported as `other` so a caller cannot create series (cardinality is bounded).
@@ -298,7 +298,7 @@ cryptobot:
     timeout: ${CRYPTOBOT_ADVISOR_TIMEOUT:90s}
     poll-interval: 1500ms
     locale: ${CRYPTOBOT_ADVISOR_LOCALE:en}
-  # ---- Decision Receipts (KAN-391, Endgame §6-7) ----
+  # ---- Decision Receipts (Endgame §6-7) ----
   # signing-key: 64-byte Ed25519 secret (seed ‖ public key, the solana-keygen layout) in base64 or hex.
   # A secret: from secrets/, never a default here. Empty ⇒ ephemeral key at startup (dev only, WARN in the log).
   # salt-secret: the secret the per-tenant prompt-commitment salts derive from. Same rules.
@@ -307,10 +307,10 @@ cryptobot:
     signing-key: ${CRYPTOBOT_RECEIPT_SIGNING_KEY:}
     salt-secret: ${CRYPTOBOT_RECEIPT_SALT_SECRET:}
     price-table-version: ${CRYPTOBOT_RECEIPT_PRICE_TABLE:none}
-    # KAN-393: a STRATEGY may declare REUSES over the wallet's latest MARKET_ANALYSIS of the same asset
+    # a STRATEGY may declare REUSES over the wallet's latest MARKET_ANALYSIS of the same asset
     # if it is younger than this (Endgame §19 step 3). PT0S disables reuse.
     reuse-window: ${CRYPTOBOT_RECEIPT_REUSE_WINDOW:1h}
-  # ---- Anchoring on Solana devnet (KAN-394, Endgame §11) ----
+  # ---- Anchoring on Solana devnet (Endgame §11) ----
   # One SPL Memo transaction per batch: `ir/1 root=<sha256> n=<count> ts=<…>`, signed by the isolated
   # signer (which re-derives the memo from the bytes and only signs it on devnet). Receipts carry the
   # anchor + Merkle proof only once the transaction is FINALIZED; a dropped/reorged one is re-sent
@@ -324,7 +324,7 @@ cryptobot:
     max-attempts: ${CRYPTOBOT_ANCHOR_MAX_ATTEMPTS:5}
     finality-wait: ${CRYPTOBOT_ANCHOR_FINALITY_WAIT:60s}
     poll-interval: 2s
-  # KAN-822 — Proof of Value V5, immediate reward: POST /api/cryptobot/value-events/{id}/distribute (RUNTIME_ADMIN) pays an
+  # Proof of Value V5, immediate reward: POST /api/cryptobot/value-events/{id}/distribute (RUNTIME_ADMIN) pays an
   # ANCHORED event's pool to its contributors' wallets in devnet SOL, one attested + signed transfer per wallet. Off by default;
   # the demo compose turns it on. The signer only pays wallets in SIGNER_ALLOWED_DESTINATIONS and never more than
   # SIGNER_MAX_LAMPORTS per transaction; the policy must enable `strategy-id` (CRYPTOBOT_POLICY_ENABLED_STRATEGIES).
@@ -333,9 +333,9 @@ cryptobot:
       enabled: ${POV_REWARD_ENABLED:false}
       pool-lamports: ${POV_REWARD_POOL_LAMPORTS:10000000}
       strategy-id: ${POV_REWARD_STRATEGY_ID:POV_REWARD}
-    # KAN-824 — Proof of Value V7, pov/revenue-share/v1 (fixed, auditable): POST /api/cryptobot/revenue-events (RUNTIME_ADMIN) splits an
+    # Proof of Value V7, pov/revenue-share/v1 (fixed, auditable): POST /api/cryptobot/revenue-events (RUNTIME_ADMIN) splits an
     # economic result: contributor pool (paid with the V5 flow, so it needs the reward enabled), protocol fee (only recorded), retained.
-    # KAN-825 — V8: treasury-identity-id is the agent whose accounting treasury earns revenue and pays the PoV payouts.
+    # V8: treasury-identity-id is the agent whose accounting treasury earns revenue and pays the PoV payouts.
     revenue:
       contributor-share-bps: ${POV_REVENUE_CONTRIBUTOR_SHARE_BPS:2000}
       protocol-fee-bps: ${POV_REVENUE_PROTOCOL_FEE_BPS:500}
@@ -343,10 +343,10 @@ cryptobot:
 
 lifeengine:
   # Deployment environment for build identity (/actuator/info) and metric common tags. From APP_ENV —
-  # never hardcoded per environment (KAN-199 / §2.2).
+  # never hardcoded per environment (§2.2).
   deployment:
     env: ${APP_ENV:local}
-  # KAN-573 / KAN-426: `json` (default, lo que lee Promtail/Loki) o `text` (una consola con un humano).
+  # `json` (default, lo que lee Promtail/Loki) o `text` (una consola con un humano).
   # Ver logback-spring.xml.
   logging:
     format: ${LOG_FORMAT:json}
@@ -369,7 +369,7 @@ management:
     web:
       exposure:
         include: health, prometheus, metrics, info
-  # KAN-573: el tracer siempre está activo para que cada línea de log lleve traceId/spanId (y para
+  # el tracer siempre está activo para que cada línea de log lleve traceId/spanId (y para
   # propagar traceparent hacia Runtime, signer y validator). Exportar a un collector es una decisión
   # por entorno: MANAGEMENT_OTLP_TRACING_EXPORT_ENABLED=true + OTEL_EXPORTER_OTLP_ENDPOINT. Apagado por
   # default: sin collector no se intenta nada contra localhost:4318.
@@ -382,7 +382,7 @@ management:
       export:
         enabled: ${MANAGEMENT_OTLP_TRACING_EXPORT_ENABLED:false}
   # BuildIdentityConfig owns /actuator/info in the exact shape of LIFE-OPS-02 §2.2. The stock env/git/build
-  # contributors are disabled so they cannot pollute or reshape that contract (KAN-199).
+  # contributors are disabled so they cannot pollute or reshape that contract.
   info:
     env:
       enabled: false
@@ -404,7 +404,7 @@ management:
       application: ${spring.application.name}
 
 # Build identity overrides. Empty by default: local and CI builds carry a .git directory, so git.properties
-# (git-commit-id) is the source. A future Docker image (KAN-109) with no .git would pass these as
+# (git-commit-id) is the source. A future Docker image with no .git would pass these as
 # build-args → env, and BuildIdentityResolver prefers them. Never a secret.
 identity:
   git:
@@ -413,7 +413,7 @@ identity:
     commit-time: ${GIT_COMMIT_TIME:}
 
 logging:
-  # KAN-573: el formato lo decide logback-spring.xml (json | text); el pattern plano con
+  # el formato lo decide logback-spring.xml (json | text); el pattern plano con
   # marketReviewId/runtimeRunId que había acá nunca se llenaba (nadie escribía ese MDC).
   level:
     root: INFO

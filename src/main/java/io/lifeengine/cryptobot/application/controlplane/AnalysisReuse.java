@@ -25,7 +25,7 @@ import org.springframework.stereotype.Component;
 import reactor.core.publisher.Mono;
 
 /**
- * The {@code REUSES} edge of Endgame §19 step 3 (KAN-393): a new {@code STRATEGY} that was not
+ * The {@code REUSES} edge of Endgame §19 step 3: a new {@code STRATEGY} that was not
  * created from a fresh advisor run may declare it <em>reused</em> the wallet's most recent
  * {@code MARKET_ANALYSIS} — if, and only if, that analysis is younger than the reuse window and
  * talks about an asset the intent touches. Both conditions are checked against stored facts (the

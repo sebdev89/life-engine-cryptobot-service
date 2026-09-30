@@ -23,7 +23,7 @@ import org.junit.jupiter.api.Test;
 import reactor.core.publisher.Mono;
 
 /**
- * KAN-403 — the outbox worker on the in-memory outbox: publish, retry with exponential backoff,
+ * the outbox worker on the in-memory outbox: publish, retry with exponential backoff,
  * dead-letter after {@code maxAttempts}, gauges refreshed.
  */
 class OutboxPublisherTest {

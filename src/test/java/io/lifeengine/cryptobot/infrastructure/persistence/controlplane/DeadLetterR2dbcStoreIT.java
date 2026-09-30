@@ -21,8 +21,8 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.utility.DockerImageName;
 
 /**
- * KAN-604 (Gap G7, audit §15/§17, mandate §29): {@link DeadLetterR2dbcStore#resolve} against a
- * real Postgres — the {@code WHERE resolved_at IS NULL} guard (V9, KAN-571/KAN-501) is what makes
+ * (Gap G7, audit §15/§17, mandate §29): {@link DeadLetterR2dbcStore#resolve} against a
+ * real Postgres — the {@code WHERE resolved_at IS NULL} guard (V9) is what makes
  * a letter resolvable at most once; the in-memory replica enforces the same rule in application
  * code, this proves the database does too.
  *

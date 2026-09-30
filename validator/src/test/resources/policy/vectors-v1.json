@@ -1,6 +1,6 @@
 {
   "schema_version": "1",
-  "note": "KAN-436 golden vectors. canonical_* strings were written by hand from the policy schema; every hash is sha256sum over the exact string (workspace scratch scripts/kan436-gen-vectors.sh), never the Java code under test. Do not edit v1: a change of canonicalization is schema_version 2 and a new file.",
+  "note": "Golden vectors. canonical_* strings were written by hand from the policy schema; every hash is sha256sum over the exact string (workspace scratch scripts/kan436-gen-vectors.sh), never the Java code under test. Do not edit v1: a change of canonicalization is schema_version 2 and a new file.",
   "rules": {
     "version": "paper-v1",
     "allowed_assets": ["USDC", "SOL"],

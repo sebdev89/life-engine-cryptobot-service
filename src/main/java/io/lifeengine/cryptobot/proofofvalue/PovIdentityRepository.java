@@ -4,7 +4,7 @@ import java.util.Collection;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
-/** Tenant-scoped store of contributors (KAN-818). */
+/** Tenant-scoped store of contributors. */
 public interface PovIdentityRepository {
 
     /** Inserts unless {@code (tenantId, id)} exists; empty when it already existed (the caller reads it back). */
@@ -13,7 +13,7 @@ public interface PovIdentityRepository {
     Mono<PovIdentity> find(String tenantId, String id);
 
     /**
-     * KAN-819: sets the wallet of an identity that has none (a V1 agent registered before wallets were required).
+     * sets the wallet of an identity that has none (a V1 agent registered before wallets were required).
      * Never overwrites a wallet; empty when the identity does not exist or already had one.
      */
     Mono<PovIdentity> setWalletIfMissing(String tenantId, String id, String wallet);

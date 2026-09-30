@@ -18,7 +18,7 @@ import reactor.core.publisher.Mono;
  * Thin HTTP client around {@code POST /api/runtime/runs}. Fails fast with
  * {@link RuntimeUnreachableException} so the controller can return a clean 502.
  *
- * <p><b>Credencial (KAN-69).</b> Cada llamada lleva SIEMPRE {@code Authorization: Bearer}:
+ * <p><b>Credencial.</b> Cada llamada lleva SIEMPRE {@code Authorization: Bearer}:
  *
  * <ul>
  *   <li>Con un {@code bearerToken} del llamador y {@code auth-mode=passthrough} (default), viaja

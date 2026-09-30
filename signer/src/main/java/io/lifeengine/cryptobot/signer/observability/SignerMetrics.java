@@ -11,7 +11,7 @@ import java.util.Set;
 import org.springframework.stereotype.Component;
 
 /**
- * The signer's own series (KAN-582, HK-5b). Until now "firmados" on the demo dashboard was a
+ * The signer's own series (HK-5b). Until now "firmados" on the demo dashboard was a
  * derived value ({@code validator_attestations_total − trade_failed_total}) because the signer
  * published nothing of its own. Now it says what it signed and what it refused, by rule.
  *
@@ -21,7 +21,7 @@ import org.springframework.stereotype.Component;
  *       rule    = none (signed) | the refusal reason of SigningPolicy / AttestationVerifier
  *                 (signer_disabled, mainnet_disabled, destination_not_allowed, amount_over_cap,
  *                 attestation_missing, attestation_expired, …) | other (anything not in KNOWN_RULES)
- *       kind    = transfer (/sign, the demo path) | anchor (/sign-anchor, receipt batches, KAN-394)
+ *       kind    = transfer (/sign, the demo path) | anchor (/sign-anchor, receipt batches)
  *   signer.sign.latency   → signer_sign_latency_seconds{kind}   histogram: policy + attestation check + Ed25519
  * </pre>
  *
@@ -52,7 +52,7 @@ public class SignerMetrics {
             "instruction_count", "program_not_allowed", "not_a_transfer", "transfer_source_mismatch", "destination_not_allowed",
             "amount_over_cap", "cluster_missing", "cluster_unknown", "mainnet_disabled", "cluster_mismatch",
             "anchor_cluster_not_devnet", "memo_accounts_not_allowed", "memo_format", "memo_mismatch",
-            // AttestationVerifier (KAN-438)
+            // AttestationVerifier
             "validator_key_not_configured", "attestation_missing", "attestation_bad_signature", "attestation_unparseable",
             "attestation_validator_mismatch", "attestation_proposal_mismatch", "attestation_message_mismatch", "attestation_denied",
             "attestation_no_window", "attestation_not_yet_valid", "attestation_expired", "attestation_cluster_missing",

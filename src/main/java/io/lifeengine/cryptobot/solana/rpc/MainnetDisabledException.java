@@ -1,7 +1,7 @@
 package io.lifeengine.cryptobot.solana.rpc;
 
 /**
- * KAN-493 — a write to mainnet was attempted while {@code cryptobot.execution.allow-mainnet} is
+ * a write to mainnet was attempted while {@code cryptobot.execution.allow-mainnet} is
  * false. Raised before anything is signed, sent or persisted; mapped to {@code 409
  * MAINNET_DISABLED} at the API. Nothing about the transaction reached the chain.
  */

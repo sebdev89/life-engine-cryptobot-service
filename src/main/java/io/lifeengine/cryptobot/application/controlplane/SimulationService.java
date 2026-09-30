@@ -74,7 +74,7 @@ public class SimulationService {
     }
 
     /**
-     * KAN-822: the same unsigned {@code SystemProgram.transfer(from → to, lamports)} on a fresh blockhash, to any
+     * the same unsigned {@code SystemProgram.transfer(from → to, lamports)} on a fresh blockhash, to any
      * destination — the caller (a Proof of Value payout) names it; the signer's allowlist is still the last word.
      * {@code label} only goes into the human-readable summary.
      */

@@ -11,7 +11,7 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
 /**
- * Wires the service's build identity (KAN-199 / T7, replicating Auth KAN-194) into the two surfaces
+ * Wires the service's build identity (T7, replicating Auth an internal ticket) into the two surfaces
  * observability consumes it from:
  *
  * <ul>

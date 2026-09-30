@@ -37,7 +37,7 @@ import org.springframework.stereotype.Service;
  * <em>before</em> the human sees it, so what reaches the approval screen is already inside
  * the limits — and what is outside them is recorded as {@code BLOCKED_BY_POLICY} with the rule.
  *
- * <p>Two layers, one verdict (KAN-436):
+ * <p>Two layers, one verdict:
  * <ul>
  *   <li>the legacy named rules (kill switch, cooldown, cluster, vault, simulation, signer …) that
  *       decide <em>approvable</em> and <em>executable</em>;
@@ -46,7 +46,7 @@ import org.springframework.stereotype.Service;
  *       into {@link PolicyDecision#authorization()}; DENY is a blocking violation named
  *       {@link #RULE_AUTHORIZATION}.
  * </ul>
- * And before either may trust the state, the price-integrity rules (KAN-439 / KAN-572,
+ * And before either may trust the state, the price-integrity rules (
  * {@link #PRICE_RULES}): the prices in {@code S} come from a multi-source consensus under
  * committed integrity limits — quorum, freshness, deviation between sources, circuit breaker — and
  * the price the plan was built on agrees with that consensus; otherwise there is no {@code S} and
@@ -55,9 +55,9 @@ import org.springframework.stereotype.Service;
  * {@link PolicyDecision#oracle()} as the state reference of the decision.
  * Today every proposal still waits for the human, whatever the tier says: ALLOW and
  * REQUIRE_SECOND_AGENT are recorded, not acted on (no autonomous execution). The verdict is what
- * the receipt commits to and what the independent validator re-derives before signing (KAN-438).
+ * the receipt commits to and what the independent validator re-derives before signing.
  *
- * <p>KAN-438 adds two execution-time facts: the validator must be reachable and hold the same
+ * <p>an internal ticket adds two execution-time facts: the validator must be reachable and hold the same
  * {@code H_R} ({@link #RULE_VALIDATOR}), and the approval's timelock must have elapsed
  * ({@link #RULE_TIMELOCK}, paper §19).
  */
@@ -76,12 +76,12 @@ public class PolicyEngine {
     public static final String RULE_SIGNER = "SIGNER_CONTROLS_WALLET";
     /** The deterministic verdict said DENY; the message lists the failed predicates. */
     public static final String RULE_AUTHORIZATION = "AUTHORIZATION";
-    /** KAN-438: the independent validator is reachable and pinned to the same {@code H_R}. */
+    /** the independent validator is reachable and pinned to the same {@code H_R}. */
     public static final String RULE_VALIDATOR = "VALIDATOR_AVAILABLE";
-    /** KAN-438: the approval's timelock has elapsed. */
+    /** the approval's timelock has elapsed. */
     public static final String RULE_TIMELOCK = "TIMELOCK_ELAPSED";
     /**
-     * KAN-439 / KAN-572 (paper §22): the price-integrity rules, one per check, so a blocked intent
+     * (paper §22): the price-integrity rules, one per check, so a blocked intent
      * says <em>which</em> assumption the state violated. Every asset the plan touches must have a
      * multi-source consensus and the price the plan was built on must agree with it. Otherwise the
      * state is corrupt or unknown, and {@code CorrectRules + CorruptState ⇏ SafeExecution}: blocked.
@@ -105,7 +105,7 @@ public class PolicyEngine {
     /** The price-integrity rules, in the order they are applied. */
     public static final List<String> PRICE_RULES = List.of(RULE_PRICE_QUORUM, RULE_PRICE_STALE, RULE_PRICE_DEVIATION, RULE_PRICE_CIRCUIT_BREAKER, RULE_PRICE_DRIFT);
     /**
-     * KAN-572: the signer's own hard caps, checked here so the human (and the receipt) see them
+     * the signer's own hard caps, checked here so the human (and the receipt) see them
      * before the signer would refuse: the destination of the prepared transaction is in the
      * signer's allowlist, its lamports are under the signer's cap, and the signer is pinned to the
      * wallet's cluster. The signer re-checks all three on its own bytes; these rules make the
@@ -121,7 +121,7 @@ public class PolicyEngine {
      * @param lastExecutedAt when this wallet last executed anything, for the cooldown
      * @param executedLast24hUsd notional already executed by this wallet in the last 24 h ({@code daily_exposure})
      * @param pricesAsOf when the snapshot the plan was built on was valued (part of {@code oracle_age})
-     * @param oracle the fresh multi-source reading for the plan's assets (KAN-439); {@code null} = unknown ⇒ deny
+     * @param oracle the fresh multi-source reading for the plan's assets; {@code null} = unknown ⇒ deny
      */
     public record WalletState(Optional<Instant> lastExecutedAt, BigDecimal executedLast24hUsd, Instant pricesAsOf, OracleReading oracle) {
         public WalletState {
@@ -213,7 +213,7 @@ public class PolicyEngine {
             blocking.add(new PolicyDecision.Violation(RULE_COOLDOWN, "This wallet executed a trade " + Duration.between(lastExecutedAt.get(), now).toSeconds() + "s ago; cooldown is " + props.cooldown().toSeconds() + "s"));
         }
 
-        // --- KAN-439 / KAN-572: the state must be priced by a consensus before any rule may trust it ---
+        // --- an internal ticket: the state must be priced by a consensus before any rule may trust it ---
         applied.addAll(PRICE_RULES);
         blocking.addAll(priceViolations(proposal, state.oracle()));
 
@@ -264,7 +264,7 @@ public class PolicyEngine {
             execution.add(new PolicyDecision.Violation(RULE_SIGNER, "The signer does not control this wallet (read-only wallet): paper trade only"));
         }
 
-        // --- KAN-572: the signer's hard caps, visible before the signer would refuse ------------
+        // --- an internal ticket: the signer's hard caps, visible before the signer would refuse ------------
         applied.add(RULE_SIGNER_DESTINATION);
         applied.add(RULE_SIGNER_MAX_LAMPORTS);
         applied.add(RULE_SIGNER_CLUSTER);
@@ -290,7 +290,7 @@ public class PolicyEngine {
     }
 
     /**
-     * KAN-438 (paper §20): the proposal is executable only if an independent validator is up and
+     * (paper §20): the proposal is executable only if an independent validator is up and
      * holds exactly the policy this verdict was decided under. Evaluated at proposal time so the
      * human sees "paper trade: validator unavailable" before approving, and again — for real — by
      * the validator itself before anything is signed.
@@ -316,7 +316,7 @@ public class PolicyEngine {
         return approvedAt.plus(timelock.forVerdict(decision == null ? null : decision.authorization()));
     }
 
-    /** The end of the lock for a persisted approval; rows approved before KAN-438 get it derived from {@code at}. */
+    /** The end of the lock for a persisted approval; rows approved before a later change get it derived from {@code at}. */
     public Instant executableAt(ActionProposal proposal) {
         ApprovalRecord a = proposal.approval();
         if (a == null || a.at() == null) {
@@ -326,7 +326,7 @@ public class PolicyEngine {
     }
 
     /**
-     * The data-integrity part of the envelope (KAN-439 / KAN-572) as blocking violations, each
+     * The data-integrity part of the envelope as blocking violations, each
      * named after the check that failed and worded for a human — empty means the reading may be
      * trusted for this plan. Pure over its arguments, so it is applied twice with the same code:
      * at evaluation (blocking rules {@link #PRICE_RULES}) and again at execution with a fresh
@@ -437,9 +437,9 @@ public class PolicyEngine {
      *       at. Every leg's asset is still checked by {@link #RULE_ASSET_ALLOWLIST}.
      *   <li>trade value: the whole plan's turnover, cents rounded up.
      *   <li>slippage: the tolerance the executor applies ({@code executor-slippage-bps}); the
-     *       intent does not carry one yet (KAN-435 producer).
+     *       intent does not carry one yet (internal ticket producer).
      *   <li>oracle age: seconds since the oldest price fact used — the snapshot the plan was priced
- *       on or the oldest observation behind the fresh consensus, whichever is older (KAN-439).
+ *       on or the oldest observation behind the fresh consensus, whichever is older.
      *   <li>expiry: epoch seconds on both sides until intents carry a Solana slot.
      *   <li>nonce unused: this proposal has never started executing.
      *   <li>agent permitted: the proposal's owner is the wallet's owner.
@@ -488,7 +488,7 @@ public class PolicyEngine {
     /**
      * {@code oracle_age}: the age of the oldest price fact the decision depends on — the snapshot
      * the plan was built on <em>and</em> the oldest observation behind the fresh consensus
-     * (KAN-439). Either unknown, or an unaccepted reading ⇒ {@code null} ⇒ {@code ORACLE_FRESH} fails.
+     *. Either unknown, or an unaccepted reading ⇒ {@code null} ⇒ {@code ORACLE_FRESH} fails.
      */
     static Long oracleAgeSeconds(WalletState state, Instant now) {
         if (state.pricesAsOf() == null || state.pricesAsOf().isAfter(now) || state.oracle() == null) {
@@ -503,7 +503,7 @@ public class PolicyEngine {
     }
 
     /**
-     * KAN-582: one failed execution precondition with the bounded reason the 409 is counted under
+     * one failed execution precondition with the bounded reason the 409 is counted under
      * ({@code cryptobot_execution_refused_total{reason}}). The message is what the caller reads.
      */
     public record Refusal(CryptobotMetrics.RefusalReason reason, String message) {}

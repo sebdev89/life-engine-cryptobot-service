@@ -23,7 +23,7 @@ import org.springframework.stereotype.Component;
  * reported on its own so a UI can say exactly which one failed:
  *
  * <ol>
- *   <li>the engine id + version is one this build can run ({@code risk-engine 1.0.0}; since KAN-572
+ *   <li>the engine id + version is one this build can run ({@code risk-engine 1.0.0}; since an earlier change
  *       also {@code policy-engine R_v}, the policy in force in this process);
  *   <li>the weights hash the receipt names is the one this build ships (an older weights file
  *       cannot be re-run: honest {@code false}, not a guess);
@@ -33,7 +33,7 @@ import org.springframework.stereotype.Component;
  * </ol>
  *
  * <p>A receipt that claims L1 but names an engine this build does not know (the rebalance
- * planner of KAN-391, for now) is neither confirmed nor refuted: {@code reproduced = null},
+ * planner of an internal ticket, for now) is neither confirmed nor refuted: {@code reproduced = null},
  * reason {@code ENGINE_UNKNOWN}. A receipt that claims L1 from a known engine but has no stored
  * inference is {@code false}: a reproducibility claim nobody can check is not verified.
  */
@@ -82,7 +82,7 @@ public class DeterministicReproducer {
         this(riskEngine, null);
     }
 
-    /** KAN-572: the policy engine's Decision Receipts are re-run under the rules this service starts with. */
+    /** the policy engine's Decision Receipts are re-run under the rules this service starts with. */
     @Autowired
     public DeterministicReproducer(io.lifeengine.cryptobot.application.controlplane.PolicyEngine policy) {
         this(DeterministicRiskEngine.v1(), policy.rules());
@@ -148,7 +148,7 @@ public class DeterministicReproducer {
         return riskEngine.verdict(RiskInput.fromMap(inputTree));
     }
 
-    /** KAN-572: the policy verdict this build computes for a stored {@code (I, S)} tree. */
+    /** the policy verdict this build computes for a stored {@code (I, S)} tree. */
     public PolicyVerdict runPolicy(Map<String, Object> inputTree) {
         if (policyRules == null) {
             throw new IllegalStateException("this reproducer has no policy rules");

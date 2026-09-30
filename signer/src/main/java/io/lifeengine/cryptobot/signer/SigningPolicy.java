@@ -16,7 +16,7 @@ import org.springframework.stereotype.Component;
  *   <li>exactly one instruction, and it is {@code SystemProgram.transfer};
  *   <li>the transfer is from us to an allow-listed destination;
  *   <li>lamports ≤ the cap;
- *   <li>KAN-493: the cluster the caller says the bytes are for is the one this signer is
+ *   <li>an internal ticket: the cluster the caller says the bytes are for is the one this signer is
  *       configured for, and it is not mainnet unless {@code signer.allow-mainnet=true}
  *       ({@code SIGNER_ALLOW_MAINNET}). A request that names no cluster is refused. The
  *       {@link AttestationVerifier} then checks the validator attested the same cluster.
@@ -30,7 +30,7 @@ public class SigningPolicy {
 
     public record Verdict(boolean allowed, String reason, long lamports, String destination, LegacyMessageDecoder.Decoded decoded) {}
 
-    /** SPL Memo v2 — the one program besides System the signer knows, and only for a receipt-batch memo (KAN-394). */
+    /** SPL Memo v2 — the one program besides System the signer knows, and only for a receipt-batch memo. */
     public static final String MEMO_PROGRAM_ID = "MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr";
     /** Same regular expression as {@code AnchorMemo} in the service — the signer does not trust the caller's description. */
     static final Pattern ANCHOR_MEMO = Pattern.compile(
@@ -147,7 +147,7 @@ public class SigningPolicy {
     }
 
     /**
-     * KAN-493 — the signer's mainnet guard, independent of the service's. {@code mainnet_disabled}
+     * the signer's mainnet guard, independent of the service's. {@code mainnet_disabled}
      * unless {@code signer.allow-mainnet=true}; {@code cluster_mismatch} when the request names a
      * cluster other than the one this signer is configured for; {@code cluster_missing} /
      * {@code cluster_unknown} for a request that does not say, or says something we do not know.

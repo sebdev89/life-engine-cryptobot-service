@@ -3,7 +3,7 @@ package io.lifeengine.cryptobot.solana.rpc;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
 /**
- * KAN-493 — the explicit mainnet switch. Mainnet is fail-closed: with {@code allowMainnet=false}
+ * the explicit mainnet switch. Mainnet is fail-closed: with {@code allowMainnet=false}
  * (the default, env {@code CRYPTOBOT_ALLOW_MAINNET}) no mainnet transaction is executed or
  * broadcast, whatever {@code cryptobot.policy.execution-cluster} says. The same flag is read at
  * {@code ExecutionService.execute} and at {@code SolanaRpcClient.sendTransaction}; the signer has

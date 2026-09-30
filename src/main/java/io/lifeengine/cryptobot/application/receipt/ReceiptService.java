@@ -55,7 +55,7 @@ public class ReceiptService {
 
     /**
      * Result of {@link #verify}: every check on its own, so a UI can say exactly what failed.
-     * {@code reproduced} is the L1 re-execution (KAN-392): {@code true} the engine produced the same
+     * {@code reproduced} is the L1 re-execution: {@code true} the engine produced the same
      * output hash again, {@code false} it did not (or the claim could not be checked), {@code null}
      * the receipt is not L1 or names an engine this build cannot run; {@code reproduction} says which.
      * A {@code false} makes {@link #valid()} false: an authentic receipt whose L1 claim does not hold
@@ -147,7 +147,7 @@ public class ReceiptService {
      * An L1 receipt and the trees stored next to it must agree before anything is written: the
      * body's {@code engine} is the inference's, the body's output hash is the output tree's hash,
      * and the body declares the input tree's hash as a {@code RISK_INPUT} (risk engine) or a
-     * {@code POLICY_INPUT} (policy engine, KAN-572). Otherwise the stored
+     * {@code POLICY_INPUT} (policy engine). Otherwise the stored
      * row could never reproduce the receipt, and issuing it would be issuing a false L1 claim.
      */
     private static void requireConsistent(ReceiptBody body, DeterministicInference inference) {
@@ -223,7 +223,7 @@ public class ReceiptService {
     /**
      * Recomputes everything from what is stored: the canonical bytes must hash to the id, the JSON
      * body must canonicalise to those bytes, the signature must verify under the service key, and
-     * every parent must exist. For an L1 receipt of a known engine (KAN-392) the engine is run
+     * every parent must exist. For an L1 receipt of a known engine the engine is run
      * again on the stored input and {@code reproduced} says whether it produced the same output
      * hash — a receipt is never marked reproduced because it says so.
      */

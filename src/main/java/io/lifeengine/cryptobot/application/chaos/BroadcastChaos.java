@@ -8,7 +8,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
 /**
- * The armed fault (KAN-571). One mode at a time, with a shot counter: each faulted RPC call
+ * The armed fault. One mode at a time, with a shot counter: each faulted RPC call
  * consumes one shot; {@code -1} shots = until disarmed. Every injected fault is logged here so
  * the evidence can quote it.
  *

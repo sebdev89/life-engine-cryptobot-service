@@ -47,7 +47,7 @@ import org.mockito.ArgumentCaptor;
 import reactor.core.publisher.Mono;
 
 /**
- * KAN-824 (V7) and KAN-825 (V8) without the network: the pure split of pov/revenue-share/v1 (two events with different units,
+ * (V7) and an internal ticket (V8) without the network: the pure split of pov/revenue-share/v1 (two events with different units,
  * the exact sum, fee and retained, the floor's dust), the 409/422 refusals, the REVENUE_EVENT receipt, idempotency, and the
  * treasury's fold. The payout pipeline ({@link PovRewardService#payAll}) is a mock here and runs for real in
  * {@code ProofOfValueRevenueApiTest}.
@@ -274,7 +274,7 @@ class PovRevenueServiceTest {
         IntelligenceReceipt r = receipts.issue(ReceiptDraft.of(new ReceiptBody(null, ReceiptKind.VALUE_EVENT, TENANT, OWNER.toString(), "t", List.of(),
                 List.of(), null, null, null, null, Map.of(), new ReceiptBody.Output(Digests.sha256(title), "s", null),
                 new ReceiptBody.Compute(null, null, 1, null), null, ReproducibilityLevel.L0_SIGNED, NOW, NOW, "pov:" + title, null))).block();
-        ValueEventRecord e = new ValueEventRecord(UUID.randomUUID(), TENANT, OWNER, r.receiptHash(), Digests.sha256(title), "cryptobot", "KAN-824", title,
+        ValueEventRecord e = new ValueEventRecord(UUID.randomUUID(), TENANT, OWNER, r.receiptHash(), Digests.sha256(title), "cryptobot", "TASK-824", title,
                 Digests.sha256("a"), Digests.sha256("b"), NOW, DistributionPolicy.EQUAL_SPLIT_V1, 100, "{}", NOW, cs);
         InMemoryPovRepositories.EVENTS.put(e.id(), e);
         return e;

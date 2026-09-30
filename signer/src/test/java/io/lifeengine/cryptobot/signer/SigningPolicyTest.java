@@ -89,7 +89,7 @@ class SigningPolicyTest {
         assertThat(policy(props(1_000_000L, List.of(VAULT), false)).evaluate(transfer(KEY.publicKeyBase58(), VAULT, 1L), null, "devnet").reason()).isEqualTo("signer_disabled");
     }
 
-    // ---- KAN-394: the anchor memo, the only non-transfer this signer signs ----------------------
+    // ---- an internal ticket: the anchor memo, the only non-transfer this signer signs ----------------------
 
     static final String ROOT = "sha256:" + "ab".repeat(32);
     static final String MEMO = "ir/1 root=" + ROOT + " n=3 ts=2026-09-18T03:00:00Z";
@@ -138,7 +138,7 @@ class SigningPolicyTest {
         assertThat(policy(propsOn("devnet")).evaluate(memoTx(me, MEMO), me, "devnet").reason()).isEqualTo("program_not_allowed");
     }
 
-    // ---- KAN-493: mainnet is fail-closed at the signer ---------------------------------------
+    // ---- an internal ticket: mainnet is fail-closed at the signer ---------------------------------------
 
     static SignerProperties propsOn(String cluster, boolean allowMainnet) {
         return new SignerProperties("", keyJson(KEY), "t", cluster, 1_000_000L, List.of(VAULT), true, "", false, allowMainnet);

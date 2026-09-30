@@ -27,7 +27,7 @@ pub enum AuthorityInstruction {
     RevokePolicy,
 
     /// Validate I1–I4 and, only if all hold, create the nonce and receipt accounts.
-    /// The "execution" of this level is the receipt itself (no transfer, no swap — devnet, KAN-437).
+    //The "execution" of this level is the receipt itself (no transfer, no swap — devnet).
     ///
     /// Accounts:
     /// 0. `[signer]` agent — the Ed25519 key of `agent_id`; its signature over the transaction

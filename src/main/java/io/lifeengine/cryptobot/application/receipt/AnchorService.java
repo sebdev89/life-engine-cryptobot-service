@@ -34,7 +34,7 @@ import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
 /**
- * Anchors receipts on Solana devnet with a memo per batch (Endgame §11, KAN-394):
+ * Anchors receipts on Solana devnet with a memo per batch (Endgame §11):
  *
  * <pre>
  *   unanchored receipts ─▶ Merkle tree (sorted leaves) ─▶ memo "ir/1 root=… n=… ts=…"

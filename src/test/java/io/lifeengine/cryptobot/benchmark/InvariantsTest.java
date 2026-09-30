@@ -53,7 +53,7 @@ class InvariantsTest {
 
     @AfterAll
     void report() throws Exception {
-        BenchmarkReport.writeSection("cryptobot invariants I1–I7 (KAN-440, paper §23/§17/§29)", "invariants", evidence, "invariants-v1");
+        BenchmarkReport.writeSection("cryptobot invariants I1–I7 (paper §23/§17/§29)", "invariants", evidence, "invariants-v1");
     }
 
     private void record(String id, String statement, String checkedOver) {

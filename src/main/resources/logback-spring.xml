@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!--
-  Logs de la plataforma (KAN-426 · KAN-573, el 7/7 de CryptoBot). Dos salidas, una sola elegida por `lifeengine.logging.format`
+  Logs de la plataforma (el 7/7 de CryptoBot). Dos salidas, una sola elegida por `lifeengine.logging.format`
   (env `LOG_FORMAT`): `json` es el default y es lo que leen Promtail/Loki; `text` es para un humano
   mirando una consola local.
 

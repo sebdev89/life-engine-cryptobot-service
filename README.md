@@ -130,6 +130,8 @@ CryptoBot execution, and summarized in an anchored `VALUE_DISTRIBUTION` or `REVE
 
 ## Security notes
 
+Security policy, how to report a vulnerability and the repository history audit: [`SECURITY.md`](SECURITY.md).
+
 - The agent never holds a key: an isolated signer, gated by an independent validator, signs only memos and transfers to
   allow-listed wallets, capped per transaction. Mainnet is refused at three independent layers, each off by default.
 - The tenant comes from the authenticated token, never from the request. Demo keypairs stay on the host
@@ -168,4 +170,5 @@ Proof of Value (V1–V10) was built during the hackathon.
 
 ## License
 
-Apache License 2.0 — see [`LICENSE`](LICENSE) and [`NOTICE`](NOTICE).
+Copyright (c) 2026 Sebastian H. De Vito. Licensed under the Apache License 2.0 — see [`LICENSE`](LICENSE) and
+[`NOTICE`](NOTICE).

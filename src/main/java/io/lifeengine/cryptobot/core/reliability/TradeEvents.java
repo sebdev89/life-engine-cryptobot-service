@@ -7,10 +7,10 @@ package io.lifeengine.cryptobot.core.reliability;
  * <ul>
  *   <li>{@link #REQUESTED} — policy let the proposal reach the human ({@code AWAITING_APPROVAL})
  *   <li>{@link #APPROVED} / {@link #REJECTED} / {@link #EXPIRED} — the decision, or the clock's
- *   <li>{@link #CANCELLED} — a human cancelled an APPROVED proposal inside its timelock (KAN-438, paper §19)
+ *   <li>{@link #CANCELLED} — a human cancelled an APPROVED proposal inside its timelock (paper §19)
  *   <li>{@link #SUBMITTED} — {@code sendTransaction} returned a signature
  *   <li>{@link #CONFIRMED} / {@link #FAILED} — the chain's verdict (synchronous or reconciled)
- *   <li>{@link #RECEIPT_CREATED} — reserved for the Decision Receipt (KAN-390); nobody emits it yet
+ *   <li>{@link #RECEIPT_CREATED} — reserved for the Decision Receipt; nobody emits it yet
  * </ul>
  */
 public final class TradeEvents {

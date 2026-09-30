@@ -4,7 +4,7 @@ import net.logstash.logback.argument.StructuredArgument;
 import net.logstash.logback.argument.StructuredArguments;
 
 /**
- * Catálogo de errores de CryptoBot (KAN-426 / KAN-573). Corto a propósito: un código por causa que
+ * Catálogo de errores de CryptoBot. Corto a propósito: un código por causa que
  * alguien va a buscar en Loki durante el demo, no uno por excepción. Formato
  * {@code CB-<ÁREA>-<NNN>}; las áreas siguen el demo path — {@code POLICY} → {@code RISK} →
  * {@code EXEC}/{@code SOLANA} → {@code RECON} → {@code DLQ} — más las de borde ({@code AUTH},
@@ -21,13 +21,13 @@ public enum ErrorCode {
     POLICY_BLOCKED("CB-POLICY-001", "propuesta bloqueada por policy"),
     /** Precondición de ejecución no cumplida (kill switch, timelock, cluster, validador ausente, estado). */
     EXECUTION_PRECONDITION("CB-POLICY-002", "precondición de ejecución no cumplida"),
-    /** Mainnet fail-closed (KAN-493): nada se firmó ni se envió. */
+    /** Mainnet fail-closed: nada se firmó ni se envió. */
     MAINNET_DISABLED("CB-POLICY-003", "mainnet deshabilitado"),
 
     // ---- risk ---------------------------------------------------------------------------------
     /** El motor de riesgo determinista calificó el portfolio resultante como HIGH. */
     RISK_HIGH("CB-RISK-001", "riesgo alto"),
-    /** El oráculo de precios rechazó la ejecución (quórum, desvío, breaker; KAN-572). */
+    /** El oráculo de precios rechazó la ejecución (quórum, desvío, breaker). */
     ORACLE_REFUSED("CB-RISK-002", "oráculo rechazó la ejecución"),
 
     // ---- execution: intent → validador → signer → broadcast -------------------------------------
@@ -49,7 +49,7 @@ public enum ErrorCode {
     // ---- reconciliation -----------------------------------------------------------------------
     /** Una fila SUBMITTED cuya firma la cadena nunca vio (blockhash vencido). */
     RECONCILIATION_MISMATCH("CB-RECON-001", "submitted pero nunca vista en la cadena"),
-    /** Retry idempotente: la misma operación se re-ejecuta con blockhash nuevo (KAN-571). */
+    /** Retry idempotente: la misma operación se re-ejecuta con blockhash nuevo. */
     RECONCILIATION_RETRY("CB-RECON-002", "retry idempotente de la ejecución"),
     /** La reconciliación de una fila terminó en error y se saltó hasta el próximo barrido. */
     RECONCILIATION_ROW_FAILED("CB-RECON-003", "reconciliación de una fila falló"),

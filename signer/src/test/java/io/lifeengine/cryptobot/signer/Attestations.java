@@ -17,7 +17,7 @@ final class Attestations {
         return payload(proposalId, messageHash, decision, validator, issuedAt, expiresAt, "devnet");
     }
 
-    /** {@code cluster == null} ⇒ a pre-KAN-493 payload with no {@code cluster} key at all. */
+    /** {@code cluster == null} ⇒ a legacy payload with no {@code cluster} key at all. */
     static String payload(String proposalId, String messageHash, String decision, String validator, long issuedAt, long expiresAt, String cluster) {
         return "{" + (cluster == null ? "" : "\"cluster\":\"" + cluster + "\",")
                 + "\"decision\":\"" + decision + "\",\"escalation\":\"NONE\",\"expires_at\":" + expiresAt

@@ -13,7 +13,7 @@
     <properties>
         <java.version>21</java.version>
         <spring.boot.version>3.4.2</spring.boot.version>
-        <!-- KAN-604/KAN-500: pinned to the same line life-engine-auth and life-engine-runtime use. -->
+        <!-- pinned to the same line life-engine-auth and life-engine-runtime use. -->
         <testcontainers.version>1.21.4</testcontainers.version>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     </properties>
@@ -21,7 +21,7 @@
     <dependencyManagement>
         <dependencies>
             <!--
-              KAN-500: the Testcontainers BOM is imported BEFORE Spring Boot's dependencies so its newer
+              the Testcontainers BOM is imported BEFORE Spring Boot's dependencies so its newer
               versions win over Boot 3.4.2's bundled 1.20.4, whose docker-java speaks API 1.32 and is
               refused by Docker Engine 25+ ("client version 1.32 is too old"). Same pin as life-engine-runtime.
             -->
@@ -64,7 +64,7 @@
             <artifactId>micrometer-registry-prometheus</artifactId>
         </dependency>
         <!--
-          KAN-573 / KAN-426: logs JSON con campos comunes (service, env, version, commitSha, traceId, spanId,
+          logs JSON con campos comunes (service, env, version, commitSha, traceId, spanId,
           requestId, correlationId, tenantId, proposalId, operationId, runtimeRunId, errorCode…). Mismo
           patrón que ATP/Dev Agent. 8.0 es la línea para logback 1.5 (Spring Boot 3.4).
         -->
@@ -148,7 +148,7 @@
             <scope>test</scope>
         </dependency>
         <!--
-          KAN-595 (TAE phase 1, audit §21) — ArchUnit enforces the core/solana/trading package
+          (TAE phase 1, audit §21) — ArchUnit enforces the core/solana/trading package
           boundaries mechanically, so a future PR that reintroduces a forbidden dependency fails
           CI instead of relying on review.
         -->
@@ -159,13 +159,13 @@
             <scope>test</scope>
         </dependency>
         <!--
-          KAN-604 — Testcontainers Postgres for the R2DBC stores the in-memory replica cannot prove
+          Testcontainers Postgres for the R2DBC stores the in-memory replica cannot prove
           (optimistic lock, unique operation_id, FOR UPDATE SKIP LOCKED): *IT classes under
           infrastructure/persistence/controlplane, run explicitly (-Dtest=…IT), never by plain
           `mvnw test` (Surefire's default include patterns do not match *IT). Needs Docker; the
-          le-ci runner has it (KAN-296: contention between parallel Testcontainers jobs shows up as
+          le-ci runner has it (contention between parallel Testcontainers jobs shows up as
           "bind: address already in use" — retry, it is not a code regression).
-          KAN-500: the same Testcontainers Postgres backs the in-process chain E2E (ChainE2EIT,
+          the same Testcontainers Postgres backs the in-process chain E2E (ChainE2EIT,
           profile e2e-chain), which migrates and runs on its own throwaway instance.
         -->
         <dependency>
@@ -206,9 +206,9 @@
                     <!--
                       build-info writes META-INF/build-info.properties into target/classes at package time.
                       Spring auto-configures a BuildProperties bean from it, giving /actuator/info a service
-                      version and an immutable build timestamp (KAN-199). No .git needed. NOTE: the existing
+                      version and an immutable build timestamp. No .git needed. NOTE: the existing
                       pom intentionally does not repackage (CryptoBot is not yet containerised — its
-                      Dockerfile is tracked under KAN-109); this execution does not change that.
+                      Dockerfile is tracked under an internal ticket); this execution does not change that.
                     -->
                     <execution>
                         <id>build-info</id>
@@ -230,7 +230,7 @@
               git-commit-id generates classpath:git.properties (commit id, commit time, branch). Spring
               auto-configures a GitProperties bean from it → /actuator/info git block. failOnNoGitDirectory
               is false on purpose so a build without a .git directory does not fail. offline=true keeps it
-              off the network. (KAN-199 / T7 — mirrors life-engine-auth KAN-194.)
+              off the network. (T7 — mirrors life-engine-auth an internal ticket.)
             -->
             <plugin>
                 <groupId>io.github.git-commit-id</groupId>
@@ -279,7 +279,7 @@
 
     <profiles>
         <!--
-          KAN-570 — the real E2E against the demo stack (docker-compose.demo.yml) and a Solana RPC.
+          the real E2E against the demo stack (docker-compose.demo.yml) and a Solana RPC.
           Off by default: it needs Docker, a funded devnet wallet (or the local validator) and
           .env.demo. Surefire never picks *IT up; Failsafe does, only here:
             ./mvnw -Pe2e-devnet verify          (after scripts/demo/e2e-devnet.sh, or with the stack up)
@@ -320,7 +320,7 @@
         </profile>
 
         <!--
-          KAN-500 — the whole chain in one JVM-driven test, nothing stubbed inside the service:
+          the whole chain in one JVM-driven test, nothing stubbed inside the service:
           real Spring context on the real R2DBC stores (Postgres via Testcontainers, or CRYPTOBOT_IT_PG_*),
           cryptobot-validator and cryptobot-signer as real processes (their jars must be packaged first),
           Solana RPC and Runtime mocked at the HTTP level. Surefire never picks *IT up; Failsafe does, here:

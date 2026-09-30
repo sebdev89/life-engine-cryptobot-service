@@ -24,7 +24,7 @@ public record TimelockProperties(Duration autonomous, Duration escalated, Durati
         executionWindow = executionWindow == null || executionWindow.isNegative() ? Duration.ofMinutes(30) : executionWindow;
     }
 
-    /** The lock for a verdict; an absent verdict (pre-KAN-436 row) gets the longest lock — unknown ⇒ most friction. */
+    /** The lock for a verdict; an absent verdict (legacy row) gets the longest lock — unknown ⇒ most friction. */
     public Duration forVerdict(PolicyVerdict verdict) {
         if (verdict == null || verdict.decision() != PolicyVerdict.Decision.ALLOW) {
             return escalated;

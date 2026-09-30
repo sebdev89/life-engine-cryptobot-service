@@ -34,7 +34,7 @@ public class ControlPlaneExceptionHandler {
         return ResponseEntity.status(HttpStatus.CONFLICT).body(new ControlPlaneDtos.ApiError("CONFLICT", ex.getMessage()));
     }
 
-    /** KAN-493: mainnet is fail-closed; nothing was signed, sent or persisted. */
+    /** mainnet is fail-closed; nothing was signed, sent or persisted. */
     @ExceptionHandler(MainnetDisabledException.class)
     public ResponseEntity<ControlPlaneDtos.ApiError> mainnetDisabled(MainnetDisabledException ex) {
         log.warn("control_plane_mainnet_disabled cluster={} error={}", ex.cluster().id(), ex.getMessage(),

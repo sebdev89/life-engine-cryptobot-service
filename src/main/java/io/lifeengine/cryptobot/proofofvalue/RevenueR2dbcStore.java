@@ -9,7 +9,7 @@ import org.springframework.transaction.reactive.TransactionalOperator;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
-/** KAN-824 (V15): {@code pov_revenue_event} + {@code pov_revenue_link} + the revenue rows of {@code pov_payout}. */
+/** (V15): {@code pov_revenue_event} + {@code pov_revenue_link} + the revenue rows of {@code pov_payout}. */
 @Profile("!test")
 @Component
 public class RevenueR2dbcStore implements RevenueRepository {

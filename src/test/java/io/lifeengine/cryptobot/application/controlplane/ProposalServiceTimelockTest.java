@@ -37,7 +37,7 @@ import java.util.UUID;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
-/** KAN-438 — paper §19: approval starts a timelock; inside it a human can cancel; the TTL is pushed so the lock fits. */
+/** paper §19: approval starts a timelock; inside it a human can cancel; the TTL is pushed so the lock fits. */
 class ProposalServiceTimelockTest {
 
     static final Instant NOW = Instant.parse("2026-09-18T12:00:00Z");

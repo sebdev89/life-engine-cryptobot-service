@@ -23,7 +23,7 @@ import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Schedulers;
 
 /**
- * The outbox worker (KAN-403 §31 "mensaje perdido → outbox"). Every tick locks a batch of due
+ * The outbox worker (internal ticket §31 "mensaje perdido → outbox"). Every tick locks a batch of due
  * {@code PENDING} events ({@code FOR UPDATE SKIP LOCKED}), hands each to the {@link OutboxSink}
  * and records the outcome in the same transaction: {@code PUBLISHED}, or {@code PENDING} again
  * with exponential backoff, or — after {@code maxAttempts} — {@code FAILED} plus a dead letter.

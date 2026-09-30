@@ -21,7 +21,7 @@ import org.springframework.web.reactive.function.client.WebClient;
 import reactor.test.StepVerifier;
 
 /**
- * KAN-69 — {@link RuntimeClient} SIEMPRE manda {@code Authorization: Bearer}, y con la credencial
+ * {@link RuntimeClient} SIEMPRE manda {@code Authorization: Bearer}, y con la credencial
  * correcta según quién llama: el JWT del usuario cuando hay uno (pass-through, intencional), el
  * token S2S de Auth cuando no lo hay (loop de monitoreo) o cuando {@code auth-mode=service}. Si
  * no hay ninguna credencial, la llamada falla antes de salir: Runtime no recibe nada.

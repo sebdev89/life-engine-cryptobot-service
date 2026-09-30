@@ -66,7 +66,7 @@ public class AdvisorRuntimeClient {
                                         "Runtime run " + runId + " did not finish within " + props.timeout())))
                 .doOnSuccess(c -> log.info("advisor_run_terminal runId={} status={}", runId, c.detail().status(),
                         LogFields.event("advisor_run"), LogFields.status(String.valueOf(c.detail().status()))))
-                // KAN-573: la corrida del Runtime en el MDC de toda la espera (LogContext.RUNTIME_RUN_ID).
+                // la corrida del Runtime en el MDC de toda la espera (LogContext.RUNTIME_RUN_ID).
                 .contextWrite(ctx -> LogContext.write(ctx, LogContext.RUNTIME_RUN_ID, runId));
     }
 

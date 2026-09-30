@@ -32,7 +32,7 @@ cryptobot:
       devnet-url: http://localhost:0
       mainnet-url: http://localhost:0
       timeout: 2s
-  # KAN-439: no network in tests — every price source is off and points at a closed port. With no source the
+  # no network in tests — every price source is off and points at a closed port. With no source the
   # oracle has no consensus: the portfolio is valued from the labelled fallback and the policy DENIES. The flow
   # test enables the three sources against its own fake feed (all agreeing on SOL $100 / USDC $1).
   marketdata:
@@ -84,7 +84,7 @@ cryptobot:
       enabled-strategies: REBALANCE
   signer:
     enabled: false
-  # KAN-403: no background loops in the test slice; tests call tick()/sweep() explicitly.
+  # no background loops in the test slice; tests call tick()/sweep() explicitly.
   reliability:
     outbox:
       enabled: false
@@ -94,7 +94,7 @@ cryptobot:
     workflow-id: crypto.portfolio-advisor.v1
     timeout: 5s
     poll-interval: 100ms
-  # KAN-394: no background loop; the flow test calls POST /anchors with a fake signer + fake RPC.
+  # no background loop; the flow test calls POST /anchors with a fake signer + fake RPC.
   anchor:
     enabled: false
     cluster: devnet

@@ -37,7 +37,7 @@ public final class ControlPlaneDtos {
 
     public record AskRequest(String question, UUID proposalId) {}
 
-    /** {@code receiptHash}: the {@code MARKET_ANALYSIS} receipt of this answer (KAN-391). */
+    /** {@code receiptHash}: the {@code MARKET_ANALYSIS} receipt of this answer. */
     public record AskResponse(AdvisorAnswer answer, UUID runtimeRunId, String runtimeBaseUrl, String ssePath, String receiptHash) {}
 
     public record MessageView(UUID id, String role, String content, Map<String, Object> structured, UUID runtimeRunId, Instant createdAt) {
@@ -50,12 +50,12 @@ public final class ControlPlaneDtos {
 
     public record DecisionRequest(String note) {}
 
-    /** Optional body of {@code POST …/execute}; the {@code Idempotency-Key} header takes precedence (KAN-403). */
+    /** Optional body of {@code POST …/execute}; the {@code Idempotency-Key} header takes precedence. */
     public record ExecuteRequest(String operationId) {}
 
     public record ProposalView(ActionProposal proposal, List<AuditEvent> audit) {}
 
-    /** The durable event stream of one proposal: outbox events (with delivery state) and dead letters (KAN-403). */
+    /** The durable event stream of one proposal: outbox events (with delivery state) and dead letters. */
     public record ProposalEvents(UUID proposalId, String status, UUID operationId, List<OutboxEvent> events, List<DeadLetter> deadLetters) {}
 
     public record ApiError(String code, String message, List<String> details) {

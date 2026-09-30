@@ -34,7 +34,7 @@ final class Fixtures {
         return new Wallet(UUID.randomUUID(), OWNER, ADDRESS, cluster.toNetwork(), "demo", now, now);
     }
 
-    /** KAN-439: an accepted two-source reading for SOL and USDC, priced {@code solPrice} / $1, observed at {@code at}. */
+    /** an accepted two-source reading for SOL and USDC, priced {@code solPrice} / $1, observed at {@code at}. */
     static OracleReading oracle(String solPrice, Instant at) {
         return new OracleReading(at, ORACLE_LIMITS, List.of(consensus("SOL", TokenRegistry.NATIVE_SOL_MINT, solPrice, solPrice, at),
                 consensus("USDC", TokenRegistry.USDC_MINT, "1", "1", at)));

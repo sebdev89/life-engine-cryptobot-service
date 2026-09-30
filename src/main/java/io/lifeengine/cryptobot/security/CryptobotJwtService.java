@@ -54,7 +54,7 @@ public class CryptobotJwtService {
         byte[] bytes = secret.getBytes(StandardCharsets.UTF_8);
         if (bytes.length < 32) {
             if (jwksKeyProvider.isConfigured()) {
-                // KAN-32 follow-up: JWT_SECRET is no longer required once AUTH_JWKS_URI is set —
+                // follow-up: JWT_SECRET is no longer required once AUTH_JWKS_URI is set —
                 // this service only ever verifies, never signs. HS256 verification is disabled
                 // outright (key stays null) rather than falling back to a dummy key.
                 this.key = null;

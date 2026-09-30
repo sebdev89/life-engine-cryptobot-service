@@ -21,7 +21,7 @@ import java.util.function.LongUnaryOperator;
 /**
  * One pass of a corpus through a fresh {@link AuthorityLayer}: the rows, the counts the paper
  * asks for (§29: BlockRate, reproducibility; §36: authorized / rejected / violations executed),
- * the per-stage latency distribution and the meters the Grafana funnel (KAN-425) would show.
+ * the per-stage latency distribution and the meters the Grafana funnel would show.
  */
 public final class BenchmarkRun {
 
@@ -73,7 +73,7 @@ public final class BenchmarkRun {
         if (c.manipulatedAsset() != null) {
             layer.oracle().secondary(c.manipulatedAsset(), c.manipulatedCents());
         }
-        // KAN-572: the source-level attacks — every source stale, or a single source answering.
+        // the source-level attacks — every source stale, or a single source answering.
         layer.oracle().staleSources(c.klass() == Klass.STALE_PRICE_SOURCES);
         layer.oracle().singleSource(c.klass() == Klass.SINGLE_PRICE_SOURCE);
         try {

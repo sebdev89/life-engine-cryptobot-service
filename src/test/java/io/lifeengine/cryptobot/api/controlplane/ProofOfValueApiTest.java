@@ -36,7 +36,7 @@ import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.reactive.server.WebTestClient;
 
 /**
- * KAN-818 over HTTP (in-memory stores, fake devnet + fake signer that really signs, the same fakes as
+ * over HTTP (in-memory stores, fake devnet + fake signer that really signs, the same fakes as
  * {@link AnchorFlowTest}): identities → an accepted ValueEvent → VALUE_EVENT receipt → {@code ?anchor=true}
  * runs the admin sweep → the event reads ANCHORED → {@code /proof} correlates receiptHash ∈ tree → root in
  * the memo → tx. Plus the refusals: AcceptancePolicy 422, validation 400, unknown identity 400, anchor
@@ -154,7 +154,7 @@ class ProofOfValueApiTest {
         // GET reads the anchor from the receipt; the list is newest first.
         web.get().uri("/api/cryptobot/value-events/" + id).header(HttpHeaders.AUTHORIZATION, admin).exchange().expectStatus().isOk()
                 .expectBody().jsonPath("$.status").isEqualTo("ANCHORED").jsonPath("$.anchor.root").isEqualTo(root)
-                .jsonPath("$.taskId").isEqualTo("KAN-818").jsonPath("$.acceptance.source").isEqualTo("release-truth");
+                .jsonPath("$.taskId").isEqualTo("TASK-818").jsonPath("$.acceptance.source").isEqualTo("release-truth");
         JsonNode list = read(web.get().uri("/api/cryptobot/value-events?limit=5").header(HttpHeaders.AUTHORIZATION, admin).exchange().expectStatus().isOk());
         assertThat(list).hasSize(1);
         assertThat(list.get(0).path("id").asText()).isEqualTo(id);
@@ -228,7 +228,7 @@ class ProofOfValueApiTest {
     }
 
     static String event(boolean accepted) {
-        return "{\"projectId\":\"cryptobot\",\"taskId\":\"KAN-818\",\"title\":\"Improve CryptoBot opportunity detection\","
+        return "{\"projectId\":\"cryptobot\",\"taskId\":\"TASK-818\",\"title\":\"Improve CryptoBot opportunity detection\","
                 + "\"artifact\":{\"commitSha\":\"" + COMMIT + "\",\"prUrl\":\"https://github.com/sebdev89/life-engine-cryptobot-service/pull/48\"},"
                 + "\"acceptance\":{\"source\":\"release-truth\",\"environment\":\"uat-k8s\",\"stages\":{\"MERGED\":true,\"BUILT\":true,\"DEPLOYED\":true,"
                 + "\"RUNNING\":true,\"ACCEPTED\":" + accepted + "},\"evidenceRef\":\"release-truth uat cryptobot --json\",\"acceptedAt\":\"2026-09-30T10:00:00Z\"},"

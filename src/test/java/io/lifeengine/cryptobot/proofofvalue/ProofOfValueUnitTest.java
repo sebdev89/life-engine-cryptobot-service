@@ -22,7 +22,7 @@ import java.util.UUID;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
-/** KAN-818: the pure parts — AcceptancePolicy V1, pov/equal-split/v1, the canonical hashes and the response shape. */
+/** the pure parts — AcceptancePolicy V1, pov/equal-split/v1, the canonical hashes and the response shape. */
 class ProofOfValueUnitTest {
 
     static final String TENANT = "a0000000-0000-4000-8000-000000000001";
@@ -118,7 +118,7 @@ class ProofOfValueUnitTest {
     void viewShape() {
         ValueEventService.Draft d = ValueEventService.draft(TENANT, request(List.of("sebas", "dev-agent-17")));
         ValueEventRecord rec = new ValueEventRecord(UUID.randomUUID(), TENANT, UUID.fromString(TENANT), "sha256:" + "a".repeat(64), d.valueEventHash(),
-                "cryptobot", "KAN-818", "Improve CryptoBot opportunity detection", d.artifactHash(), d.acceptanceHash(), ACCEPTED_AT,
+                "cryptobot", "TASK-818", "Improve CryptoBot opportunity detection", d.artifactHash(), d.acceptanceHash(), ACCEPTED_AT,
                 DistributionPolicy.EQUAL_SPLIT_V1, 100, d.canonical(), ACCEPTED_AT.plusSeconds(5), List.of(
                         new ValueEventRecord.Contribution(0, "sebas", ContributionRole.SPECIFIER, 50, "Sebastián", IdentityKind.HUMAN),
                         new ValueEventRecord.Contribution(1, "dev-agent-17", ContributionRole.IMPLEMENTER, 50, "Dev Agent 17", IdentityKind.AGENT)));
@@ -167,7 +167,7 @@ class ProofOfValueUnitTest {
         for (int i = 0; i < contributors.size(); i++) {
             cs.add(new ContributionRequest(contributors.get(i), roles.get(i % roles.size())));
         }
-        return new ValueEventRequest("cryptobot", "KAN-818", "Improve CryptoBot opportunity detection",
+        return new ValueEventRequest("cryptobot", "TASK-818", "Improve CryptoBot opportunity detection",
                 new ArtifactRequest(COMMIT, "https://github.com/sebdev89/life-engine-cryptobot-service/pull/48", null),
                 new AcceptanceRequest("release-truth", "uat-k8s", allStages(), null, ACCEPTED_AT), cs, null, null, null);
     }

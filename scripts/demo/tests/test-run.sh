@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# KAN-575 — offline checks of scripts/demo/run.sh, e2e-devnet.sh, pov-v1.sh and pov-e2e.sh (KAN-826): argument validation, --dry-run
+# offline checks of scripts/demo/run.sh, e2e-devnet.sh, pov-v1.sh and pov-e2e.sh: argument validation, --dry-run
 # plan, help text, gitignore of the secret files. No docker call is made (the dry run stops before
 # `compose up`); docker, curl, python3 and git must exist because the plan checks the tools.
 set -uo pipefail
@@ -56,7 +56,7 @@ check "bad --chaos" 1 "${DEMO}/e2e-devnet.sh" --chaos explode
 check "--it with --base-url is refused" 1 "${DEMO}/e2e-devnet.sh" --it --base-url http://x
 check "missing env file" 1 "${DEMO}/e2e-devnet.sh" --env-file "${TMP}/missing.env"
 
-echo "pov-v1.sh — arguments and dry run (KAN-818)"
+echo "pov-v1.sh — arguments and dry run"
 check "--help exits 0" 0 "${DEMO}/pov-v1.sh" --help
 check "unknown argument" 1 "${DEMO}/pov-v1.sh" --bogus
 check "missing env file" 1 "${DEMO}/pov-v1.sh" --env-file "${TMP}/missing.env" --commit abcdef1
@@ -68,7 +68,7 @@ for want in 'value-events?anchor=true' 'http://127.0.0.1:18091' '"commitSha":"ab
 done
 check "pov dry run --no-distribute" 0 "${DEMO}/pov-v1.sh" --dry-run --no-distribute --env-file "${TMP}/demo.env" --commit abcdef1
 printf '%s' "$OUT" | grep -q -F 'distribute skipped (--no-distribute)' && ok "pov plan shows the reward skipped" || bad "pov plan does not show the reward skipped"
-check "pov dry run plans the revenue step (KAN-824)" 0 "${DEMO}/pov-v1.sh" --dry-run --env-file "${TMP}/demo.env" --commit abcdef1
+check "pov dry run plans the revenue step" 0 "${DEMO}/pov-v1.sh" --dry-run --env-file "${TMP}/demo.env" --commit abcdef1
 for want in '/revenue-events?anchor=true' 'simulated=true' '/treasury/cryptobot-001' 'SIMULATED pov-v1:abcdef1'; do
   printf '%s' "$OUT" | grep -q -F -- "$want" && ok "pov plan mentions '${want}'" || bad "pov plan lacks '${want}'"
 done

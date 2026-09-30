@@ -27,7 +27,7 @@ import org.junit.jupiter.api.Test;
 import reactor.core.publisher.Mono;
 
 /**
- * KAN-582 (HK-5b) — a 409 of {@code /execute} says why in a metric
+ * (HK-5b) — a 409 of {@code /execute} says why in a metric
  * ({@code cryptobot_execution_refused_total{reason}}), and every stage of the demo path records
  * into its own histogram ({@code cryptobot_stage_latency_seconds{stage}}). On
  * {@link ExecutionHarness}: real in-memory store, real signature, mocked network.
@@ -94,7 +94,7 @@ class ExecutionServiceRefusalMetricsTest {
     }
 
     @Test
-    @DisplayName("the fresh oracle reading refuses: reason=oracle (and the KAN-439 counter still moves)")
+    @DisplayName("the fresh oracle reading refuses: reason=oracle (and an internal ticket counter still moves)")
     void oracleRefused() {
         OracleReading world = Fixtures.oracle("1000", h.now);
         when(h.oracle.read(any())).thenReturn(Mono.just(world));

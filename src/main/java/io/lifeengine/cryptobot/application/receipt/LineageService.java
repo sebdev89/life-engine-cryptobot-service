@@ -27,7 +27,7 @@ import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
 /**
- * Read side of the provenance DAG (KAN-393, Endgame §7 and §15): {@code ancestors},
+ * Read side of the provenance DAG (Endgame §7 and §15): {@code ancestors},
  * {@code descendants}, direct {@code parents}/{@code children}, {@code reusedBy}, and the lineage
  * of a whole proposal — what the UI draws. Every walk starts from receipts the caller owns and
  * never leaves the caller's tenant; the tenant comes from the JWT principal, never from a header.

@@ -7,7 +7,7 @@ import java.util.Comparator;
 import java.util.List;
 
 /**
- * "Con estos pesos, dónde conviene": ranks a {@link QuoteBoard} for one operation (KAN-355).
+ * "Con estos pesos, dónde conviene": ranks a {@link QuoteBoard} for one operation.
  *
  * <ul>
  *   <li>{@link Side#BUY} with {@code amount} ARS: {@code receives = amount / ask − withdrawalFee(network)},

@@ -23,7 +23,7 @@ import java.util.TreeSet;
  * </pre>
  *
  * Sorting makes the root a function of the <em>set</em> of receipts, not of the order the batch
- * was read in, so "recompute the root from the receipts of the batch" (the test of KAN-394) needs
+ * was read in, so "recompute the root from the receipts of the batch" (the test of an internal ticket) needs
  * no stored order. The 0x00/0x01 prefixes make a leaf unforgeable as an internal node (the
  * second-preimage weakness of naive trees). Promotion instead of duplication of the odd node
  * avoids the other classic ambiguity (a tree of {@code n} leaves equal to one of {@code n+1}).

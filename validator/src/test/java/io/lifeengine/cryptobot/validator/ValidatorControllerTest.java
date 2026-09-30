@@ -63,7 +63,7 @@ class ValidatorControllerTest {
         assertThat(SolanaKeypair.verify(KEY.publicKeyBytes(), r.attestation().payload().getBytes(StandardCharsets.UTF_8),
                 Base58.decode(r.attestation().signature()))).isTrue();
         assertThat(r.attestation().payload()).contains("\"message_hash\":\"" + "b".repeat(64) + "\"");
-        // KAN-493: the cluster the bytes are for is part of what the validator signs.
+        // the cluster the bytes are for is part of what the validator signs.
         assertThat(r.attestation().payload()).contains("\"cluster\":\"devnet\"");
     }
 
@@ -75,7 +75,7 @@ class ValidatorControllerTest {
         web.post().uri("/api/validator/validate").header("X-Validator-Token", "test-token")
                 .bodyValue(Map.of("proposalId", "p", "policyHash", POLICY_HASH))
                 .exchange().expectStatus().isBadRequest().expectBody().jsonPath("$.reason").isEqualTo("missing_or_invalid_message_hash");
-        // KAN-493: a request that does not say which cluster the bytes are for cannot be attested.
+        // a request that does not say which cluster the bytes are for cannot be attested.
         web.post().uri("/api/validator/validate").header("X-Validator-Token", "test-token")
                 .bodyValue(Map.of("proposalId", "p", "policyHash", POLICY_HASH, "messageHash", "b".repeat(64), "intent", Map.of(), "state", Map.of()))
                 .exchange().expectStatus().isBadRequest().expectBody().jsonPath("$.reason").isEqualTo("missing_or_invalid_cluster");

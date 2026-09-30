@@ -159,7 +159,7 @@ public final class InMemoryControlPlaneRepositories {
             }
 
             /**
-             * Same contract as the R2DBC store (KAN-403): the guard on status + version is
+             * Same contract as the R2DBC store: the guard on status + version is
              * checked atomically; audit and outbox rows are written only when it passes; a
              * duplicated operationId is refused.
              */
@@ -318,7 +318,7 @@ public final class InMemoryControlPlaneRepositories {
     }
 
     /**
-     * Same contract as the R2DBC store (KAN-391): content-addressed no-op on the same hash, a
+     * Same contract as the R2DBC store: content-addressed no-op on the same hash, a
      * replayed {@code (tenant, nonce)} with another hash is refused, an edge to an unknown parent is
      * refused (the FK), artifacts collapse on their hash.
      */

@@ -29,7 +29,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 /**
- * KAN-572: the policy layer's Decision Receipt is L1 for real — {@code verify} re-runs
+ * the policy layer's Decision Receipt is L1 for real — {@code verify} re-runs
  * {@link DeterministicPolicyEngine} on the stored {@code (I, S)} under the {@code R_v} this
  * build holds and compares the verdict hash. A receipt under another policy is honestly
  * "cannot re-run"; a tampered input or output is refuted, never repaired.

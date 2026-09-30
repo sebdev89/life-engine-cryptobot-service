@@ -18,7 +18,7 @@ import org.junit.jupiter.api.Test;
 
 /**
  * "Same {@code (I, S, R)} ⇒ same decision, in two implementations and in two executions" — the
- * acceptance criterion of KAN-436 and paper §20 (independent validation).
+ * acceptance criterion of an internal ticket and paper §20 (independent validation).
  * {@link ReferencePolicyValidator} is a second implementation of the decision table, written as
  * a flat rule list with none of the engine's helpers; the two are compared over a seeded corpus
  * that covers every tier, every predicate, the boundaries, unknowns and out-of-range integers.

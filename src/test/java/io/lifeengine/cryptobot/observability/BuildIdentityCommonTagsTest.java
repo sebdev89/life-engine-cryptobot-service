@@ -8,7 +8,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 /**
- * Verifies the Micrometer common tags (KAN-199 acceptance): every meter carries {@code environment},
+ * Verifies the Micrometer common tags (internal ticket acceptance): every meter carries {@code environment},
  * {@code service}, {@code version}, {@code commit}, all single-valued per instance (low cardinality).
  * Applies the real customizer bean to a {@link SimpleMeterRegistry} — no context needed.
  */

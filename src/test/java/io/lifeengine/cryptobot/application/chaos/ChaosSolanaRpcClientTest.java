@@ -22,7 +22,7 @@ import org.springframework.web.reactive.function.client.WebClient;
 import reactor.test.StepVerifier;
 
 /**
- * KAN-571 — the three chaos modes, and the shape of the failure they inject: always a
+ * the three chaos modes, and the shape of the failure they inject: always a
  * transport-like {@link SolanaRpcException} (cause set), which the execution path treats as
  * <em>uncertain</em>, never as a node-side rejection.
  */

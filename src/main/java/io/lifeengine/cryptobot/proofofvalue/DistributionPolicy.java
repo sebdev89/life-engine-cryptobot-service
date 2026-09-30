@@ -1,7 +1,7 @@
 package io.lifeengine.cryptobot.proofofvalue;
 
 /**
- * DistributionPolicy V1 (KAN-818): {@code pov/equal-split/v1} — {@link #TOTAL_UNITS} units split
+ * DistributionPolicy V1: {@code pov/equal-split/v1} — {@link #TOTAL_UNITS} units split
  * in equal parts among the contributions, the remainder to the first contribution (request order).
  * Predefined, auditable, deterministic: no model decides who gets what.
  */

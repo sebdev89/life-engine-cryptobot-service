@@ -4,7 +4,7 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.boot.context.properties.bind.DefaultValue;
 
 /**
- * Cómo CryptoBot le pide tokens service-to-service a Auth (KAN-69).
+ * Cómo CryptoBot le pide tokens service-to-service a Auth.
  *
  * <p>Antes CryptoBot llamaba a Runtime únicamente con el JWT del usuario que disparó el pedido
  * (pass-through), y el loop programado de monitoreo, que no tiene usuario, se salteaba cada tick

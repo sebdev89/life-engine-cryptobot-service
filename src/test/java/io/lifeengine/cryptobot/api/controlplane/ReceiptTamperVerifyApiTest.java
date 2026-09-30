@@ -32,7 +32,7 @@ import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.reactive.server.WebTestClient;
 
 /**
- * KAN-604 (audit §17 G15, §26, §27 demo 10): "tampered receipt fails verify" through the real HTTP
+ * (audit §17 G15, §26, §27 demo 10): "tampered receipt fails verify" through the real HTTP
  * API, not just {@code ReceiptServiceTest}'s direct calls into {@link ReceiptService#verify}.
  *
  * <h2>Why this does not tamper "the body of the request"</h2>
@@ -40,8 +40,8 @@ import org.springframework.test.web.reactive.server.WebTestClient;
  * {@code POST /api/cryptobot/receipts/{receiptHash}/verify} ({@link ReceiptsController#verify})
  * takes no request body — it re-reads whatever is stored under {@code receiptHash} and re-verifies
  * that. There is no route yet that accepts a receipt (or a body) from the caller and verifies
- * <em>that</em>; that is KAN-597 ("additive API… body-based {@code /receipts/verify}"), phase 2 of
- * the mandate, not built here (KAN-604's scope is tests, not new endpoints). So "1 byte altered in
+ * <em>that</em>; that is an internal ticket ("additive API… body-based {@code /receipts/verify}"), phase 2 of
+ * the mandate, not built here (internal ticket's scope is tests, not new endpoints). So "1 byte altered in
  * the body" is exercised the only way today's endpoint can observe it: the byte is flipped in what
  * is <em>persisted</em> (as if storage or the wire between the service and its own database had
  * corrupted it), and the same {@code POST …/verify} the API exposes today is asked to catch it.
@@ -97,7 +97,7 @@ class ReceiptTamperVerifyApiTest {
 
         // Tamper what is stored, in place, leaving receiptHash/body/signature/anchor/createdAt untouched:
         // the storage-level equivalent of "1 byte altered in the body" for an endpoint that has no
-        // caller-supplied body to alter (see class Javadoc — KAN-597 is the body-based route).
+        // caller-supplied body to alter (see class Javadoc — an internal ticket is the body-based route).
         String tampered = flipOneByte(issued.canonicalJson());
         assertThat(tampered).isNotEqualTo(issued.canonicalJson());
         IntelligenceReceipt corrupted = new IntelligenceReceipt(issued.receiptHash(), issued.domain(), issued.body(), tampered, issued.signature(),
