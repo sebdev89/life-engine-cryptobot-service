@@ -1,67 +1,54 @@
-# CryptoBot — Safe Execution Protocol for AI Agents on Solana
+# CryptoBot — Trusted Agent Execution on Solana
 
-*A policy-controlled execution layer that lets AI agents safely transact on Solana. CryptoBot is
-its reference implementation.*
+CryptoBot is a reference implementation of Trusted Agent Execution on Solana. AI agents can already
+decide what financial actions to take. CryptoBot provides the layer that safely turns those decisions
+into real on-chain execution through policy controls, idempotency, isolated signing, reconciliation,
+failure recovery and verifiable proofs.
 
-**The problem.** AI agents are about to hold wallets. Today an "agent that transacts" is a
-language model with a private key and an RPC endpoint. A hallucination, a prompt injection or a
-dropped RPC moves funds — sometimes twice — with no proof of what happened.
+## The problem
 
-**The protocol.** The model never signs. It emits a bounded *intent*. The exact unsigned bytes
-are simulated on chain; a versioned policy `R_v` (hashed as `H_R`, unknown ⇒ deny) with a
-multi-source price oracle returns ALLOW / DENY / REVIEW; a human approves under a timelock; an
-**independent validator**, its own hash-pinned policy, re-derives the verdict and attests those
-bytes; an **isolated signer** with bounded authority refuses anything without that attestation;
-the transaction goes to Solana; a reconciler asks the chain, dead-letters ambiguity and retries
-only a never-seen, expired signature under the same operation id; every step leaves a signed,
-content-addressed receipt whose `verify` re-runs the policy engine; receipts form a DAG anchored
-by a Merkle root in a devnet memo.
+An LLM should never hold a private key. An agent that signs and broadcasts on its own produces
+duplicate executions, dangerous retries after timeouts and partial failures, and no evidence of what
+actually happened. Deciding is the easy part; moving the money exactly once is not.
 
-**Proven, not promised.** 16 confirmed transfers on devnet, from local runs and our UAT
-(Compose and Kubernetes, three containers from CI by digest), 0 failed, 0 double executions —
-one recovered after cutting the RPC at broadcast time, the chain shows the first signature never
-landed. Adversarial intents blocked by price deviation, stale oracles, an unauthorized mint and
-an altered receipt (one flipped byte, `verify` returns `valid=false`), each with a receipt that
-verifies and **reproduces**. Four consecutive end-to-end runs on the same commit (`5ff3d40`), no
-intervention, all **PASSED** — two against a local validator, two against live devnet — worst
-case 3m46s. Adversarial benchmark: 10,000 intents, 3,000 attacks in 13 classes, **0 violations
-executed**; invariants I1–I7 hold. Reproducible demo in ~3 minutes: `scripts/demo/run.sh`.
+## What runs today (`main` @ `777672c`)
 
-**How it uses Solana.** JSON-RPC (`simulateTransaction`, `sendTransaction`,
-`getSignatureStatuses`), SPL Memo anchoring, Ed25519 attestations. A native `intent-authority`
-program (policy / nonce / receipt PDAs, 29 tests) is written, not yet deployed.
+```
+Agent → Intent → Policy / Approval / Timelock → Trusted Execution → Solana devnet
+   (idempotency · outbox · DLQ · retry · isolated signer · reconciliation · signed receipt · Merkle proof)
+```
 
-**What we are not.** Not a trading bot, not a policy wallet or multisig on its own, not
-"deterministic AI". Mainnet is fail-closed at three layers, all default off; no custody, no
-autonomous execution, `SystemProgram` transfer only. Life Engine (auth, runtime, observability)
-pre-exists; the Solana execution layer is hackathon work.
+- Real transfers on Solana devnet, reported only once **finalized**.
+- Policy check, human approval and timelock before anything is signed.
+- Idempotency: one operation id from intent to chain; transactional outbox.
+- Dead-letter queue with requeue and idempotent retry; reconciliation against the chain.
+- Isolated signer process, gated by an independent validator — the agent never holds a key.
+- Signed, content-addressed receipts forming a DAG; a Merkle root anchored on devnet, with inclusion proofs.
+- End-to-end demo: **5/5 acts passed** against live devnet (`scripts/demo/run.sh`).
 
----
+## The demo, in two scenes
 
-*(Below this line: supporting evidence and links, not part of the ≤ 400-word submission text
-above.)*
+1. **Trusted execution:** intent → policy → approval → execute → finalized on Solana → reconciled → proof.
+2. **Failure and recovery:** RPC cut at broadcast → dead letter → retry → recovered — one transaction
+   on chain, no duplicate.
 
-## Devnet signatures — Act 1, four consecutive runs (2026-09-22, `5ff3d40`)
+## What it is not yet
 
-Two of the four confirmed transfers from the run described above, verifiable on the explorer:
+No multi-tenant organizations, no public API or SDK, no SPL/USDC, no swaps: SOL transfers to an
+allow-listed vault only. The on-chain `intent-authority` program is written and tested, not deployed.
+Mainnet is closed by default. Not a trading bot: the decision can come from any agent or model.
 
-- Run 3 (devnet):
-  [`258WrABk4ZwmXbKcacrUsv8roUBbkriwvahEhoj7hywP4PPxvrDsUEdNSyg4a7vLQbmVBoo962GHwnRraWvvPuzr`](https://explorer.solana.com/tx/258WrABk4ZwmXbKcacrUsv8roUBbkriwvahEhoj7hywP4PPxvrDsUEdNSyg4a7vLQbmVBoo962GHwnRraWvvPuzr?cluster=devnet)
-- Run 4 (devnet):
-  [`3urAaP67PmBnxrhyMuLF7WuHtV9b5pqy8nsKrnLSewqQ6yi2EMtXxE4ZAgdPNq82gZm66MSFFzyMDn7L8tgQdSDU`](https://explorer.solana.com/tx/3urAaP67PmBnxrhyMuLF7WuHtV9b5pqy8nsKrnLSewqQ6yi2EMtXxE4ZAgdPNq82gZm66MSFFzyMDn7L8tgQdSDU?cluster=devnet)
+## Stack
 
-Full report of the four runs: `Operations/KAN-569-Demo-Runs-2026-09-22.md` (vault).
+Spring Boot · Postgres · Solana devnet (JSON-RPC, SPL Memo) · separate signer and validator processes · Angular UI.
 
-## The evidence behind "reference implementation"
+## Links
 
-*(This section is a reference / link, not part of the ≤ 400-word submission text above.)*
-
-This is not a marketing label: it is backed by a 30-section engineering audit of the running
-code — [`docs/architecture/TRUSTED-AGENT-EXECUTION-AUDIT.md`](docs/architecture/TRUSTED-AGENT-EXECUTION-AUDIT.md)
-(every claim cited `path:line` or a command with its output) — and its ADR,
-[`docs/architecture/TRUSTED-AGENT-EXECUTION-ADR.md`](docs/architecture/TRUSTED-AGENT-EXECUTION-ADR.md),
-which records the ten decisions that keep the security boundary intact while the code splits
-into reusable modules (trusted-execution-core, solana-execution-adapter, cryptobot-trading),
-including the explicit choice not to rename any persisted state, metric, route or receipt kind,
-and that mainnet stays `DENY` until an independent readiness gate exists (decision 10). Both are
-linked from the repository's own architecture docs, not asserted only here.
+- Service: `github.com/sebdev89/life-engine-cryptobot-service` — *[public link / access for judges: TBD]*
+- UI: `github.com/sebdev89/life-engine-cryptobot-ui` — *[public link / access for judges: TBD]*
+- Demo: [`scripts/demo/README.md`](scripts/demo/README.md) · video: *[TBD]*
+- Architecture: [`docs/architecture/TRUSTED-AGENT-EXECUTION-AUDIT.md`](docs/architecture/TRUSTED-AGENT-EXECUTION-AUDIT.md)
+- Devnet evidence (demo run on `777672c`, 2026-09-29):
+  [execution](https://explorer.solana.com/tx/3ofZGCjbMXgjHY6iB8w7VSXvr6pHvajzayS7sSJox1yZxeDwPHAyb17xs8cXzUf7Us8GTbqc5M3tVUL85pGfewmh?cluster=devnet) ·
+  [recovered retry](https://explorer.solana.com/tx/65g1juW9qSPuM3jNacoq12QjMa1cVZv2DCCoybCw7vA74oBYZEpeqgwkZHRkDPv1g21iXQZLkd2Uu7xdp8K13WEq?cluster=devnet) ·
+  [Merkle anchor](https://explorer.solana.com/tx/4xBC6UTVghYajPwWQKLe1mdByKXahah2YFdQgiRQTArhvJkLMoshWmbZTLk4jwWaGuUXTLL8sQULeiJ53XSPPvjY?cluster=devnet)
