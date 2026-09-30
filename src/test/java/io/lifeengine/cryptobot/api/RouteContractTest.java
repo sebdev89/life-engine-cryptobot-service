@@ -99,11 +99,13 @@ class RouteContractTest {
             "GET /api/cryptobot/proposals/{proposalId}/receipts",
             "GET /api/cryptobot/wallets/{walletId}/receipts",
             // KAN-818: Proof of Value V1 — additive, new resource.
+            "POST /api/cryptobot/identities",
+            "GET /api/cryptobot/identities",
+            "GET /api/cryptobot/identities/{id}",
             "POST /api/cryptobot/value-events",
             "GET /api/cryptobot/value-events",
-            "GET /api/cryptobot/value-events/summary",
-            "GET /api/cryptobot/value-events/{valueEventHash}",
-            "POST /api/cryptobot/value-events/{valueEventHash}/verify",
+            "GET /api/cryptobot/value-events/{id}",
+            "GET /api/cryptobot/value-events/{id}/proof",
             "GET /api/cryptobot/health");
 
     @Test

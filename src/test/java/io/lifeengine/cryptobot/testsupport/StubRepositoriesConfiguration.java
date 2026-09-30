@@ -114,10 +114,15 @@ public class StubRepositoriesConfiguration {
         return new InMemoryAnchorRepository();
     }
 
-    /** KAN-818: Proof of Value events. */
+    /** KAN-818: Proof of Value — identities and value events. */
     @Bean
-    io.lifeengine.cryptobot.infrastructure.persistence.controlplane.ValueEventRepository valueEventRepository() {
-        return new InMemoryValueEventRepository();
+    io.lifeengine.cryptobot.proofofvalue.PovIdentityRepository povIdentityRepository() {
+        return InMemoryPovRepositories.identities();
+    }
+
+    @Bean
+    io.lifeengine.cryptobot.proofofvalue.ValueEventRepository povValueEventRepository() {
+        return InMemoryPovRepositories.events();
     }
 
     /** KAN-393: the DAG walks over the same in-memory receipts and edges. */

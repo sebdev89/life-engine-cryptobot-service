@@ -14,7 +14,7 @@ import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 
 /** Maps control-plane failures to HTTP. 404 for foreign ids (never 403: do not leak existence). */
-@RestControllerAdvice(basePackages = "io.lifeengine.cryptobot.api.controlplane")
+@RestControllerAdvice(basePackages = {"io.lifeengine.cryptobot.api.controlplane", "io.lifeengine.cryptobot.proofofvalue"})
 public class ControlPlaneExceptionHandler {
 
     private static final Logger log = LoggerFactory.getLogger(ControlPlaneExceptionHandler.class);
