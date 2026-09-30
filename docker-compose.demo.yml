@@ -146,6 +146,39 @@ services:
       - "host.docker.internal:host-gateway"
     networks: [cryptobot-demo]
 
+  # KAN-794 — the operator UI (repo cryptobot-ui, sibling of this one under active/cryptobot/): the same
+  # Angular build its Dockerfile makes (node → nginx), with config.js generated at start pointing the
+  # BROWSER at the service's published port. Profile `ui`, not always-on, so run.sh and a checkout without
+  # the UI repo behave exactly as before. Start everything with:
+  #   CRYPTOBOT_DEMO_PROJECT=cryptobot-demo-main docker compose -f docker-compose.demo.yml --env-file .env.demo --profile ui up -d --build
+  # Open http://127.0.0.1:4204/live?token=<jwt> — scripts/demo/ui-url.sh prints that URL with a 1 h demo token.
+  # Published on 127.0.0.1:${UI_PORT:-4204}: the service's CORS above admits exactly that origin.
+  # CRYPTOBOT_UI_CONTEXT: path to the cryptobot-ui checkout (default ../cryptobot-ui, i.e. the sibling repo
+  # when this file is in active/cryptobot/cryptobot-service; from a worktree elsewhere, set it absolute).
+  cryptobot-ui:
+    build:
+      context: ${CRYPTOBOT_UI_CONTEXT:-../cryptobot-ui}
+    container_name: ${CRYPTOBOT_DEMO_PROJECT:-cryptobot-demo}-ui
+    profiles: [ui]
+    depends_on:
+      cryptobot-service:
+        condition: service_started
+    environment:
+      # The browser calls the API, not nginx: these are the URLs as seen from the host.
+      UI_CRYPTOBOT_BASE: http://127.0.0.1:${CRYPTOBOT_DEMO_PORT:-8091}
+      # No Auth in the demo stack (the token is minted with the demo JWT_SECRET, see ui-url.sh).
+      UI_AUTH_BASE: ${UI_AUTH_BASE:-http://localhost:8081}
+      # devnet (explorer links resolve) or local (solana-test-validator, --profile local-validator).
+      UI_DEMO_CLUSTER: ${UI_DEMO_CLUSTER:-devnet}
+    ports:
+      - "127.0.0.1:${UI_PORT:-4204}:80"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1/config.js >/dev/null"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    networks: [cryptobot-demo]
+
   # Plan B (KAN-570 §risks): a local Solana validator with unlimited airdrop. Start with
   #   docker compose -f docker-compose.demo.yml --env-file .env.demo --profile local-validator up -d
   # and CRYPTOBOT_SOLANA_DEVNET_RPC=http://solana-local:8899 in .env.demo (the scripts use the
