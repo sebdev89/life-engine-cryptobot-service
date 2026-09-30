@@ -157,7 +157,7 @@ fi
 EV=() ; ev() { EV+=("$*"); }
 
 step "0. register the devnet wallet the signer controls"
-RESP="$(api POST /api/cryptobot/wallets "{\"address\":\"${WALLET}\",\"cluster\":\"devnet\",\"label\":\"KAN-570 demo\"}")"; split_status
+RESP="$(api POST /api/cryptobot/wallets "{\"address\":\"${WALLET}\",\"cluster\":\"devnet\",\"label\":\"${DEMO_WALLET_LABEL:-KAN-570 demo}\"}")"; split_status
 [[ "$STATUS" == "201" ]] || fail "register: HTTP ${STATUS} ${BODY}"
 WALLET_ID="$(printf '%s' "$BODY" | jget "['wallet']['id']")"
 TOTAL_USD="$(printf '%s' "$BODY" | jget "['snapshot']['totalUsd']")"
