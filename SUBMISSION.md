@@ -18,6 +18,8 @@ Agent → Intent → Policy / Approval / Timelock → Trusted Execution → Sola
    (idempotency · outbox · DLQ · retry · isolated signer · reconciliation · signed receipt · Merkle proof)
 ```
 
+![Trusted Agent Execution — architecture](docs/architecture/trusted-agent-execution.svg)
+
 - Real transfers on Solana devnet, reported only once **finalized**.
 - Policy check, human approval and timelock before anything is signed.
 - Idempotency: one operation id from intent to chain; transactional outbox.

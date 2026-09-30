@@ -1,0 +1,54 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 900" width="1600" height="900" role="img" aria-labelledby="t d">
+<title id="t">CryptoBot: failure and recovery</title>
+<desc id="d">An execution fails because the RPC is down, lands in the dead letter queue, is retried with the same operationId, a second requeue is rejected with 409, and the transaction finalizes once with a proof.</desc>
+<defs>
+<marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0 0L10 5L0 10z" fill="#5eead4"/></marker>
+<marker id="r" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0 0L10 5L0 10z" fill="#f87171"/></marker>
+<style>
+text{font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;fill:#e6edf3}
+.m{font-family:ui-monospace,Menlo,Consolas,monospace}
+.k{font-size:14px;fill:#8b98a9;letter-spacing:2px;font-family:ui-monospace,Menlo,Consolas,monospace}
+.n{font-size:19px;font-weight:700;font-family:ui-monospace,Menlo,Consolas,monospace}
+.s{font-size:15px;fill:#8b98a9;font-family:ui-monospace,Menlo,Consolas,monospace}
+.b{fill:#111827;stroke:#2a3548;stroke-width:1.5}
+</style>
+</defs>
+<rect width="1600" height="900" fill="#0b0f17"/>
+<text x="60" y="90" style="font-size:38px;font-weight:700">Failure is a state, not an accident</text>
+<text x="60" y="126" class="s" style="font-size:18px">Scene B: the RPC goes down mid-execution. The money still moves exactly once.</text>
+<rect x="60" y="146" width="64" height="3" fill="#5eead4"/>
+
+<!-- row 1: failure path -->
+<rect x="60" y="250" width="300" height="150" rx="8" class="b"/>
+<text x="80" y="284" class="k">01</text><text x="80" y="326" class="n">EXECUTION</text><text x="80" y="356" class="s">operationId = op-…</text>
+<rect x="450" y="250" width="300" height="150" rx="8" class="b" style="stroke:#f87171;stroke-width:2.5"/>
+<text x="470" y="284" class="k">02</text><text x="470" y="326" class="n" style="fill:#f87171">FAILURE</text><text x="470" y="356" class="s">RPC down</text>
+<rect x="840" y="250" width="300" height="150" rx="8" class="b" style="stroke:#f87171"/>
+<text x="860" y="284" class="k">03</text><text x="860" y="326" class="n">DEAD LETTER</text><text x="860" y="356" class="s">parked, not lost</text>
+<rect x="1230" y="250" width="310" height="150" rx="8" class="b"/>
+<text x="1250" y="284" class="k">04</text><text x="1250" y="326" class="n">RETRY</text><text x="1250" y="356" class="s">same operationId</text>
+<g fill="none" stroke-width="2.5">
+<line x1="360" y1="325" x2="442" y2="325" stroke="#5eead4" marker-end="url(#a)"/>
+<line x1="750" y1="325" x2="832" y2="325" stroke="#f87171" marker-end="url(#r)"/>
+<line x1="1140" y1="325" x2="1222" y2="325" stroke="#5eead4" marker-end="url(#a)"/>
+<path d="M1385 400 V470 H1385" stroke="#5eead4" marker-end="url(#a)"/>
+</g>
+
+<!-- row 2: recovery path -->
+<rect x="1230" y="480" width="310" height="150" rx="8" class="b" style="stroke:#5eead4;stroke-width:2.5"/>
+<text x="1250" y="514" class="k">05</text><text x="1250" y="556" class="n" style="font-size:17px">IDEMPOTENCY CHECK</text><text x="1250" y="586" class="s">2nd requeue = 409</text>
+<rect x="840" y="480" width="300" height="150" rx="8" class="b"/>
+<text x="860" y="514" class="k">06</text><text x="860" y="556" class="n">RECOVERED</text><text x="860" y="586" class="s">one broadcast</text>
+<rect x="450" y="480" width="300" height="150" rx="8" class="b"/>
+<text x="470" y="514" class="k">07</text><text x="470" y="556" class="n">FINALIZED</text><text x="470" y="586" class="s">confirmed on Solana</text>
+<rect x="60" y="480" width="300" height="150" rx="8" class="b" style="stroke:#5eead4;stroke-width:2.5"/>
+<text x="80" y="514" class="k">08</text><text x="80" y="556" class="n" style="fill:#5eead4">PROOF</text><text x="80" y="586" class="s">receipt · Merkle proof</text>
+<g fill="none" stroke="#5eead4" stroke-width="2.5">
+<line x1="1230" y1="555" x2="1148" y2="555" marker-end="url(#a)"/>
+<line x1="840" y1="555" x2="758" y2="555" marker-end="url(#a)"/>
+<line x1="450" y1="555" x2="368" y2="555" marker-end="url(#a)"/>
+</g>
+
+<text x="60" y="770" style="font-size:34px;font-weight:600;fill:#5eead4" class="m">one transaction on chain, no duplicate</text>
+<text x="60" y="806" class="s" style="font-size:17px">A retry reuses the operationId; the second requeue is refused with 409 instead of sending twice.</text>
+</svg>
