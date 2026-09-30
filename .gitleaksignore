@@ -7,6 +7,7 @@ src/test/java/io/lifeengine/cryptobot/application/oracle/PriceOracleServiceTest.
 src/test/java/io/lifeengine/cryptobot/application/controlplane/PolicyEngineTest.java:generic-api-key:312
 # Test request id string in a log-line assertion.
 src/test/java/io/lifeengine/cryptobot/observability/JsonLogLineTest.java:generic-api-key:107
-# Receipt golden vectors: an Ed25519 TEST VECTOR key (key_id "test-vector-2026-09", documented in the file's "note"),
-# used only to pin the canonicalization/signature functions; no environment uses it.
-src/test/resources/receipt/vectors-v1.json:generic-api-key:8
+# Receipt golden vectors: test-only fixture. A random Ed25519 key generated 2026-09-30 by
+# src/test/tools/receipt-vectors-rekey.py (key_id "test-only-fixture-2026-09-30", documented in the key's "note"),
+# used only to pin the signature function of the test suite; no environment uses it.
+src/test/resources/receipt/vectors-v1.json:generic-api-key:9

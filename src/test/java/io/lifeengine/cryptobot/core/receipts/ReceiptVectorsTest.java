@@ -20,9 +20,10 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestFactory;
 
 /**
- * Golden vectors ({@code receipt/vectors-v1.json}, KAN-391). Every canonical string, hash and
+ * Golden vectors ({@code receipt/vectors-v1.json}). Every canonical string, hash and
  * signature in the file was produced outside this codebase (python {@code json} + {@code hashlib}
- * + {@code cryptography}, see the workspace scratch {@code scripts/kan391-gen-vectors.py}), so
+ * + {@code cryptography}; the test-only key and its signatures come from
+ * {@code src/test/tools/receipt-vectors-rekey.py}), so
  * this is the check that an implementation written from the spec agrees with this code on:
  *
  * <ul>
