@@ -200,8 +200,14 @@ secrets_check() {
     fi
   done < "$ENV_FILE"
   if git -C "$PROJECT" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
-    git -C "$PROJECT" check-ignore -q "$ENV_FILE" || { printf '\033[1;31m[demo]\033[0m %s is NOT gitignored\n' "$ENV_FILE" >&2; hits=$((hits + 1)); }
-    git -C "$PROJECT" check-ignore -q "$REPORT" || { printf '\033[1;31m[demo]\033[0m %s is NOT gitignored\n' "$REPORT" >&2; hits=$((hits + 1)); }
+    # A file outside the repo (e.g. --out /tmp/…) cannot be committed: `git check-ignore` answers
+    # "fatal: … is outside repository" (rc 128), which is not a leak. Only paths inside are checked.
+    local f abs
+    for f in "$ENV_FILE" "$REPORT"; do
+      abs="$(cd "$(dirname "$f")" && pwd)/$(basename "$f")"
+      [[ "$abs" == "$PROJECT"/* ]] || continue
+      git -C "$PROJECT" check-ignore -q "$abs" || { printf '\033[1;31m[demo]\033[0m %s is NOT gitignored\n' "$f" >&2; hits=$((hits + 1)); }
+    done
   fi
   log "secrets check: ${n} secret values searched in the report and the log, ${hits} hits; env file and out/ gitignored"
   (( hits == 0 ))
