@@ -1,0 +1,133 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 960" width="1600" height="960" role="img" aria-labelledby="t d">
+<title id="t">Proof of Value: architecture</title>
+<desc id="d">Life Engine produces a task, a Dev Agent run and a measured acceptance (merged, built, deployed, running, accepted). The Proof of Value module inside the CryptoBot service turns the accepted outcome into a signed ValueEvent with identities, knowledge assets, compute receipts and contribution units, batches it into a Merkle root and pays contributors. An independent validator attests and an isolated signer signs the memo and the transfers on Solana devnet. The UI reads the service APIs.</desc>
+<defs>
+<marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="9" markerHeight="9" orient="auto"><path d="M0 0L10 5L0 10z" fill="#5eead4"/></marker>
+<marker id="g" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="9" markerHeight="9" orient="auto"><path d="M0 0L10 5L0 10z" fill="#8b98a9"/></marker>
+<style>
+text{font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;fill:#e6edf3}
+.box{fill:#111827;stroke:#2a3548;stroke-width:1.5}
+.zone{fill:none;stroke:#2a3548;stroke-width:1.5;stroke-dasharray:6 6}
+.acc{stroke:#5eead4}
+.sol{stroke:#a78bfa}
+.k{font-size:13px;fill:#8b98a9;letter-spacing:2px;font-family:ui-monospace,Menlo,Consolas,monospace}
+.h{font-size:22px;font-weight:600}
+.s{font-size:14px;fill:#8b98a9;font-family:ui-monospace,Menlo,Consolas,monospace}
+.ar{stroke:#5eead4;stroke-width:2.5;fill:none}
+.rd{stroke:#8b98a9;stroke-width:2;fill:none;stroke-dasharray:6 5}
+</style>
+</defs>
+<rect width="1600" height="960" fill="#0b0f17"/>
+<text x="60" y="72" style="font-size:36px;font-weight:700">Proof of Value</text>
+<text x="60" y="104" class="s" style="font-size:17px">AI can create value. Proof of Value makes sure we remember who created it.</text>
+<rect x="60" y="120" width="64" height="3" fill="#5eead4"/>
+
+<!-- Life Engine zone -->
+<rect x="40" y="150" width="1000" height="200" rx="10" class="zone"/>
+<text x="60" y="176" class="k">LIFE ENGINE · OFF-CHAIN · ORCHESTRATION AND EVIDENCE</text>
+
+<rect x="60" y="192" width="260" height="140" rx="8" class="box"/>
+<text x="80" y="222" class="k">01 · TASK</text>
+<text x="80" y="256" class="h">Task / Spec</text>
+<text x="80" y="284" class="s">specified by a human</text>
+<text x="80" y="306" class="s">(SPECIFIER, ARCHITECT)</text>
+<line x1="320" y1="262" x2="372" y2="262" class="ar" marker-end="url(#a)"/>
+
+<rect x="380" y="192" width="260" height="140" rx="8" class="box"/>
+<text x="400" y="222" class="k">02 · BUILD</text>
+<text x="400" y="256" class="h">Dev Agent</text>
+<text x="400" y="284" class="s">commit · PR · image digest</text>
+<text x="400" y="306" class="s">(IMPLEMENTER, REVIEWER)</text>
+<line x1="640" y1="262" x2="692" y2="262" class="ar" marker-end="url(#a)"/>
+
+<rect x="700" y="192" width="320" height="140" rx="8" class="box acc"/>
+<text x="720" y="222" class="k">03 · ACCEPTANCE</text>
+<text x="720" y="256" class="h">Release truth</text>
+<text x="720" y="284" class="s">MERGED → BUILT → DEPLOYED</text>
+<text x="720" y="306" class="s">→ RUNNING → ACCEPTED (measured)</text>
+
+<!-- UI -->
+<rect x="1100" y="192" width="460" height="140" rx="8" class="box"/>
+<text x="1120" y="222" class="k">UI · MISSION CONTROL (ANGULAR)</text>
+<text x="1120" y="256" class="h">What happened, who got paid</text>
+<text x="1120" y="284" class="s">/value · /value/ledger · /value/revenue</text>
+<text x="1120" y="306" class="s">/value/treasury · /proof/:root · /live</text>
+
+<!-- arrows into PoV -->
+<line x1="860" y1="332" x2="860" y2="412" class="ar" marker-end="url(#a)"/>
+<text x="872" y="378" class="s">artifact hash · acceptance hash · contributors</text>
+<line x1="1330" y1="412" x2="1330" y2="340" class="rd" marker-end="url(#g)"/>
+<text x="1342" y="378" class="s">read APIs (JWT)</text>
+
+<!-- CryptoBot service zone -->
+<rect x="40" y="400" width="1520" height="270" rx="10" class="zone"/>
+<text x="60" y="426" class="k">CRYPTOBOT SERVICE · PROOF OF VALUE MODULE · THE FIRST ECONOMIC AGENT</text>
+
+<rect x="60" y="442" width="330" height="208" rx="8" class="box"/>
+<text x="80" y="472" class="k">INPUTS</text>
+<text x="80" y="506" class="h">Who and what</text>
+<text x="80" y="536" class="s">Identity / AgentIdentity</text>
+<text x="80" y="560" class="s">  (wallet, owner, operator)</text>
+<text x="80" y="584" class="s">KnowledgeAsset (content hash)</text>
+<text x="80" y="608" class="s">ComputeReceipt (cost ≠ value)</text>
+<line x1="390" y1="546" x2="432" y2="546" class="ar" marker-end="url(#a)"/>
+
+<rect x="440" y="442" width="330" height="208" rx="8" class="box"/>
+<text x="460" y="472" class="k">POLICIES (FIXED, AUDITABLE)</text>
+<text x="460" y="506" class="h">Accept, then attribute</text>
+<text x="460" y="536" class="s">AcceptancePolicy: 5/5 or 422</text>
+<text x="460" y="560" class="s">DistributionPolicy:</text>
+<text x="460" y="584" class="s">  100 Contribution Units</text>
+<text x="460" y="608" class="s">  per accepted outcome</text>
+<line x1="770" y1="546" x2="812" y2="546" class="ar" marker-end="url(#a)"/>
+
+<rect x="820" y="442" width="330" height="208" rx="8" class="box acc"/>
+<text x="840" y="472" class="k">RECORD</text>
+<text x="840" y="506" class="h">ValueEvent</text>
+<text x="840" y="536" class="s">canonical JSON (RFC 8785)</text>
+<text x="840" y="560" class="s">→ sha256 → signed receipt</text>
+<text x="840" y="584" class="s">→ Merkle batch → root</text>
+<text x="840" y="608" class="s">/proof: verified: true</text>
+<line x1="1150" y1="546" x2="1192" y2="546" class="ar" marker-end="url(#a)"/>
+
+<rect x="1200" y="442" width="340" height="208" rx="8" class="box"/>
+<text x="1220" y="472" class="k">SETTLE</text>
+<text x="1220" y="506" class="h">Rewards and revenue</text>
+<text x="1220" y="536" class="s">immediate reward (pro rata)</text>
+<text x="1220" y="560" class="s">RevenueEvent: 20% pool,</text>
+<text x="1220" y="584" class="s">  5% fee, rest retained</text>
+<text x="1220" y="608" class="s">Treasury · Reputation</text>
+
+<!-- down to validator -->
+<polyline points="985,650 985,690 710,690 710,744" class="ar" marker-end="url(#a)"/>
+<text x="730" y="680" class="s">root to anchor (memo)</text>
+<polyline points="1370,650 1370,690 985,690" class="ar"/>
+<text x="1160" y="680" class="s">payout transfers</text>
+
+<!-- trust boundary -->
+<rect x="40" y="710" width="1520" height="170" rx="10" class="zone"/>
+<text x="60" y="736" class="k">TRUST BOUNDARY · THE AGENT NEVER HOLDS A KEY</text>
+
+<rect x="560" y="752" width="300" height="110" rx="8" class="box"/>
+<text x="580" y="782" class="k">VALIDATOR</text>
+<text x="580" y="814" class="h">Independent re-check</text>
+<text x="580" y="842" class="s">own policy copy · attests</text>
+<line x1="860" y1="807" x2="902" y2="807" class="ar" marker-end="url(#a)"/>
+
+<rect x="910" y="752" width="300" height="110" rx="8" class="box acc"/>
+<text x="930" y="782" class="k">SIGNER (ISOLATED)</text>
+<text x="930" y="814" class="h">Only key holder</text>
+<text x="930" y="842" class="s">memo + allow-listed, capped</text>
+<line x1="1210" y1="807" x2="1252" y2="807" class="ar" marker-end="url(#a)"/>
+
+<rect x="1260" y="752" width="280" height="110" rx="8" class="box sol"/>
+<text x="1280" y="782" class="k">SOLANA DEVNET</text>
+<text x="1280" y="814" class="h" style="font-size:19px">Settlement + provenance</text>
+<text x="1280" y="842" class="s">ir/1 root=… · SOL payouts</text>
+
+<text x="60" y="796" class="s">On-chain: hashes, ids, Merkle roots</text>
+<text x="60" y="820" class="s">and wallet transfers only.</text>
+<text x="60" y="844" class="s">No source code, no personal data.</text>
+
+<text x="60" y="926" class="s" style="font-size:15px">Don't reward commits. Reward outcomes. · Software should remember who created its value.</text>
+</svg>

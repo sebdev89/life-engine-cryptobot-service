@@ -27,3 +27,6 @@ programs/*/target/
 # KAN-575 run.sh --target uat: the UAT credentials (template: .env.demo-uat.example)
 .env.demo-uat
 out/
+
+# demo keypairs live under ~/.cryptobot-demo; never versioned even if CRYPTOBOT_DEMO_HOME points inside the repo
+.cryptobot-demo/
