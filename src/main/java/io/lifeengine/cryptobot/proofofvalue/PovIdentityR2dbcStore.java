@@ -43,6 +43,13 @@ public class PovIdentityR2dbcStore implements PovIdentityRepository {
     }
 
     @Override
+    public Mono<PovIdentity> setWalletIfMissing(String tenantId, String id, String wallet) {
+        return db.sql("UPDATE pov_identity SET wallet = :wallet WHERE tenant_id = :tenant AND id = :id AND wallet IS NULL")
+                .bind("wallet", wallet).bind("tenant", tenantId).bind("id", id)
+                .fetch().rowsUpdated().flatMap(n -> n > 0 ? find(tenantId, id) : Mono.empty());
+    }
+
+    @Override
     public Flux<PovIdentity> findAll(String tenantId) {
         return db.sql("SELECT " + COLS + " FROM pov_identity WHERE tenant_id = :tenant ORDER BY created_at, id")
                 .bind("tenant", tenantId).map((row, meta) -> map(row)).all();

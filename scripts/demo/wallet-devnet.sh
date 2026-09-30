@@ -40,32 +40,7 @@ umask 077
 mkdir -p "$DEMO_HOME"
 chmod 700 "$DEMO_HOME"
 
-# keygen <path>: a 64-byte solana-keygen keypair (seed ‖ public key) as a JSON byte array.
-keygen() {
-  local out="$1"
-  if command -v solana-keygen >/dev/null 2>&1; then
-    solana-keygen new --no-bip39-passphrase --silent --outfile "$out" >/dev/null
-  else
-    python3 - "$out" <<'PY'
-import json, sys
-try:
-    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
-    from cryptography.hazmat.primitives import serialization
-    k = Ed25519PrivateKey.generate()
-    seed = k.private_bytes(serialization.Encoding.Raw, serialization.PrivateFormat.Raw, serialization.NoEncryption())
-    pub = k.public_key().public_bytes(serialization.Encoding.Raw, serialization.PublicFormat.Raw)
-except ImportError:
-    import subprocess
-    pem = subprocess.check_output(["openssl", "genpkey", "-algorithm", "ed25519"])
-    der = subprocess.check_output(["openssl", "pkey", "-outform", "DER"], input=pem)
-    pubder = subprocess.check_output(["openssl", "pkey", "-pubout", "-outform", "DER"], input=pem)
-    seed, pub = der[-32:], pubder[-32:]
-with open(sys.argv[1], "w") as f:
-    json.dump(list(seed + pub), f, separators=(",", ":"))
-PY
-  fi
-  chmod 600 "$out"
-}
+# keygen <path>: lib.sh (shared with pov-v1.sh since KAN-819).
 
 for name in demo-wallet rebalance-vault validator; do
   f="${DEMO_HOME}/${name}.json"

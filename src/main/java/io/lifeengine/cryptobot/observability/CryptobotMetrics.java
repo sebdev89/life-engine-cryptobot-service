@@ -66,6 +66,9 @@ import java.util.concurrent.atomic.AtomicLong;
  *   --- KAN-818 (Proof of Value V1: fed by proofofvalue.ValueEventService / IdentityService) ---
  *   pov.value.events              → pov_value_events_total{status}        recorded | anchored | rejected (AcceptancePolicy 422) — one per POST outcome
  *   pov.identities                → pov_identities_total                  contributor identities created (an idempotent re-POST does not count)
+ *   --- KAN-819 (Proof of Value V3/V4: fed by proofofvalue.KnowledgeAssetService / ValueEventService) ---
+ *   pov.knowledge.assets          → pov_knowledge_assets_total            knowledge assets registered (an idempotent re-POST does not count)
+ *   pov.compute.receipts          → pov_compute_receipts_total            compute receipts attached to newly recorded value events
  *   --- KAN-393 (provenance DAG: lineage API + REUSES edge) ---
  *   artifact.reuse                → artifact_reuse_total{external}       a STRATEGY that declared REUSES over an earlier MARKET_ANALYSIS; external=false until public receipts exist
  *   provenance.depth              → provenance_depth (distribution)       max depth of the graph a lineage query returned
@@ -133,6 +136,8 @@ public class CryptobotMetrics {
     static final String ANCHOR_FINALITY_LATENCY = "anchor.finality.latency";
     static final String POV_VALUE_EVENTS = "pov.value.events";
     static final String POV_IDENTITIES = "pov.identities";
+    static final String POV_KNOWLEDGE_ASSETS = "pov.knowledge.assets";
+    static final String POV_COMPUTE_RECEIPTS = "pov.compute.receipts";
     static final String ARTIFACT_REUSE = "artifact.reuse";
     static final String PROVENANCE_DEPTH = "provenance.depth";
     static final String EXECUTION_REFUSED = "cryptobot.execution.refused";
@@ -457,6 +462,20 @@ public class CryptobotMetrics {
     /** A contributor identity was created. */
     public void povIdentity() {
         counter(POV_IDENTITIES).increment();
+    }
+
+    // ---- KAN-819: Proof of Value V3/V4 -------------------------------------------------------------
+
+    /** A knowledge asset was registered. */
+    public void povKnowledgeAsset() {
+        counter(POV_KNOWLEDGE_ASSETS).increment();
+    }
+
+    /** {@code n} compute receipts were attached to a newly recorded value event. */
+    public void povComputeReceipts(int n) {
+        if (n > 0) {
+            counter(POV_COMPUTE_RECEIPTS).increment(n);
+        }
     }
 
     // ---- KAN-393: provenance DAG ------------------------------------------------------------------

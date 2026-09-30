@@ -4,7 +4,10 @@ import java.util.UUID;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
-/** Append-only store of ValueEvents (KAN-818): the event and its contributions are written in one transaction. */
+/**
+ * Append-only store of ValueEvents (KAN-818): the event, its contributions and (KAN-819) its knowledge links and compute
+ * receipts are written in one transaction.
+ */
 public interface ValueEventRepository {
 
     Mono<ValueEventRecord> insert(ValueEventRecord event);
@@ -16,4 +19,7 @@ public interface ValueEventRepository {
 
     /** Newest first. */
     Flux<ValueEventRecord> findRecent(String tenantId, int limit);
+
+    /** Every event of the tenant, in the order they were accepted (the read models of V2 and V6 fold over it). */
+    Flux<ValueEventRecord> findAll(String tenantId);
 }

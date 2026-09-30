@@ -20,4 +20,31 @@ public final class ProofOfValueExceptions {
             return violations;
         }
     }
+
+    /**
+     * KAN-819: a well-formed request that breaks an attribution rule — an AGENT without wallet, a wallet that is not a
+     * 32-byte public key, a knowledge asset or compute provider that is not registered. 422 with {@code code}.
+     */
+    public static class Unprocessable extends RuntimeException {
+        private final String code;
+        private final List<String> details;
+
+        public Unprocessable(String code, String message, List<String> details) {
+            super(message);
+            this.code = code;
+            this.details = details == null ? List.of() : List.copyOf(details);
+        }
+
+        public Unprocessable(String code, String message) {
+            this(code, message, List.of());
+        }
+
+        public String code() {
+            return code;
+        }
+
+        public List<String> details() {
+            return details;
+        }
+    }
 }

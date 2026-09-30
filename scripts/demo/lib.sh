@@ -55,6 +55,34 @@ print(b58(k[32:]))
 PY
 }
 
+# keygen <path>: a 64-byte solana-keygen keypair (seed ‖ public key) as a JSON byte array, 0600. solana-keygen when
+# installed (`solana-keygen new --no-bip39-passphrase`), else the same layout from python/openssl. Prints nothing.
+keygen() {
+  local out="$1"
+  if command -v solana-keygen >/dev/null 2>&1; then
+    solana-keygen new --no-bip39-passphrase --silent --outfile "$out" >/dev/null
+  else
+    python3 - "$out" <<'PY'
+import json, sys
+try:
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+    from cryptography.hazmat.primitives import serialization
+    k = Ed25519PrivateKey.generate()
+    seed = k.private_bytes(serialization.Encoding.Raw, serialization.PrivateFormat.Raw, serialization.NoEncryption())
+    pub = k.public_key().public_bytes(serialization.Encoding.Raw, serialization.PublicFormat.Raw)
+except ImportError:
+    import subprocess
+    pem = subprocess.check_output(["openssl", "genpkey", "-algorithm", "ed25519"])
+    der = subprocess.check_output(["openssl", "pkey", "-outform", "DER"], input=pem)
+    pubder = subprocess.check_output(["openssl", "pkey", "-pubout", "-outform", "DER"], input=pem)
+    seed, pub = der[-32:], pubder[-32:]
+with open(sys.argv[1], "w") as f:
+    json.dump(list(seed + pub), f, separators=(",", ":"))
+PY
+  fi
+  chmod 600 "$out"
+}
+
 # balance_lamports <rpc-url> <pubkey>
 balance_lamports() {
   rpc "$1" getBalance "[\"$2\", {\"commitment\": \"confirmed\"}]" | python3 -c 'import json,sys; d=json.load(sys.stdin); print(d.get("result",{}).get("value", 0))'

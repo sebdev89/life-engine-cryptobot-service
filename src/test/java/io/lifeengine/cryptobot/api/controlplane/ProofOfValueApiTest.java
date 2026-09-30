@@ -207,7 +207,7 @@ class ProofOfValueApiTest {
                 .expectStatus().isBadRequest().expectBody().jsonPath("$.code").isEqualTo("UNSUPPORTED_DISTRIBUTION_POLICY");
         // An agent whose owner does not exist.
         web.post().uri("/api/cryptobot/identities").header(HttpHeaders.AUTHORIZATION, admin).contentType(MediaType.APPLICATION_JSON)
-                .bodyValue("{\"id\":\"orphan\",\"kind\":\"AGENT\",\"displayName\":\"Orphan\",\"ownerId\":\"nobody\"}")
+                .bodyValue("{\"id\":\"orphan\",\"kind\":\"AGENT\",\"displayName\":\"Orphan\",\"wallet\":\"GwMtp15arkyoxkJ6ah3R6hCab3SXCJhsSWsZ2DyTeVnW\",\"ownerId\":\"nobody\"}")
                 .exchange().expectStatus().isBadRequest().expectBody().jsonPath("$.code").isEqualTo("UNKNOWN_IDENTITY");
         web.get().uri("/api/cryptobot/value-events/" + UUID.randomUUID()).header(HttpHeaders.AUTHORIZATION, admin).exchange().expectStatus().isNotFound()
                 .expectBody().jsonPath("$.code").isEqualTo("NOT_FOUND");
@@ -220,8 +220,8 @@ class ProofOfValueApiTest {
     private void seedIdentities(String token) throws Exception {
         for (String body : List.of(
                 "{\"id\":\"sebas\",\"kind\":\"HUMAN\",\"displayName\":\"Sebastián\"}",
-                "{\"id\":\"dev-agent-17\",\"kind\":\"AGENT\",\"displayName\":\"Dev Agent 17\",\"ownerId\":\"sebas\"}",
-                "{\"id\":\"cryptobot-001\",\"kind\":\"AGENT\",\"displayName\":\"CryptoBot 001\",\"ownerId\":\"sebas\",\"operatorId\":\"sebas\"}")) {
+                "{\"id\":\"dev-agent-17\",\"kind\":\"AGENT\",\"displayName\":\"Dev Agent 17\",\"wallet\":\"GwMtp15arkyoxkJ6ah3R6hCab3SXCJhsSWsZ2DyTeVnW\",\"ownerId\":\"sebas\"}",
+                "{\"id\":\"cryptobot-001\",\"kind\":\"AGENT\",\"displayName\":\"CryptoBot 001\",\"wallet\":\"Cm48Eg67MfPpkpS5SKngrA587nHNgDgXjHLwfY9U81e7\",\"ownerId\":\"sebas\",\"operatorId\":\"sebas\"}")) {
             web.post().uri("/api/cryptobot/identities").header(HttpHeaders.AUTHORIZATION, token).contentType(MediaType.APPLICATION_JSON)
                     .bodyValue(body).exchange().expectStatus().isCreated();
         }

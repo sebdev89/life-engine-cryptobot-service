@@ -3,7 +3,9 @@ package io.lifeengine.cryptobot.proofofvalue;
 import io.lifeengine.cryptobot.application.controlplane.ControlPlaneExceptions;
 import io.lifeengine.cryptobot.application.controlplane.Receipts;
 import io.lifeengine.cryptobot.observability.CryptobotMetrics;
+import io.lifeengine.cryptobot.solana.rpc.Base58;
 import java.time.Clock;
+import java.util.List;
 import java.util.UUID;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -16,6 +18,11 @@ import reactor.core.publisher.Mono;
  * Minimal contributor registry (KAN-818): create, list, get — idempotent by id. The tenant is the
  * JWT owner ({@link Receipts#tenantOf}), the same key the receipts use; an identity of another
  * tenant does not exist for the caller (404).
+ *
+ * <p>KAN-819 (V2 AgentIdentity): an {@code AGENT} must have a wallet (422 {@code AGENT_WALLET_REQUIRED}); a wallet,
+ * when present, must be a Solana public key — Base58 of exactly 32 bytes (422 {@code INVALID_WALLET}). Only the public
+ * key is registered: keypairs never reach the service. An identity registered before this rule without a wallet (a V1
+ * agent) gets it set once when it is posted again with one; a stored wallet is never overwritten.
  */
 @Service
 public class IdentityService {
@@ -41,13 +48,24 @@ public class IdentityService {
     }
 
     public Mono<Created> create(UUID ownerUserId, ProofOfValueDtos.IdentityRequest req) {
+        String wallet = blank(req.wallet());
+        if (wallet != null && !Base58.isPublicKey(wallet)) {
+            return Mono.error(new ProofOfValueExceptions.Unprocessable("INVALID_WALLET", "wallet must be a Solana public key (Base58, 32 bytes)",
+                    List.of("wallet: not a 32-byte Base58 public key")));
+        }
         String tenant = Receipts.tenantOf(ownerUserId);
         return identities.find(tenant, req.id())
+                .flatMap(existing -> existing.wallet() == null && wallet != null
+                        ? identities.setWalletIfMissing(tenant, existing.id(), wallet)
+                                .doOnNext(u -> log.info("pov_identity_wallet_backfilled id={} kind={}", u.id(), u.kind()))
+                                .defaultIfEmpty(existing)
+                        : Mono.just(existing))
                 .map(existing -> new Created(existing, false))
+                .switchIfEmpty(Mono.defer(() -> requireWallet(req.kind(), wallet)))
                 .switchIfEmpty(Mono.defer(() -> requireReference(tenant, "ownerId", req.ownerId())
                         .then(requireReference(tenant, "operatorId", req.operatorId()))
                         .then(Mono.defer(() -> {
-                            PovIdentity identity = new PovIdentity(tenant, req.id(), req.kind(), req.displayName().trim(), blank(req.wallet()),
+                            PovIdentity identity = new PovIdentity(tenant, req.id(), req.kind(), req.displayName().trim(), wallet,
                                     blank(req.ownerId()), blank(req.operatorId()), clock.instant());
                             return identities.insertIfAbsent(identity)
                                     .map(stored -> {
@@ -67,6 +85,15 @@ public class IdentityService {
     public Mono<PovIdentity> require(UUID ownerUserId, String id) {
         return identities.find(Receipts.tenantOf(ownerUserId), id)
                 .switchIfEmpty(Mono.error(new ControlPlaneExceptions.NotFound("Identity " + id)));
+    }
+
+    /** Only on creation: a stored identity is returned as it is (and a V1 agent without wallet stays readable). */
+    private static Mono<Created> requireWallet(IdentityKind kind, String wallet) {
+        if (kind == IdentityKind.AGENT && wallet == null) {
+            return Mono.error(new ProofOfValueExceptions.Unprocessable("AGENT_WALLET_REQUIRED", "an AGENT identity needs a wallet (its devnet public key)",
+                    List.of("wallet: required for kind AGENT")));
+        }
+        return Mono.empty();
     }
 
     private Mono<Void> requireReference(String tenant, String field, String id) {

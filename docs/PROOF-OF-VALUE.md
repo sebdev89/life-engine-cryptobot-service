@@ -1,4 +1,4 @@
-# Proof of Value V1 (KAN-818)
+# Proof of Value V1 (KAN-818) and V2–V4 + V6 (KAN-819)
 
 Life Engine records an **accepted** contribution as a `ValueEvent`, anchors it on Solana devnet and
 correlates the on-chain hash with the off-chain evidence. No new service, no signer change: a
@@ -57,6 +57,38 @@ KNOWLEDGE_PROVIDER, COMPUTE_PROVIDER, OPERATOR, CAPITAL_PROVIDER`. `explorerUrl`
 
 Metrics: `pov_value_events_total{status=recorded|anchored|rejected}`, `pov_identities_total`.
 
+## V2–V4 + V6 — attribution primitives (KAN-819: KAN-820, KAN-821, KAN-823)
+
+Flyway `V13__pov_attribution.sql`. Nothing new goes on-chain: knowledge assets and compute receipts are part of the
+event's canonical JSON, so the `VALUE_EVENT` receipt's `output.hash` — and the Merkle root in the `ir/1` memo — cover
+them. An event that carries either is schema `pov/value-event/v2`; one without either stays `pov/value-event/v1` byte
+for byte (V1 hashes and idempotency do not move).
+
+| Piece | Rule |
+|---|---|
+| V2 AgentIdentity | an `AGENT` needs a `wallet` on creation (**422** `AGENT_WALLET_REQUIRED`); a `HUMAN` may have none. A wallet is a Solana public key: Base58 that decodes to exactly 32 bytes (**422** `INVALID_WALLET`). Only the public key is registered; keypairs never reach the service. A V1 agent stored without a wallet stays readable and gets its wallet **once** when posted again with one; a stored wallet is never overwritten. |
+| Reputation V2 | explicit counts, no formula: `acceptedOutcomes` = distinct accepted events the identity contributed to, `totalUnits` = units it received, `firstAcceptedAt` / `lastAcceptedAt`. |
+| V3 KnowledgeAsset | `pov_knowledge_asset(id, version, kind, title, creator_id, content_hash, parent_ids[])`. `kind` ∈ `ARCHITECTURE, PROMPT, RULESET, DATASET, EVAL_SUITE, STRATEGY, RUNBOOK, ALGORITHM, AGENT_CONFIG, DOMAIN_KNOWLEDGE`. Idempotent by id; creator and parents must exist (**422** `UNKNOWN_IDENTITY` / `UNKNOWN_KNOWLEDGE_ASSET`). Only the `sha256` of the content is stored. |
+| Knowledge in an event | `knowledgeAssets: [assetId]`, each registered (**422** `UNKNOWN_KNOWLEDGE_ASSET`, one detail per id), no repeats (400). Committed expanded: `{id, version, kind, title, creatorId, contentHash}`. |
+| Provenance contribution | if an asset's creator is not among the request's `KNOWLEDGE_PROVIDER` contributions, the service appends one `KNOWLEDGE_PROVIDER` contribution per such creator (in asset order), **before** the split, with `derivedFrom: [assetIds]`. It is provenance — the asset was used, its creator is credited like any other contributor — not an economic decision: the policy is still `pov/equal-split/v1`, visible and recomputable from the canonical JSON. A creator already credited as `KNOWLEDGE_PROVIDER` is not added twice. |
+| V4 ComputeReceipt | `computeReceipts: [{providerId, node, model, inputTokens, outputTokens, gpuSeconds, estimatedCostMicroUsd}]`. The provider must be a registered identity (**422** `UNKNOWN_COMPUTE_PROVIDER`) with a wallet (**422** `PROVIDER_WALLET_REQUIRED`), which is denormalized as `providerWallet`. `gpuSeconds` has at most 3 decimals and is committed as integer `gpuMillis` (the canonical JSON is integers-only). **Compute cost is recorded separately from economic value**: a compute receipt never takes units. |
+| V6 Contribution Units ledger | `GET /units/ledger?groupBy=identity|asset|project` (default `identity`; anything else 400 `INVALID_GROUP_BY`). The rows always add up to `totalUnits` = every unit every recorded event distributed. By asset: the units of a `KNOWLEDGE_PROVIDER` contribution go to that event's assets created by that contributor (equal parts, remainder to the first); every other unit is in the `unattributed` row. Contribution Units are an attribution primitive inside the protocol — not equity, not a promise of financial return. |
+
+| Method | Path | |
+|---|---|---|
+| GET | `/identities` | `[{id, kind, displayName, wallet, ownerId, operatorId, createdAt, reputation:{acceptedOutcomes, totalUnits, firstAcceptedAt, lastAcceptedAt}}]` |
+| GET | `/identities/{id}` | the same + `history:[{valueEventId, title, role, units, acceptedAt, anchorStatus}]`, newest first (one row per contribution: two roles in one event are two rows, one outcome) |
+| POST | `/knowledge-assets` | `{id, version, kind, title, creatorId, contentHash, parentIds?}` → 201 / 200 |
+| GET | `/knowledge-assets`, `/knowledge-assets/{id}` | `{id, version, kind, title, creatorId, creatorDisplayName, contentHash, parentIds, createdAt, usedIn:[valueEventId]}` |
+| GET | `/units/ledger?groupBy=` | `{groupBy, rows:[{key, displayName, kind, totalUnits, acceptedOutcomes}], totalUnits}` |
+
+A ValueEvent response now carries `knowledgeAssets:[{id, version, kind, title, creatorId, contentHash}]`,
+`computeReceipts:[{id, providerId, providerDisplayName, node, model, inputTokens, outputTokens, gpuSeconds, estimatedCostMicroUsd, providerWallet}]`
+and, on each contribution, `derivedFrom` (`null` unless the service added it). The V1 request field `computeReceipts`
+(free-form strings, never produced) is replaced by the objects above.
+
+Metrics: `pov_knowledge_assets_total`, `pov_compute_receipts_total`.
+
 ## Demo: `scripts/demo/pov-v1.sh`
 
 Against a running demo stack (`scripts/demo/run.sh --keep`, or the compose of `docker-compose.demo.yml`):
@@ -68,9 +100,14 @@ scripts/demo/pov-v1.sh --base-url <url>        # another target, with CRYPTOBOT_
 scripts/demo/pov-v1.sh --dry-run               # prints the plan and the payload
 ```
 
-It creates `sebas` (HUMAN), `dev-agent-17` and `cryptobot-001` (AGENT, owner `sebas`), posts the example event with
-`commitSha = git rev-parse HEAD` and `?anchor=true`, and prints `receiptHash`, `root`, `txSignature`, `explorerUrl` and the
-proof. Exit 0 only when the event is ANCHORED and `verified` is true.
+It seeds, idempotently, `sebas` (HUMAN), `dev-agent-17`, `cryptobot-001`, `review-agent-3` and `compute-node-8` (AGENT;
+each wallet is the public key of `~/.cryptobot-demo/pov-<id>.json`, generated once with `solana-keygen new
+--no-bip39-passphrase` or the same layout from python — the keypair never leaves the host), the assets
+`production-acceptance-model@1` (RULESET) and `strategy-knowledge@3` (STRATEGY), and posts the example event (taskId
+`KAN-819`, both assets, a compute receipt of `compute-node-8`, `commitSha = git rev-parse HEAD`, `acceptedAt` = the commit's
+date so the same commit is the same event; `--accepted-at` overrides it) with `?anchor=true`. It prints `receiptHash`, `root`,
+`txSignature`, `explorerUrl`, the units per contribution, knowledge and compute, the proof, the identities with their
+reputation and the ledger by identity. Exit 0 only when the event is ANCHORED and `verified` is true.
 
 ## Verifying a hash on-chain by hand
 

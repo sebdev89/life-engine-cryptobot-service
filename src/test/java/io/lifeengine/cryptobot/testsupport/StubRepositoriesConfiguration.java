@@ -125,6 +125,12 @@ public class StubRepositoriesConfiguration {
         return InMemoryPovRepositories.events();
     }
 
+    /** KAN-819: knowledge assets. */
+    @Bean
+    io.lifeengine.cryptobot.proofofvalue.KnowledgeAssetRepository povKnowledgeAssetRepository() {
+        return InMemoryPovRepositories.assets();
+    }
+
     /** KAN-393: the DAG walks over the same in-memory receipts and edges. */
     @Bean
     io.lifeengine.cryptobot.infrastructure.persistence.controlplane.LineageRepository lineageRepository() {
