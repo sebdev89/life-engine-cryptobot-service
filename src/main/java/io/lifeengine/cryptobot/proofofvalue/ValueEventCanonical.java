@@ -20,10 +20,16 @@ import java.util.Map;
  *   acceptanceHash = sha256(JCS(acceptance))
  *   valueEventHash = sha256(JCS(event))   ← the VALUE_EVENT receipt's output.hash
  * </pre>
+ *
+ * <p>KAN-819: an event with knowledge assets or compute receipts is {@link #SCHEMA_V2}; its {@code knowledgeAssets}
+ * and {@code computeReceipts} carry the expanded objects (asset id, version, kind, title, creator, content hash; provider,
+ * provider wallet, node, model, tokens, GPU milliseconds, estimated cost in micro-USD), so the hash anchored on-chain
+ * covers them. An event without either stays {@link #SCHEMA} byte for byte — V1 hashes and idempotency do not move.
  */
 public final class ValueEventCanonical {
 
     public static final String SCHEMA = "pov/value-event/v1";
+    public static final String SCHEMA_V2 = "pov/value-event/v2";
 
     private ValueEventCanonical() {}
 
@@ -31,7 +37,21 @@ public final class ValueEventCanonical {
 
     public record Acceptance(String source, String environment, Map<String, Boolean> stages, String evidenceRef, Instant acceptedAt) {}
 
-    public record Contribution(String identityId, ContributionRole role, int units) {}
+    /** {@code derivedFrom}: {@code null} when the contribution came in the request; the asset ids when it was added for their creator. */
+    public record Contribution(String identityId, ContributionRole role, int units, List<String> derivedFrom) {
+        public Contribution(String identityId, ContributionRole role, int units) {
+            this(identityId, role, units, null);
+        }
+    }
+
+    public record KnowledgeRef(String id, int version, String kind, String title, String creatorId, String contentHash) {}
+
+    public record Compute(String providerId, String providerWallet, String node, String model, long inputTokens, long outputTokens, long gpuMillis,
+            long estimatedCostMicroUsd) {}
+
+    public static String schemaFor(List<KnowledgeRef> knowledge, List<Compute> compute) {
+        return (knowledge == null || knowledge.isEmpty()) && (compute == null || compute.isEmpty()) ? SCHEMA : SCHEMA_V2;
+    }
 
     public static Map<String, Object> artifactTree(Artifact a) {
         Map<String, Object> m = new LinkedHashMap<>();
@@ -69,7 +89,7 @@ public final class ValueEventCanonical {
 
     /** The whole event: what the receipt commits to. Contributions keep the request order (it decides the remainder). */
     public static Map<String, Object> eventTree(String tenantId, String projectId, String taskId, String title, Artifact artifact, Acceptance acceptance,
-            List<Contribution> contributions, List<String> knowledgeAssets, List<String> computeReceipts, String distributionPolicy, int totalUnits) {
+            List<Contribution> contributions, List<KnowledgeRef> knowledgeAssets, List<Compute> computeReceipts, String distributionPolicy, int totalUnits) {
         Map<String, Object> artifactTree = artifactTree(artifact);
         Map<String, Object> acceptanceTree = acceptanceTree(acceptance);
         List<Map<String, Object>> cs = new ArrayList<>();
@@ -78,10 +98,37 @@ public final class ValueEventCanonical {
             cm.put("identityId", c.identityId());
             cm.put("role", c.role().name());
             cm.put("units", c.units());
+            if (c.derivedFrom() != null && !c.derivedFrom().isEmpty()) {
+                cm.put("derivedFrom", List.copyOf(c.derivedFrom()));
+            }
             cs.add(cm);
         }
+        List<Map<String, Object>> ks = new ArrayList<>();
+        for (KnowledgeRef k : knowledgeAssets == null ? List.<KnowledgeRef>of() : knowledgeAssets) {
+            Map<String, Object> km = new LinkedHashMap<>();
+            km.put("id", k.id());
+            km.put("version", k.version());
+            km.put("kind", k.kind());
+            km.put("title", k.title());
+            km.put("creatorId", k.creatorId());
+            km.put("contentHash", k.contentHash());
+            ks.add(km);
+        }
+        List<Map<String, Object>> rs = new ArrayList<>();
+        for (Compute r : computeReceipts == null ? List.<Compute>of() : computeReceipts) {
+            Map<String, Object> rm = new LinkedHashMap<>();
+            rm.put("providerId", r.providerId());
+            rm.put("providerWallet", r.providerWallet());
+            rm.put("node", r.node());
+            rm.put("model", r.model());
+            rm.put("inputTokens", r.inputTokens());
+            rm.put("outputTokens", r.outputTokens());
+            rm.put("gpuMillis", r.gpuMillis());
+            rm.put("estimatedCostMicroUsd", r.estimatedCostMicroUsd());
+            rs.add(rm);
+        }
         Map<String, Object> m = new LinkedHashMap<>();
-        m.put("schema", SCHEMA);
+        m.put("schema", schemaFor(knowledgeAssets, computeReceipts));
         m.put("tenantId", tenantId);
         m.put("projectId", projectId);
         m.put("taskId", taskId);
@@ -92,8 +139,8 @@ public final class ValueEventCanonical {
         m.put("acceptanceHash", hash(acceptanceTree));
         m.put("acceptancePolicy", AcceptancePolicy.ID);
         m.put("contributions", cs);
-        m.put("knowledgeAssets", knowledgeAssets == null ? List.of() : List.copyOf(knowledgeAssets));
-        m.put("computeReceipts", computeReceipts == null ? List.of() : List.copyOf(computeReceipts));
+        m.put("knowledgeAssets", ks);
+        m.put("computeReceipts", rs);
         m.put("distributionPolicy", distributionPolicy);
         m.put("totalUnits", totalUnits);
         return m;

@@ -17,7 +17,9 @@ import io.lifeengine.cryptobot.observability.CryptobotMetrics;
 import io.lifeengine.cryptobot.proofofvalue.ProofOfValueDtos.AcceptanceView;
 import io.lifeengine.cryptobot.proofofvalue.ProofOfValueDtos.AnchorRef;
 import io.lifeengine.cryptobot.proofofvalue.ProofOfValueDtos.ArtifactView;
+import io.lifeengine.cryptobot.proofofvalue.ProofOfValueDtos.ComputeReceiptView;
 import io.lifeengine.cryptobot.proofofvalue.ProofOfValueDtos.ContributionView;
+import io.lifeengine.cryptobot.proofofvalue.ProofOfValueDtos.EventKnowledgeAssetView;
 import io.lifeengine.cryptobot.proofofvalue.ProofOfValueDtos.ProofView;
 import io.lifeengine.cryptobot.proofofvalue.ProofOfValueDtos.ValueEventRequest;
 import io.lifeengine.cryptobot.proofofvalue.ProofOfValueDtos.ValueEventView;
@@ -60,6 +62,13 @@ import reactor.core.publisher.Mono;
  * ANCHORED as soon as a sweep finalizes its batch.
  *
  * <p>Idempotent by content: the same event posted again returns the stored one ({@code created=false}).
+ *
+ * <p>KAN-819 (V3/V4): {@code knowledgeAssets} must be registered (422 otherwise) and enter the canonical event expanded;
+ * a creator of one of them who is not among the KNOWLEDGE_PROVIDER contributions gets one, added after the request's
+ * contributions and before the split, with {@code derivedFrom} = those assets (provenance, not an economic decision:
+ * the policy is still {@code pov/equal-split/v1}). {@code computeReceipts} name a registered provider with a wallet
+ * (422 otherwise), which is denormalized into the receipt; they are committed in the canonical event and never enter
+ * the distribution — compute cost is not economic value.
  */
 @Service
 public class ValueEventService {
@@ -77,6 +86,7 @@ public class ValueEventService {
 
     private final ValueEventRepository events;
     private final PovIdentityRepository identities;
+    private final KnowledgeAssetRepository assets;
     private final ReceiptService receipts;
     private final AnchorService anchors;
     private final SolanaRpcProperties rpc;
@@ -85,15 +95,16 @@ public class ValueEventService {
     private final Clock clock;
 
     @Autowired
-    public ValueEventService(ValueEventRepository events, PovIdentityRepository identities, ReceiptService receipts, AnchorService anchors,
-            SolanaRpcProperties rpc, CryptobotMetrics metrics, ObjectMapper json) {
-        this(events, identities, receipts, anchors, rpc, metrics, json, Clock.systemUTC());
+    public ValueEventService(ValueEventRepository events, PovIdentityRepository identities, KnowledgeAssetRepository assets, ReceiptService receipts,
+            AnchorService anchors, SolanaRpcProperties rpc, CryptobotMetrics metrics, ObjectMapper json) {
+        this(events, identities, assets, receipts, anchors, rpc, metrics, json, Clock.systemUTC());
     }
 
-    ValueEventService(ValueEventRepository events, PovIdentityRepository identities, ReceiptService receipts, AnchorService anchors,
-            SolanaRpcProperties rpc, CryptobotMetrics metrics, ObjectMapper json, Clock clock) {
+    ValueEventService(ValueEventRepository events, PovIdentityRepository identities, KnowledgeAssetRepository assets, ReceiptService receipts,
+            AnchorService anchors, SolanaRpcProperties rpc, CryptobotMetrics metrics, ObjectMapper json, Clock clock) {
         this.events = events;
         this.identities = identities;
+        this.assets = assets;
         this.receipts = receipts;
         this.anchors = anchors;
         this.rpc = rpc;
@@ -122,15 +133,43 @@ public class ValueEventService {
                         "identity " + c.identityId() + " appears twice with role " + c.role()));
             }
         }
+        List<String> assetIds = req.knowledgeAssets() == null ? List.of() : req.knowledgeAssets().stream().map(String::trim).toList();
+        if (new HashSet<>(assetIds).size() != assetIds.size()) {
+            return Mono.error(new ControlPlaneExceptions.InvalidRequest("DUPLICATE_KNOWLEDGE_ASSET", "a knowledge asset appears twice: " + assetIds));
+        }
+        List<ProofOfValueDtos.ComputeReceiptRequest> compute = req.computeReceipts() == null ? List.of() : req.computeReceipts();
         String tenant = Receipts.tenantOf(ownerUserId);
-        Set<String> ids = new LinkedHashSet<>();
-        req.contributions().forEach(c -> ids.add(c.identityId()));
-        return identities.findAll(tenant, ids).map(PovIdentity::id).collectList().flatMap(found -> {
-            List<String> missing = ids.stream().filter(id -> !found.contains(id)).toList();
-            if (!missing.isEmpty()) {
-                return Mono.error(new ControlPlaneExceptions.InvalidRequest("UNKNOWN_IDENTITY", "not registered identities: " + missing));
+        return assets.findAll(tenant, assetIds).collectMap(PovKnowledgeAsset::id).flatMap(foundAssets -> {
+            List<String> unknownAssets = assetIds.stream().filter(id -> !foundAssets.containsKey(id)).toList();
+            if (!unknownAssets.isEmpty()) {
+                return Mono.error(new ProofOfValueExceptions.Unprocessable("UNKNOWN_KNOWLEDGE_ASSET",
+                        "knowledge assets must be registered first (POST /knowledge-assets)", unknownAssets));
             }
-            Draft d = draft(tenant, req);
+            List<PovKnowledgeAsset> used = assetIds.stream().map(foundAssets::get).toList();
+            Set<String> ids = new LinkedHashSet<>();
+            req.contributions().forEach(c -> ids.add(c.identityId()));
+            compute.forEach(c -> ids.add(c.providerId()));
+            return identities.findAll(tenant, ids).collectMap(PovIdentity::id).flatMap(found -> {
+                List<String> missing = req.contributions().stream().map(ProofOfValueDtos.ContributionRequest::identityId).distinct()
+                        .filter(id -> !found.containsKey(id)).toList();
+                if (!missing.isEmpty()) {
+                    return Mono.error(new ControlPlaneExceptions.InvalidRequest("UNKNOWN_IDENTITY", "not registered identities: " + missing));
+                }
+                List<String> unknownProviders = compute.stream().map(ProofOfValueDtos.ComputeReceiptRequest::providerId).distinct()
+                        .filter(id -> !found.containsKey(id)).toList();
+                if (!unknownProviders.isEmpty()) {
+                    return Mono.error(new ProofOfValueExceptions.Unprocessable("UNKNOWN_COMPUTE_PROVIDER",
+                            "compute providers must be registered identities", unknownProviders));
+                }
+                List<String> noWallet = compute.stream().map(ProofOfValueDtos.ComputeReceiptRequest::providerId).distinct()
+                        .filter(id -> found.get(id).wallet() == null).toList();
+                if (!noWallet.isEmpty()) {
+                    return Mono.error(new ProofOfValueExceptions.Unprocessable("PROVIDER_WALLET_REQUIRED",
+                            "a compute provider needs a wallet (register it with one)", noWallet));
+                }
+                return Mono.just(draft(tenant, req, used, found));
+            });
+        }).flatMap(d -> {
             return events.findByHash(tenant, d.valueEventHash())
                     .map(existing -> new Stored(existing, false))
                     .switchIfEmpty(Mono.defer(() -> issue(ownerUserId, tenant, d)));
@@ -147,25 +186,67 @@ public class ValueEventService {
     private record Stored(ValueEventRecord record, boolean created) {}
 
     /** Everything that is computed before touching a store: units, trees, hashes. */
-    record Draft(ValueEventRequest req, List<ValueEventCanonical.Contribution> contributions, String distributionPolicy, String artifactHash,
-            String acceptanceHash, String canonical, String valueEventHash) {}
+    record Draft(ValueEventRequest req, List<ValueEventCanonical.Contribution> contributions, List<ValueEventCanonical.KnowledgeRef> knowledge,
+            List<ValueEventCanonical.Compute> compute, String schema, String distributionPolicy, String artifactHash, String acceptanceHash,
+            String canonical, String valueEventHash) {}
 
+    /** A request without knowledge assets nor compute receipts (V1 shape). */
     static Draft draft(String tenant, ValueEventRequest req) {
-        int[] units = DistributionPolicy.equalSplit(req.contributions().size());
+        return draft(tenant, req, List.of(), Map.of());
+    }
+
+    /**
+     * {@code assets}: the request's knowledge assets, resolved, in request order. {@code identities}: at least every
+     * compute provider (for its wallet). Pure: no store is touched.
+     */
+    static Draft draft(String tenant, ValueEventRequest req, List<PovKnowledgeAsset> assets, Map<String, PovIdentity> identities) {
+        List<String[]> parts = new ArrayList<>();
+        List<List<String>> derived = new ArrayList<>();
+        Set<String> knowledgeProviders = new HashSet<>();
+        for (ProofOfValueDtos.ContributionRequest c : req.contributions()) {
+            parts.add(new String[] {c.identityId(), c.role().name()});
+            derived.add(null);
+            if (c.role() == ContributionRole.KNOWLEDGE_PROVIDER) {
+                knowledgeProviders.add(c.identityId());
+            }
+        }
+        // Provenance: an asset's creator not credited as KNOWLEDGE_PROVIDER gets that contribution, before the split.
+        Map<String, List<String>> auto = new LinkedHashMap<>();
+        for (PovKnowledgeAsset a : assets) {
+            if (!knowledgeProviders.contains(a.creatorId())) {
+                auto.computeIfAbsent(a.creatorId(), k -> new ArrayList<>()).add(a.id());
+            }
+        }
+        auto.forEach((creator, ids) -> {
+            parts.add(new String[] {creator, ContributionRole.KNOWLEDGE_PROVIDER.name()});
+            derived.add(List.copyOf(ids));
+        });
+        int[] units = DistributionPolicy.equalSplit(parts.size());
         List<ValueEventCanonical.Contribution> cs = new ArrayList<>();
         for (int i = 0; i < units.length; i++) {
-            ProofOfValueDtos.ContributionRequest c = req.contributions().get(i);
-            cs.add(new ValueEventCanonical.Contribution(c.identityId(), c.role(), units[i]));
+            cs.add(new ValueEventCanonical.Contribution(parts.get(i)[0], ContributionRole.valueOf(parts.get(i)[1]), units[i], derived.get(i)));
+        }
+        List<ValueEventCanonical.KnowledgeRef> knowledge = assets.stream()
+                .map(a -> new ValueEventCanonical.KnowledgeRef(a.id(), a.version(), a.kind().name(), a.title(), a.creatorId(), a.contentHash())).toList();
+        List<ValueEventCanonical.Compute> compute = new ArrayList<>();
+        for (ProofOfValueDtos.ComputeReceiptRequest r : req.computeReceipts() == null ? List.<ProofOfValueDtos.ComputeReceiptRequest>of()
+                : req.computeReceipts()) {
+            PovIdentity provider = identities.get(r.providerId());
+            if (provider == null || provider.wallet() == null) {
+                throw new IllegalArgumentException("compute provider " + r.providerId() + " is not resolved with a wallet");
+            }
+            compute.add(new ValueEventCanonical.Compute(r.providerId(), provider.wallet(), r.node().trim(), r.model().trim(), r.inputTokens(),
+                    r.outputTokens(), r.gpuSeconds().movePointRight(3).longValueExact(), r.estimatedCostMicroUsd()));
         }
         ValueEventCanonical.Artifact artifact = new ValueEventCanonical.Artifact(req.artifact().commitSha(), blank(req.artifact().prUrl()),
                 blank(req.artifact().imageDigest()));
         ValueEventCanonical.Acceptance acceptance = new ValueEventCanonical.Acceptance(req.acceptance().source().trim(),
                 req.acceptance().environment().trim(), req.acceptance().stages(), blank(req.acceptance().evidenceRef()), req.acceptance().acceptedAt());
         Map<String, Object> tree = ValueEventCanonical.eventTree(tenant, req.projectId(), req.taskId(), req.title().trim(), artifact, acceptance, cs,
-                req.knowledgeAssets(), req.computeReceipts(), DistributionPolicy.EQUAL_SPLIT_V1, DistributionPolicy.TOTAL_UNITS);
+                knowledge, compute, DistributionPolicy.EQUAL_SPLIT_V1, DistributionPolicy.TOTAL_UNITS);
         String canonical = ValueEventCanonical.canonical(tree);
-        return new Draft(req, cs, DistributionPolicy.EQUAL_SPLIT_V1, (String) tree.get("artifactHash"), (String) tree.get("acceptanceHash"),
-                canonical, Digests.sha256(canonical));
+        return new Draft(req, cs, knowledge, compute, (String) tree.get("schema"), DistributionPolicy.EQUAL_SPLIT_V1, (String) tree.get("artifactHash"),
+                (String) tree.get("acceptanceHash"), canonical, Digests.sha256(canonical));
     }
 
     private Mono<Stored> issue(UUID ownerUserId, String tenant, Draft d) {
@@ -179,12 +260,18 @@ public class ValueEventService {
         params.put("totalUnits", DistributionPolicy.TOTAL_UNITS);
         params.put("contributions", d.contributions().size());
         params.put("acceptancePolicy", AcceptancePolicy.ID);
+        if (!d.knowledge().isEmpty()) {
+            params.put("knowledgeAssets", d.knowledge().size());
+        }
+        if (!d.compute().isEmpty()) {
+            params.put("computeReceipts", d.compute().size());
+        }
         // ir/1 keeps params flat: the full event is committed through output.hash = sha256(canonical), and
         // the two evidence hashes are declared as inputs so a verifier finds them without the event.
         ReceiptBody body = new ReceiptBody(null, ReceiptKind.VALUE_EVENT, tenant, ownerUserId.toString(), RECEIPT_AGENT, List.of(),
                 List.of(new ReceiptInput(ReceiptInput.CONTRIBUTION_EVIDENCE, d.artifactHash()),
                         new ReceiptInput(ReceiptInput.ACCEPTANCE_EVIDENCE, d.acceptanceHash())),
-                null, null, null, null, params, new ReceiptBody.Output(d.valueEventHash(), ValueEventCanonical.SCHEMA, null),
+                null, null, null, null, params, new ReceiptBody.Output(d.valueEventHash(), d.schema(), null),
                 new ReceiptBody.Compute(null, null, 1, null), null, ReproducibilityLevel.L0_SIGNED, acceptedAt, acceptedAt,
                 "pov:" + d.valueEventHash().substring(Digests.PREFIX.length()), null);
         return receipts.issue(ReceiptDraft.of(body)).flatMap(receipt -> {
@@ -193,9 +280,16 @@ public class ValueEventService {
                 ValueEventCanonical.Contribution c = d.contributions().get(i);
                 cs.add(new ValueEventRecord.Contribution(i, c.identityId(), c.role(), c.units(), null, null));
             }
+            List<ValueEventRecord.ComputeReceipt> rs = new ArrayList<>();
+            for (int i = 0; i < d.compute().size(); i++) {
+                ValueEventCanonical.Compute c = d.compute().get(i);
+                rs.add(new ValueEventRecord.ComputeReceipt(UUID.randomUUID(), i, c.providerId(), c.providerWallet(), c.node(), c.model(), c.inputTokens(),
+                        c.outputTokens(), c.gpuMillis(), c.estimatedCostMicroUsd(), null));
+            }
             ValueEventRecord rec = new ValueEventRecord(UUID.randomUUID(), tenant, ownerUserId, receipt.receiptHash(), d.valueEventHash(),
                     req.projectId(), req.taskId(), req.title().trim(), d.artifactHash(), d.acceptanceHash(), acceptedAt, d.distributionPolicy(),
-                    DistributionPolicy.TOTAL_UNITS, d.canonical(), clock.instant(), cs);
+                    DistributionPolicy.TOTAL_UNITS, d.canonical(), clock.instant(), cs,
+                    d.knowledge().stream().map(ValueEventCanonical.KnowledgeRef::id).toList(), rs);
             return events.insert(rec)
                     .map(stored -> new Stored(stored, true))
                     // A concurrent POST of the same content won the unique (tenant, value_event_hash): return its row.
@@ -204,8 +298,10 @@ public class ValueEventService {
         }).doOnNext(s -> {
             if (s.created()) {
                 metrics.povValueEvent("recorded");
-                log.info("pov_value_event_recorded id={} receipt={} valueEventHash={} task={} contributions={}", s.record().id(),
-                        s.record().receiptHash(), s.record().valueEventHash(), s.record().taskId(), s.record().contributions().size());
+                metrics.povComputeReceipts(s.record().computeReceipts().size());
+                log.info("pov_value_event_recorded id={} receipt={} valueEventHash={} task={} contributions={} knowledgeAssets={} computeReceipts={}",
+                        s.record().id(), s.record().receiptHash(), s.record().valueEventHash(), s.record().taskId(), s.record().contributions().size(),
+                        s.record().knowledgeAssetIds().size(), s.record().computeReceipts().size());
             }
         });
     }
@@ -285,12 +381,35 @@ public class ValueEventService {
                 (String) acc.get("evidenceRef"), acc.get("acceptedAt") == null ? null : Instant.parse((String) acc.get("acceptedAt")));
         boolean anchored = inc != null && inc.anchored();
         AnchorRef anchor = anchored ? new AnchorRef(inc.root(), inc.tx(), inc.slot(), explorerUrl(inc)) : null;
+        List<Object> rawContributions = (List<Object>) tree.getOrDefault("contributions", List.of());
         List<ContributionView> cs = r.contributions().stream()
-                .map(c -> new ContributionView(c.identityId(), c.displayName(), c.kind(), c.role(), c.units())).toList();
+                .map(c -> new ContributionView(c.identityId(), c.displayName(), c.kind(), c.role(), c.units(), derivedFrom(rawContributions, c.position())))
+                .toList();
+        List<EventKnowledgeAssetView> knowledge = new ArrayList<>();
+        for (Object k : (List<Object>) tree.getOrDefault("knowledgeAssets", List.of())) {
+            if (k instanceof Map<?, ?> m) {
+                knowledge.add(new EventKnowledgeAssetView((String) m.get("id"), m.get("version") instanceof Number n ? n.intValue() : null,
+                        (String) m.get("kind"), (String) m.get("title"), (String) m.get("creatorId"), (String) m.get("contentHash")));
+            } else if (k != null) {
+                // A V1 event could carry free-form references; they are shown as ids, nothing else is known about them.
+                knowledge.add(new EventKnowledgeAssetView(k.toString(), null, null, null, null, null));
+            }
+        }
+        List<ComputeReceiptView> compute = r.computeReceipts().stream()
+                .map(c -> new ComputeReceiptView(c.id(), c.providerId(), c.providerDisplayName(), c.node(), c.model(), c.inputTokens(), c.outputTokens(),
+                        c.gpuMillis() / 1000.0, c.estimatedCostMicroUsd(), c.providerWallet()))
+                .toList();
         return new ValueEventView(r.id(), r.receiptHash(), r.valueEventHash(), r.artifactHash(), r.acceptanceHash(), anchored ? ANCHORED : RECORDED,
                 inc == null ? null : inc.status(), anchor, r.distributionPolicy(), r.totalUnits(), cs, artifact, acceptance,
-                (List<String>) tree.getOrDefault("knowledgeAssets", List.of()), (List<String>) tree.getOrDefault("computeReceipts", List.of()),
-                r.projectId(), r.taskId(), r.title(), r.acceptedAt(), r.createdAt());
+                knowledge, compute, r.projectId(), r.taskId(), r.title(), r.acceptedAt(), r.createdAt());
+    }
+
+    @SuppressWarnings("unchecked")
+    private static List<String> derivedFrom(List<Object> rawContributions, int position) {
+        if (position < 0 || position >= rawContributions.size() || !(rawContributions.get(position) instanceof Map<?, ?> m)) {
+            return null;
+        }
+        return m.get("derivedFrom") instanceof List<?> l ? (List<String>) l : null;
     }
 
     /**

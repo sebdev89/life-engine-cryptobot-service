@@ -26,6 +26,11 @@ public class ProofOfValueExceptionHandler {
                 .body(new ControlPlaneDtos.ApiError("ACCEPTANCE_POLICY_REJECTED", ex.getMessage(), ex.violations()));
     }
 
+    @ExceptionHandler(ProofOfValueExceptions.Unprocessable.class)
+    public ResponseEntity<ControlPlaneDtos.ApiError> unprocessable(ProofOfValueExceptions.Unprocessable ex) {
+        return ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY).body(new ControlPlaneDtos.ApiError(ex.code(), ex.getMessage(), ex.details()));
+    }
+
     /** {@code @Valid} failures (one detail per field) and unreadable bodies (bad enum, bad timestamp). */
     @ExceptionHandler(ServerWebInputException.class)
     public ResponseEntity<ControlPlaneDtos.ApiError> input(ServerWebInputException ex) {

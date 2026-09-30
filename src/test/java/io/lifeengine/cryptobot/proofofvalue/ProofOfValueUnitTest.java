@@ -133,7 +133,9 @@ class ProofOfValueUnitTest {
         assertThat(recorded.acceptance().stages()).containsOnlyKeys(AcceptancePolicy.STAGES).doesNotContainValue(false);
         assertThat(recorded.acceptance().acceptedAt()).isEqualTo(ACCEPTED_AT);
         assertThat(recorded.contributions()).extracting(ProofOfValueDtos.ContributionView::units).containsExactly(50, 50);
-        assertThat(recorded.knowledgeAssets()).containsExactly("rag:doc-1");
+        assertThat(recorded.knowledgeAssets()).isEmpty();
+        assertThat(recorded.computeReceipts()).isEmpty();
+        assertThat(recorded.contributions()).extracting(ProofOfValueDtos.ContributionView::derivedFrom).containsOnlyNulls();
 
         String root = "sha256:" + "b".repeat(64);
         AnchorService.Inclusion finalized = new AnchorService.Inclusion(true, "FINALIZED", "solana-devnet", "5igTx", 77L, root, List.of(), true,
@@ -149,7 +151,7 @@ class ProofOfValueUnitTest {
     }
 
     private static ValueEventService service(String devnetUrl) {
-        return new ValueEventService(null, null, null, null, new SolanaRpcProperties(devnetUrl, null, null), CryptobotMetrics.noop(),
+        return new ValueEventService(null, null, null, null, null, new SolanaRpcProperties(devnetUrl, null, null), CryptobotMetrics.noop(),
                 new ObjectMapper(), java.time.Clock.systemUTC());
     }
 
@@ -167,6 +169,6 @@ class ProofOfValueUnitTest {
         }
         return new ValueEventRequest("cryptobot", "KAN-818", "Improve CryptoBot opportunity detection",
                 new ArtifactRequest(COMMIT, "https://github.com/sebdev89/life-engine-cryptobot-service/pull/48", null),
-                new AcceptanceRequest("release-truth", "uat-k8s", allStages(), null, ACCEPTED_AT), cs, List.of("rag:doc-1"), null, null);
+                new AcceptanceRequest("release-truth", "uat-k8s", allStages(), null, ACCEPTED_AT), cs, null, null, null);
     }
 }

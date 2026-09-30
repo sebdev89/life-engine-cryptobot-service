@@ -1,7 +1,12 @@
 package io.lifeengine.cryptobot.proofofvalue;
 
 import io.lifeengine.cryptobot.proofofvalue.ProofOfValueDtos.IdentityRequest;
+import io.lifeengine.cryptobot.proofofvalue.ProofOfValueDtos.IdentityProfileView;
+import io.lifeengine.cryptobot.proofofvalue.ProofOfValueDtos.IdentitySummaryView;
 import io.lifeengine.cryptobot.proofofvalue.ProofOfValueDtos.IdentityView;
+import io.lifeengine.cryptobot.proofofvalue.ProofOfValueDtos.KnowledgeAssetRequest;
+import io.lifeengine.cryptobot.proofofvalue.ProofOfValueDtos.KnowledgeAssetView;
+import io.lifeengine.cryptobot.proofofvalue.ProofOfValueDtos.LedgerView;
 import io.lifeengine.cryptobot.proofofvalue.ProofOfValueDtos.ProofView;
 import io.lifeengine.cryptobot.proofofvalue.ProofOfValueDtos.ValueEventRequest;
 import io.lifeengine.cryptobot.proofofvalue.ProofOfValueDtos.ValueEventView;
@@ -24,7 +29,8 @@ import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
 /**
- * Proof of Value V1 (KAN-818) — base {@code /api/cryptobot}, JWT like the receipts.
+ * Proof of Value V1 (KAN-818) and V2–V4 + V6 (KAN-819: identities with reputation, knowledge assets, compute
+ * receipts inside the event, Contribution Units ledger) — base {@code /api/cryptobot}, JWT like the receipts.
  *
  * <p>Roles: every route here falls under the catch-all {@code /api/cryptobot/**} of
  * {@code CryptobotSecurityConfig} ({@code RUNTIME_OPERATOR}), the same as {@code /receipts}.
@@ -38,10 +44,15 @@ public class ProofOfValueController {
 
     private final IdentityService identities;
     private final ValueEventService events;
+    private final KnowledgeAssetService knowledge;
+    private final AttributionReadModel attribution;
 
-    public ProofOfValueController(IdentityService identities, ValueEventService events) {
+    public ProofOfValueController(IdentityService identities, ValueEventService events, KnowledgeAssetService knowledge,
+            AttributionReadModel attribution) {
         this.identities = identities;
         this.events = events;
+        this.knowledge = knowledge;
+        this.attribution = attribution;
     }
 
     /** 201 when created, 200 when the id already existed (the stored identity is returned unchanged). */
@@ -51,14 +62,40 @@ public class ProofOfValueController {
                 .map(c -> ResponseEntity.status(c.created() ? HttpStatus.CREATED : HttpStatus.OK).body(IdentityView.of(c.identity())));
     }
 
+    /** KAN-819: each identity with its {@code reputation}. */
     @GetMapping("/identities")
-    public Flux<IdentityView> identities(@AuthenticationPrincipal CryptobotPrincipal principal) {
-        return identities.list(require(principal).userId()).map(IdentityView::of);
+    public Flux<IdentitySummaryView> identities(@AuthenticationPrincipal CryptobotPrincipal principal) {
+        return attribution.identities(require(principal).userId());
     }
 
+    /** KAN-819: the identity, its {@code reputation} and its {@code history} (newest first). */
     @GetMapping("/identities/{id}")
-    public Mono<IdentityView> identity(@PathVariable String id, @AuthenticationPrincipal CryptobotPrincipal principal) {
-        return identities.require(require(principal).userId(), id).map(IdentityView::of);
+    public Mono<IdentityProfileView> identity(@PathVariable String id, @AuthenticationPrincipal CryptobotPrincipal principal) {
+        return attribution.profile(require(principal).userId(), id);
+    }
+
+    /** KAN-820: 201 when registered, 200 when the id already existed (returned unchanged). 422 unknown creator or parent. */
+    @PostMapping(path = "/knowledge-assets", consumes = "application/json")
+    public Mono<ResponseEntity<KnowledgeAssetView>> createKnowledgeAsset(@Valid @RequestBody KnowledgeAssetRequest req,
+            @AuthenticationPrincipal CryptobotPrincipal principal) {
+        return knowledge.create(require(principal).userId(), req)
+                .map(c -> ResponseEntity.status(c.created() ? HttpStatus.CREATED : HttpStatus.OK).body(c.asset()));
+    }
+
+    @GetMapping("/knowledge-assets")
+    public Flux<KnowledgeAssetView> knowledgeAssets(@AuthenticationPrincipal CryptobotPrincipal principal) {
+        return knowledge.list(require(principal).userId());
+    }
+
+    @GetMapping("/knowledge-assets/{id}")
+    public Mono<KnowledgeAssetView> knowledgeAsset(@PathVariable String id, @AuthenticationPrincipal CryptobotPrincipal principal) {
+        return knowledge.get(require(principal).userId(), id);
+    }
+
+    /** KAN-823: Contribution Units by {@code identity} (default), {@code asset} or {@code project}; 400 otherwise. */
+    @GetMapping("/units/ledger")
+    public Mono<LedgerView> ledger(@RequestParam(required = false) String groupBy, @AuthenticationPrincipal CryptobotPrincipal principal) {
+        return attribution.ledger(require(principal).userId(), groupBy);
     }
 
     /** 201 when recorded, 200 when the same event (same canonical hash) was already recorded. 422 when the AcceptancePolicy refuses it. */

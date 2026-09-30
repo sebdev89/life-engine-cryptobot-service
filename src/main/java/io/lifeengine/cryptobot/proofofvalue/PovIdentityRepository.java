@@ -12,6 +12,12 @@ public interface PovIdentityRepository {
 
     Mono<PovIdentity> find(String tenantId, String id);
 
+    /**
+     * KAN-819: sets the wallet of an identity that has none (a V1 agent registered before wallets were required).
+     * Never overwrites a wallet; empty when the identity does not exist or already had one.
+     */
+    Mono<PovIdentity> setWalletIfMissing(String tenantId, String id, String wallet);
+
     Flux<PovIdentity> findAll(String tenantId);
 
     Flux<PovIdentity> findAll(String tenantId, Collection<String> ids);

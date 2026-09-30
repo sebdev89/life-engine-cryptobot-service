@@ -34,7 +34,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.utility.DockerImageName;
 
 /**
- * KAN-818 persistence against a real Postgres (Testcontainers, Flyway V1..V12): the VALUE_EVENT
+ * KAN-818 persistence against a real Postgres (Testcontainers, Flyway V1..V13): the VALUE_EVENT
  * kind passes the receipt CHECK, identities are idempotent by {@code (tenant, id)} with FK owner,
  * a value event and its contributions are written in one transaction and read back with the
  * identity join, the unique {@code (tenant, value_event_hash)} and the role CHECK are the
@@ -51,6 +51,7 @@ class PovR2dbcStoreIT {
 
     static PovIdentityR2dbcStore identities;
     static ValueEventR2dbcStore events;
+    static KnowledgeAssetR2dbcStore assets;
     static ReceiptService receipts;
     static DatabaseClient db;
 
@@ -65,6 +66,7 @@ class PovR2dbcStoreIT {
         TransactionalOperator tx = TransactionalOperator.create(new R2dbcTransactionManager(cf));
         identities = new PovIdentityR2dbcStore(db);
         events = new ValueEventR2dbcStore(db, tx);
+        assets = new KnowledgeAssetR2dbcStore(db);
         receipts = new ReceiptService(new ReceiptR2dbcStore(db, new JsonDocs(new ObjectMapper().findAndRegisterModules()), tx),
                 ReceiptSigningKey.generate("pov-it"));
     }
@@ -133,6 +135,61 @@ class PovR2dbcStoreIT {
         Long rows = db.sql("SELECT count(*) AS n FROM pov_contribution WHERE value_event_id = :id").bind("id", bad.id())
                 .map((r, m) -> r.get("n", Long.class)).one().block();
         assertThat(rows).isZero();
+    }
+
+    @Test
+    @DisplayName("KAN-819: knowledge assets (parent_ids[], join del creator), links y compute receipts en la misma transacción; wallet backfill")
+    void attribution() {
+        UUID owner = UUID.randomUUID();
+        String tenant = owner.toString();
+        Instant now = Instant.now().truncatedTo(ChronoUnit.MICROS);
+        String wallet = "5ps1ihy1rNd7JeRkkxW1YU2PE3y47rbrb6DxxdnAbmHx";
+        identities.insertIfAbsent(new PovIdentity(tenant, "sebas", IdentityKind.HUMAN, "Sebastián", null, null, null, now)).block();
+        identities.insertIfAbsent(new PovIdentity(tenant, "compute-node-8", IdentityKind.AGENT, "Compute Node 8", null, "sebas", null, now)).block();
+
+        // A V1 agent without wallet gets it once; a second call does not overwrite it.
+        assertThat(identities.setWalletIfMissing(tenant, "compute-node-8", wallet).block().wallet()).isEqualTo(wallet);
+        assertThat(identities.setWalletIfMissing(tenant, "compute-node-8", "11111111111111111111111111111111").blockOptional()).isEmpty();
+        assertThat(identities.find(tenant, "compute-node-8").block().wallet()).isEqualTo(wallet);
+
+        PovKnowledgeAsset rules = new PovKnowledgeAsset(tenant, "production-acceptance-model@1", 1, KnowledgeAssetKind.RULESET, "Production acceptance model",
+                "sebas", Digests.sha256("rules"), List.of(), now, null);
+        PovKnowledgeAsset strategy = new PovKnowledgeAsset(tenant, "strategy-knowledge@3", 3, KnowledgeAssetKind.STRATEGY, "Strategy knowledge",
+                "sebas", Digests.sha256("strategy"), List.of("production-acceptance-model@1"), now.plusMillis(1), null);
+        assertThat(assets.insertIfAbsent(rules).block().creatorDisplayName()).isEqualTo("Sebastián");
+        assertThat(assets.insertIfAbsent(rules).blockOptional()).as("idempotent").isEmpty();
+        assets.insertIfAbsent(strategy).block();
+        assertThat(assets.find(tenant, "strategy-knowledge@3").block().parentIds()).containsExactly("production-acceptance-model@1");
+        assertThat(assets.findAll(tenant).map(PovKnowledgeAsset::id).collectList().block()).containsExactly("production-acceptance-model@1", "strategy-knowledge@3");
+        assertThat(assets.findAll(tenant, List.of("strategy-knowledge@3", "ghost")).map(PovKnowledgeAsset::id).collectList().block())
+                .containsExactly("strategy-knowledge@3");
+        assertThatThrownBy(() -> assets.insertIfAbsent(new PovKnowledgeAsset(tenant, "x@1", 1, KnowledgeAssetKind.PROMPT, "X", "nobody",
+                Digests.sha256("x"), List.of(), now, null)).block()).hasMessageContaining("fk_pov_knowledge_asset_creator");
+
+        ValueEventRecord base = event(owner, "task-k", now, List.of(
+                new ValueEventRecord.Contribution(0, "sebas", ContributionRole.KNOWLEDGE_PROVIDER, 100, null, null)));
+        ValueEventRecord withAttribution = base.withAttribution(base.contributions(), List.of("production-acceptance-model@1", "strategy-knowledge@3"),
+                List.of(new ValueEventRecord.ComputeReceipt(UUID.randomUUID(), 0, "compute-node-8", wallet, "gpu-node-8", "claude-opus", 182_000L, 24_000L,
+                        12_500L, 4_730_000L, null)));
+        ValueEventRecord stored = events.insert(withAttribution).block();
+        assertThat(stored.knowledgeAssetIds()).containsExactly("production-acceptance-model@1", "strategy-knowledge@3");
+        assertThat(stored.computeReceipts()).hasSize(1);
+        ValueEventRecord.ComputeReceipt cr = stored.computeReceipts().get(0);
+        assertThat(cr.providerDisplayName()).isEqualTo("Compute Node 8");
+        assertThat(cr.providerWallet()).isEqualTo(wallet);
+        assertThat(cr.gpuMillis()).isEqualTo(12_500L);
+        assertThat(cr.estimatedCostMicroUsd()).isEqualTo(4_730_000L);
+        assertThat(assets.usage(tenant).map(u -> u.assetId() + "@" + u.valueEventId()).collectList().block())
+                .containsExactly("production-acceptance-model@1@" + stored.id(), "strategy-knowledge@3@" + stored.id());
+        assertThat(events.findAll(tenant).map(ValueEventRecord::id).collectList().block()).containsExactly(stored.id());
+        assertThat(events.findAll(UUID.randomUUID().toString()).collectList().block()).isEmpty();
+
+        // An unknown asset rolls back the whole event, compute receipts included.
+        ValueEventRecord badBase = event(owner, "task-bad", now.plusSeconds(1), List.of(
+                new ValueEventRecord.Contribution(0, "sebas", ContributionRole.SPECIFIER, 100, null, null)));
+        ValueEventRecord bad = badBase.withAttribution(badBase.contributions(), List.of("ghost@1"), List.of());
+        assertThatThrownBy(() -> events.insert(bad).block()).hasMessageContaining("fk_pov_value_event_knowledge_asset");
+        assertThat(events.find(tenant, bad.id()).blockOptional()).isEmpty();
     }
 
     /** A real VALUE_EVENT receipt first (the FK), then the event row pointing at it. */

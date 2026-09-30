@@ -56,7 +56,31 @@ public class ValueEventR2dbcStore implements ValueEventRepository {
                 .bind("units", c.units())
                 .bind("pos", c.position())
                 .fetch().rowsUpdated());
-        return tx.transactional(event.thenMany(contributions).then())
+        Flux<Long> knowledge = Flux.range(0, e.knowledgeAssetIds().size()).concatMap(i -> db.sql("INSERT INTO pov_value_event_knowledge"
+                        + " (value_event_id, tenant_id, asset_id, position) VALUES (:event, :tenant, :asset, :pos)")
+                .bind("event", e.id())
+                .bind("tenant", e.tenantId())
+                .bind("asset", e.knowledgeAssetIds().get(i))
+                .bind("pos", i)
+                .fetch().rowsUpdated());
+        Flux<Long> compute = Flux.fromIterable(e.computeReceipts()).concatMap(c -> db.sql("INSERT INTO pov_compute_receipt (id, value_event_id,"
+                        + " tenant_id, position, provider_id, provider_wallet, node, model, input_tokens, output_tokens, gpu_millis, estimated_cost_micro_usd,"
+                        + " created_at) VALUES (:id, :event, :tenant, :pos, :provider, :wallet, :node, :model, :in, :out, :gpu, :cost, :created)")
+                .bind("id", c.id())
+                .bind("event", e.id())
+                .bind("tenant", e.tenantId())
+                .bind("pos", c.position())
+                .bind("provider", c.providerId())
+                .bind("wallet", c.providerWallet())
+                .bind("node", c.node())
+                .bind("model", c.model())
+                .bind("in", c.inputTokens())
+                .bind("out", c.outputTokens())
+                .bind("gpu", c.gpuMillis())
+                .bind("cost", c.estimatedCostMicroUsd())
+                .bind("created", e.createdAt())
+                .fetch().rowsUpdated());
+        return tx.transactional(event.thenMany(contributions).thenMany(knowledge).thenMany(compute).then())
                 .then(Mono.defer(() -> find(e.tenantId(), e.id())));
     }
 
@@ -81,6 +105,13 @@ public class ValueEventR2dbcStore implements ValueEventRepository {
                 .concatMap(this::withContributions);
     }
 
+    @Override
+    public Flux<ValueEventRecord> findAll(String tenantId) {
+        return db.sql("SELECT " + COLS + " FROM pov_value_event WHERE tenant_id = :tenant ORDER BY accepted_at, created_at, id")
+                .bind("tenant", tenantId).map((row, meta) -> map(row)).all()
+                .concatMap(this::withContributions);
+    }
+
     private Mono<ValueEventRecord> withContributions(ValueEventRecord e) {
         return db.sql("SELECT c.position, c.identity_id, c.role, c.units, i.display_name, i.kind FROM pov_contribution c"
                         + " JOIN pov_identity i ON i.tenant_id = c.tenant_id AND i.id = c.identity_id"
@@ -94,9 +125,35 @@ public class ValueEventR2dbcStore implements ValueEventRepository {
                         row.get("display_name", String.class),
                         IdentityKind.valueOf(row.get("kind", String.class))))
                 .all().collectList()
-                .map(cs -> new ValueEventRecord(e.id(), e.tenantId(), e.ownerId(), e.receiptHash(), e.valueEventHash(), e.projectId(), e.taskId(),
-                        e.title(), e.artifactHash(), e.acceptanceHash(), e.acceptedAt(), e.distributionPolicy(), e.totalUnits(), e.canonical(),
-                        e.createdAt(), new ArrayList<>(cs)));
+                .zipWith(knowledgeOf(e.id()))
+                .zipWith(computeOf(e.id()))
+                .map(t -> e.withAttribution(new ArrayList<>(t.getT1().getT1()), t.getT1().getT2(), t.getT2()));
+    }
+
+    private Mono<List<String>> knowledgeOf(UUID eventId) {
+        return db.sql("SELECT asset_id FROM pov_value_event_knowledge WHERE value_event_id = :event ORDER BY position")
+                .bind("event", eventId).map((row, meta) -> row.get("asset_id", String.class)).all().collectList();
+    }
+
+    private Mono<List<ValueEventRecord.ComputeReceipt>> computeOf(UUID eventId) {
+        return db.sql("SELECT r.id, r.position, r.provider_id, r.provider_wallet, r.node, r.model, r.input_tokens, r.output_tokens, r.gpu_millis,"
+                        + " r.estimated_cost_micro_usd, i.display_name FROM pov_compute_receipt r"
+                        + " JOIN pov_identity i ON i.tenant_id = r.tenant_id AND i.id = r.provider_id"
+                        + " WHERE r.value_event_id = :event ORDER BY r.position")
+                .bind("event", eventId)
+                .map((row, meta) -> new ValueEventRecord.ComputeReceipt(
+                        row.get("id", UUID.class),
+                        row.get("position", Integer.class),
+                        row.get("provider_id", String.class),
+                        row.get("provider_wallet", String.class),
+                        row.get("node", String.class),
+                        row.get("model", String.class),
+                        row.get("input_tokens", Long.class),
+                        row.get("output_tokens", Long.class),
+                        row.get("gpu_millis", Long.class),
+                        row.get("estimated_cost_micro_usd", Long.class),
+                        row.get("display_name", String.class)))
+                .all().collectList();
     }
 
     private static ValueEventRecord map(io.r2dbc.spi.Row row) {

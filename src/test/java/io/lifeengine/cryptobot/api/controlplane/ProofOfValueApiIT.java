@@ -26,7 +26,7 @@ import org.testcontainers.utility.DockerImageName;
 
 /**
  * KAN-818: {@code POST /value-events?anchor=true} + {@code GET} over HTTP on the REAL stores — the
- * whole Spring context with R2DBC + Flyway (V1..V12) against Postgres in Testcontainers (profile
+ * whole Spring context with R2DBC + Flyway (V1..V13) against Postgres in Testcontainers (profile
  * {@code e2e}, nothing stubbed inside the service). Only devnet and the signer are HTTP fakes (the
  * same as {@link AnchorFlowTest}: the signer really signs, devnet confirms then finalizes).
  *
@@ -83,11 +83,13 @@ class ProofOfValueApiIT {
     @Test
     void valueEventIsPersistedAnchoredAndReadBackFromPostgres() throws Exception {
         AnchorFlowTest.DevnetDispatcher.reset();
-        String admin = ProofOfValueApiTest.bearer(UUID.randomUUID(), List.of("RUNTIME_OPERATOR", "RUNTIME_ADMIN"));
+        UUID user = UUID.randomUUID();
+        String tenant = user.toString();
+        String admin = ProofOfValueApiTest.bearer(user, List.of("RUNTIME_OPERATOR", "RUNTIME_ADMIN"));
         for (String body : List.of(
                 "{\"id\":\"sebas\",\"kind\":\"HUMAN\",\"displayName\":\"Sebastián\"}",
-                "{\"id\":\"dev-agent-17\",\"kind\":\"AGENT\",\"displayName\":\"Dev Agent 17\",\"ownerId\":\"sebas\"}",
-                "{\"id\":\"cryptobot-001\",\"kind\":\"AGENT\",\"displayName\":\"CryptoBot 001\",\"ownerId\":\"sebas\"}")) {
+                "{\"id\":\"dev-agent-17\",\"kind\":\"AGENT\",\"displayName\":\"Dev Agent 17\",\"wallet\":\"GwMtp15arkyoxkJ6ah3R6hCab3SXCJhsSWsZ2DyTeVnW\",\"ownerId\":\"sebas\"}",
+                "{\"id\":\"cryptobot-001\",\"kind\":\"AGENT\",\"displayName\":\"CryptoBot 001\",\"wallet\":\"Cm48Eg67MfPpkpS5SKngrA587nHNgDgXjHLwfY9U81e7\",\"ownerId\":\"sebas\"}")) {
             web.post().uri("/api/cryptobot/identities").header(HttpHeaders.AUTHORIZATION, admin).contentType(MediaType.APPLICATION_JSON)
                     .bodyValue(body).exchange().expectStatus().isCreated();
         }
@@ -107,8 +109,11 @@ class ProofOfValueApiIT {
         assertThat(AnchorMemo.parse(AnchorFlowTest.DevnetDispatcher.lastMemo.get()).orElseThrow().root()).isEqualTo(root);
 
         // What Postgres holds: the event, three contributions (34/33/33) and the receipt stamped with the anchor.
-        assertThat(db.sql("SELECT count(*) AS n FROM pov_value_event").map((r, m) -> r.get("n", Long.class)).one().block()).isEqualTo(1L);
-        assertThat(db.sql("SELECT units FROM pov_contribution ORDER BY position").map((r, m) -> r.get("units", Integer.class)).all().collectList().block())
+        // Scoped by tenant: the other test of this class shares the database.
+        assertThat(db.sql("SELECT count(*) AS n FROM pov_value_event WHERE tenant_id = :t").bind("t", tenant).map((r, m) -> r.get("n", Long.class)).one().block())
+                .isEqualTo(1L);
+        assertThat(db.sql("SELECT units FROM pov_contribution WHERE tenant_id = :t ORDER BY position").bind("t", tenant)
+                .map((r, m) -> r.get("units", Integer.class)).all().collectList().block())
                 .containsExactly(34, 33, 33);
         assertThat(db.sql("SELECT kind, anchor_tx, anchor_root FROM intelligence_receipt WHERE receipt_hash = :h").bind("h", receiptHash)
                 .map((r, m) -> r.get("kind", String.class) + "|" + r.get("anchor_tx", String.class) + "|" + r.get("anchor_root", String.class)).one().block())
@@ -134,5 +139,65 @@ class ProofOfValueApiIT {
         // The batch verifies end to end against the (fake) chain.
         web.post().uri("/api/cryptobot/anchors/" + root + "/verify").header(HttpHeaders.AUTHORIZATION, admin).exchange().expectStatus().isOk()
                 .expectBody().jsonPath("$.valid").isEqualTo(true);
+    }
+
+    /** KAN-819 on Postgres: assets, compute receipt and the provenance contribution persisted; read models over the real tables. */
+    @Test
+    void attributionIsPersistedAndReadBackFromPostgres() throws Exception {
+        AnchorFlowTest.DevnetDispatcher.reset();
+        String admin = ProofOfValueApiTest.bearer(UUID.randomUUID(), List.of("RUNTIME_OPERATOR", "RUNTIME_ADMIN"));
+        for (String body : List.of(
+                "{\"id\":\"sebas\",\"kind\":\"HUMAN\",\"displayName\":\"Sebastián\"}",
+                "{\"id\":\"dev-agent-17\",\"kind\":\"AGENT\",\"displayName\":\"Dev Agent 17\",\"wallet\":\"" + ProofOfValueAttributionApiTest.W_DEV + "\",\"ownerId\":\"sebas\"}",
+                "{\"id\":\"review-agent-3\",\"kind\":\"AGENT\",\"displayName\":\"Review Agent 3\",\"wallet\":\"" + ProofOfValueAttributionApiTest.W_REVIEW + "\"}",
+                "{\"id\":\"cryptobot-001\",\"kind\":\"AGENT\",\"displayName\":\"CryptoBot 001\",\"wallet\":\"" + ProofOfValueAttributionApiTest.W_BOT + "\"}",
+                "{\"id\":\"compute-node-8\",\"kind\":\"AGENT\",\"displayName\":\"Compute Node 8\",\"wallet\":\"" + ProofOfValueAttributionApiTest.W_COMPUTE + "\"}")) {
+            post(admin, "/api/cryptobot/identities", body).expectStatus().isCreated();
+        }
+        post(admin, "/api/cryptobot/identities", "{\"id\":\"agent-x\",\"kind\":\"AGENT\",\"displayName\":\"X\"}").expectStatus().isEqualTo(422);
+        post(admin, "/api/cryptobot/knowledge-assets", ProofOfValueAttributionApiTest.asset("production-acceptance-model@1", 1, "RULESET",
+                "Production acceptance model", "sebas", ProofOfValueAttributionApiTest.RULES_HASH, "[]")).expectStatus().isCreated();
+        post(admin, "/api/cryptobot/knowledge-assets", ProofOfValueAttributionApiTest.asset("strategy-knowledge@3", 3, "STRATEGY",
+                "Strategy knowledge", "sebas", ProofOfValueAttributionApiTest.STRATEGY_HASH, "[\"production-acceptance-model@1\"]")).expectStatus().isCreated();
+
+        JsonNode e = JSON.readTree(post(admin, "/api/cryptobot/value-events?anchor=true", ProofOfValueAttributionApiTest.event("KAN-819",
+                        "[\"production-acceptance-model@1\",\"strategy-knowledge@3\"]", ProofOfValueAttributionApiTest.compute("compute-node-8"),
+                        ProofOfValueAttributionApiTest.FULL_TEAM))
+                .expectStatus().isCreated().expectBody().returnResult().getResponseBody());
+        assertThat(e.path("status").asText()).isEqualTo("ANCHORED");
+        assertThat(e.path("contributions")).hasSize(5);
+        assertThat(e.path("contributions").get(4).path("role").asText()).isEqualTo("KNOWLEDGE_PROVIDER");
+        assertThat(e.path("computeReceipts").get(0).path("providerDisplayName").asText()).isEqualTo("Compute Node 8");
+        String id = e.path("id").asText();
+        assertThat(db.sql("SELECT count(*) AS n FROM pov_value_event_knowledge WHERE value_event_id = :id").bind("id", UUID.fromString(id))
+                .map((r, m) -> r.get("n", Long.class)).one().block()).isEqualTo(2L);
+        assertThat(db.sql("SELECT provider_wallet, gpu_millis FROM pov_compute_receipt WHERE value_event_id = :id").bind("id", UUID.fromString(id))
+                .map((r, m) -> r.get("provider_wallet", String.class) + "|" + r.get("gpu_millis", Long.class)).one().block())
+                .isEqualTo(ProofOfValueAttributionApiTest.W_COMPUTE + "|12500");
+
+        JsonNode proof = get(admin, "/api/cryptobot/value-events/" + id + "/proof");
+        assertThat(proof.path("verified").asBoolean()).isTrue();
+        assertThat(get(admin, "/api/cryptobot/knowledge-assets/strategy-knowledge@3").path("usedIn").get(0).asText()).isEqualTo(id);
+        JsonNode sebas = get(admin, "/api/cryptobot/identities/sebas");
+        assertThat(sebas.path("reputation").path("acceptedOutcomes").asInt()).isEqualTo(1);
+        assertThat(sebas.path("reputation").path("totalUnits").asInt()).isEqualTo(40);
+        assertThat(sebas.path("history")).hasSize(2);
+        assertThat(sebas.path("history").get(0).path("anchorStatus").asText()).isEqualTo("ANCHORED");
+        JsonNode ledger = get(admin, "/api/cryptobot/units/ledger?groupBy=asset");
+        long sum = 0;
+        for (JsonNode r : ledger.path("rows")) {
+            sum += r.path("totalUnits").asLong();
+        }
+        assertThat(sum).isEqualTo(ledger.path("totalUnits").asLong()).isEqualTo(100L);
+        assertThat(get(admin, "/api/cryptobot/units/ledger?groupBy=identity").path("rows").get(0).path("key").asText()).isEqualTo("sebas");
+    }
+
+    private org.springframework.test.web.reactive.server.WebTestClient.ResponseSpec post(String token, String uri, String body) {
+        return web.post().uri(uri).header(HttpHeaders.AUTHORIZATION, token).contentType(MediaType.APPLICATION_JSON).bodyValue(body).exchange();
+    }
+
+    private JsonNode get(String token, String uri) throws Exception {
+        return JSON.readTree(web.get().uri(uri).header(HttpHeaders.AUTHORIZATION, token).exchange().expectStatus().isOk()
+                .expectBody().returnResult().getResponseBody());
     }
 }
