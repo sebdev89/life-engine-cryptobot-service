@@ -1,4 +1,4 @@
-# Proof of Value V1 (KAN-818), V2–V4 + V6 (KAN-819), V5 immediate reward (KAN-822), V7 revenue (KAN-824) and V8 treasury (KAN-825)
+# Proof of Value V1 (KAN-818), V2–V4 + V6 (KAN-819), V5 immediate reward (KAN-822), V7 revenue (KAN-824), V8 treasury (KAN-825) and V9 end-to-end (KAN-826)
 
 Life Engine records an **accepted** contribution as a `ValueEvent`, anchors it on Solana devnet and
 correlates the on-chain hash with the off-chain evidence. No new service, no signer change: a
@@ -243,6 +243,50 @@ event. The source is the EXECUTED proposal of the demo run (`--proposal <id>` or
 proposal of `GET /proposals`); without one — or if that proposal already has a revenue event for another content — `SIMULATED` with
 `ref = pov-v1:<commit>`. It prints the split, the payouts with tx and explorer link, the REVENUE_EVENT receipt and its anchor, and
 `GET /treasury/cryptobot-001`.
+
+## End-to-end demo: `scripts/demo/pov-e2e.sh` (V9, KAN-826)
+
+One command walks the final demo against a running stack (devnet) and prints one block per step — `STEP n/9 — <title>` — with
+what the UI shows and the route that shows it, then a final **VALUE GENERATED / ATTRIBUTION** screen. It writes
+`out/pov-e2e-<ts>.md` (every id, hash, tx and explorer link) and `out/pov-e2e-<ts>.log`; both are searched for every secret value
+of the env file afterwards (`secrets_scan` in `lib.sh`: only secret-named keys — tokens, JWT, passwords, signing key, salt — never
+public values such as wallet addresses, the policy hash or `CRYPTOBOT_DB_USER`). Exit 0 pass · 1 a step failed · 3 a leak.
+
+```bash
+# acceptance measured by release-truth (the canonical UAT is uat-k8s):
+( cd ../../deploy/deploy && deployments/scripts/release-truth.sh uat cryptobot --json ) > /tmp/rt.json
+scripts/demo/pov-e2e.sh --task "Improve CryptoBot opportunity detection" --task-id TASK-042 --acceptance-json /tmp/rt.json
+scripts/demo/pov-e2e.sh … --skip-op              # no CryptoBot operation (spends nothing on it); revenue source SIMULATED
+scripts/demo/pov-e2e.sh … --assume-accepted      # no release-truth report: the five stages asserted by hand, printed in red
+scripts/demo/pov-e2e.sh … --dry-run              # the plan, nothing sent
+```
+
+| Step | What happens | UI |
+|---|---|---|
+| 1 Human defines task | `--task`, `--task-id` (a neutral id; tracker ids are refused); identities and assets seeded idempotently | `/value/identities/sebas` |
+| 2 DevAgent implements | artifact = commit + PR + image digest. Default: the image release-truth **measured** and its commit (GHCR tag `sha-<commit>`), else `HEAD` of `origin/main` and its image; the PR of that commit (`gh`). A `--image-digest` other than the measured one is refused. Contributions: `sebas` SPECIFIER + ARCHITECT, `dev-agent-17` IMPLEMENTER, `review-agent-3` REVIEWER, `compute-node-8` COMPUTE_PROVIDER; assets `strategy-knowledge@3`, `production-acceptance-model@1` (their creator gets KNOWLEDGE_PROVIDER); compute receipt from `--compute-json` or values labelled `(estimated)` | — |
+| 3 Acceptance | release-truth verdicts → stages (below); `source: release-truth`, `environment: <env>-k8s`, `evidenceRef` = sha256 of the report, `acceptedAt` = its `observed_at` | `/value/:id` (stage chips) |
+| 4 ValueEvent on Solana | `POST /value-events?anchor=true` → id, receiptHash, root, tx, explorer; `GET /proof` must be `verified` | `/value/:id`, `/proof/:root` |
+| 5 Immediate payout | `POST /value-events/{id}/distribute?anchor=true`; payouts with tx; balances before/after | `/value/:id` |
+| 6 CryptoBot uses it | one real operation: `e2e-devnet.sh --base-url` (act 1 of `run.sh`, reused as is, no docker) with the same operator token → proposal id, tx, explorer. It moves `--sell-sol` SOL, clamped to 21–40 % of the demo wallet, to the vault: with ~3.4 SOL that is ≥ 0.7 SOL, so rehearsals use `--skip-op` | `/live/:proposalId` |
+| 7 RevenueEvent | `POST /revenue-events?anchor=true` linked to the event, `source` PROPOSAL (step 6) or SIMULATED `pov-e2e:<task>:<event>`, `--revenue-lamports` (default 0.05 SOL), `simulated: true` | `/value/revenue/:id` |
+| 8 Historical distribution | CONFIRMED lamports per contributor over every distribution (V5) and revenue event (V7); `GET /treasury/cryptobot-001` | `/value/treasury` |
+| 9 Reputation + units | `GET /identities/{id}` for each identity; `GET /units/ledger?groupBy=identity` | `/value/identities/:id`, `/value/ledger` |
+
+Acceptance mapping (a stage is true only when **every** field mapped to it is `PASS`; `N/A`, `FAIL`, `UNKNOWN` or missing ⇒ false,
+and the service answers 422 — nothing is recorded):
+
+| Stage | release-truth fields |
+|---|---|
+| MERGED | `commit_sha`, `repository` |
+| BUILT | `image_digest` |
+| DEPLOYED | `deployment_revision`, `effective_config_hash` |
+| RUNNING | `health` |
+| ACCEPTED | `functional_acceptance` |
+
+Cost (measured 2026-09-30, `--skip-op`): 0.020055 SOL from the demo wallet — 0.01 SOL reward pool + 0.01 SOL revenue contributor
+pool + fees of 10 transfers and 3 anchors. The real operation adds its transfer to the vault (a wallet of the demo, not spent).
+Screens and timing for the video: [`DEMO-PATH-90S.md`](DEMO-PATH-90S.md) and [`DEMO-PATH-3MIN.md`](DEMO-PATH-3MIN.md).
 
 ## Verifying a hash on-chain by hand
 

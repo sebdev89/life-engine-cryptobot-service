@@ -153,3 +153,149 @@ POV_WALLET_IDS=(sebas dev-agent-17 cryptobot-001 review-agent-3 compute-node-8)
 # shellcheck disable=SC2034
 DEMO_POLICY_STRATEGIES="REBALANCE,POV_REWARD"
 
+
+# ---- Proof of Value (KAN-818…KAN-826): shared by pov-v1.sh and pov-e2e.sh ------------------------
+# They use api / split_status (BASE, TOKEN, CURL_OPTS set by the caller) and set RESP / STATUS / BODY.
+
+# pov_identity_body <id> <wallet>: the POST /identities body of a seed identity.
+pov_identity_body() {
+  case "$1" in
+    sebas)          printf '{"id":"sebas","kind":"HUMAN","displayName":"Sebastián","wallet":"%s"}' "$2" ;;
+    dev-agent-17)   printf '{"id":"dev-agent-17","kind":"AGENT","displayName":"Dev Agent 17","wallet":"%s","ownerId":"sebas"}' "$2" ;;
+    cryptobot-001)  printf '{"id":"cryptobot-001","kind":"AGENT","displayName":"CryptoBot 001","wallet":"%s","ownerId":"sebas","operatorId":"sebas"}' "$2" ;;
+    review-agent-3) printf '{"id":"review-agent-3","kind":"AGENT","displayName":"Review Agent 3","wallet":"%s"}' "$2" ;;
+    compute-node-8) printf '{"id":"compute-node-8","kind":"AGENT","displayName":"Compute Node 8","wallet":"%s","ownerId":"sebas"}' "$2" ;;
+  esac
+}
+
+# pov_assets_json: the two seed knowledge assets (the content is hashed here; only the hash is registered).
+pov_assets_json() {
+  python3 - <<'PY'
+import hashlib, json
+def h(t): return "sha256:" + hashlib.sha256(t.encode()).hexdigest()
+print(json.dumps([
+  {"id": "production-acceptance-model@1", "version": 1, "kind": "RULESET", "title": "Production acceptance model",
+   "creatorId": "sebas", "contentHash": h("A contribution is accepted only when MERGED -> BUILT -> DEPLOYED -> RUNNING -> ACCEPTED all hold, measured by release-truth."),
+   "parentIds": []},
+  {"id": "strategy-knowledge@3", "version": 3, "kind": "STRATEGY", "title": "CryptoBot strategy knowledge",
+   "creatorId": "sebas", "contentHash": h("cryptobot strategy knowledge v3: opportunity detection, risk gates, rebalance policy"),
+   "parentIds": []}], separators=(",", ":")))
+PY
+}
+
+# pov_seed_identities: POST /identities for every POV_WALLET_IDS entry (idempotent). The wallet is the public key of
+# $DEMO_HOME/pov-<id>.json (generated here if missing); only the public key is sent.
+pov_seed_identities() {
+  local id kp wallet stored
+  mkdir -p "$DEMO_HOME"; chmod 700 "$DEMO_HOME"
+  for id in "${POV_WALLET_IDS[@]}"; do
+    kp="${DEMO_HOME}/pov-${id}.json"
+    [[ -f "$kp" ]] || { keygen "$kp"; log "keypair generated: ${kp} (not in the signer's allowlist until wallet-devnet.sh runs again)"; }
+    wallet="$(pubkey_of "$kp")"
+    RESP="$(api POST /api/cryptobot/identities "$(pov_identity_body "$id" "$wallet")")"; split_status
+    [[ "$STATUS" == 201 || "$STATUS" == 200 ]] || fail "POST /identities ${id} → ${STATUS}: ${BODY}"
+    stored="$(printf '%s' "$BODY" | jget "['wallet']")"
+    [[ "$stored" == None ]] && stored=""
+    if [[ -n "$wallet" && "$stored" != "$wallet" ]]; then
+      warn "identity ${id} already has another wallet (${stored:-none}); the service never overwrites a wallet"
+    fi
+    log "identity ${id} ($(printf '%s' "$BODY" | jget "['kind']")) wallet=${stored:-none} → ${STATUS}"
+  done
+}
+
+# pov_seed_assets: POST /knowledge-assets for each asset of pov_assets_json (idempotent).
+pov_seed_assets() {
+  local body
+  while IFS= read -r body; do
+    RESP="$(api POST /api/cryptobot/knowledge-assets "$body")"; split_status
+    [[ "$STATUS" == 201 || "$STATUS" == 200 ]] || fail "POST /knowledge-assets → ${STATUS}: ${BODY}"
+    log "asset $(printf '%s' "$BODY" | jget "['id']") ($(printf '%s' "$BODY" | jget "['kind']")) → ${STATUS}"
+  done < <(pov_assets_json | python3 -c 'import json,sys; [print(json.dumps(a, separators=(",", ":"))) for a in json.load(sys.stdin)]')
+}
+
+# pov_rpc_url <env-file>: the devnet RPC the demo uses (environment, then the env file, then the public devnet).
+pov_rpc_url() {
+  local u="${CRYPTOBOT_SOLANA_DEVNET_RPC:-}"
+  if [[ -z "$u" && -f "${1:-}" ]]; then u="$(sed -n 's/^CRYPTOBOT_SOLANA_DEVNET_RPC=//p' "$1" | tail -1)"; fi
+  printf '%s\n' "${u:-$DEVNET_RPC}"
+}
+
+# pov_print_payouts ← a DistributionView or RevenueEventView on stdin: one line per payout (+ tx and explorer link).
+pov_print_payouts() {
+  python3 -c '
+import json, sys
+for p in json.load(sys.stdin)["payouts"]:
+    print("  %-15s %-9s %10s lamports  wallet=%s" % (p["identityId"], p["status"], p["lamports"], p.get("wallet") or "-"))
+    if p.get("txSignature"):
+        print("  %-15s tx %s" % ("", p["txSignature"]))
+        print("  %-15s %s" % ("", p.get("explorerUrl") or ""))
+    if p.get("error"):
+        print("  %-15s error: %s" % ("", p["error"]))'
+}
+
+# pov_print_revenue <http-status> ← a RevenueEventView on stdin: source, split, receipt, links (payouts: pov_print_payouts).
+pov_print_revenue() {
+  S="$1" python3 -c '
+import json, os, sys
+r = json.load(sys.stdin)
+pol = r["policy"]
+print("revenue event   %s → %s %s  source=%s:%s simulated=%s" % (r["id"], os.environ["S"], r["status"], r["source"]["kind"], r["source"]["ref"], r["simulated"]))
+print("amount          %s lamports (%s)" % (r["amountLamports"], "SIMULATED economic result — not real profit" if r["simulated"] else "reported"))
+print("policy          %s  contributor pool %s bps · protocol fee %s bps · rest retained" % (pol["name"], pol["revenueShareBps"], pol["protocolFeeBps"]))
+print("split           pool=%s  fee=%s (recorded only)  retained=%s" % (r["contributorPoolLamports"], r["protocolFeeLamports"], r["retainedLamports"]))
+print("receipt         %s (REVENUE_EVENT, anchored: %s)" % (r["receiptHash"], (r.get("anchor") or {}).get("txSignature")))
+print("linked          " + " · ".join("%s (%s) share=%s" % (l["id"], l["title"], l.get("shareLamports")) for l in r["linkedValueEvents"]))'
+}
+
+# pov_print_treasury ← a TreasuryView on stdin.
+pov_print_treasury() {
+  python3 -c '
+import json, sys
+t = json.load(sys.stdin)
+p = t["policies"]
+print("  wallet            %s  on-chain balance=%s%s" % (t.get("wallet") or "-", t.get("onChainBalanceLamports"), ("  (" + t["balanceNote"] + ")") if t.get("balanceNote") else ""))
+print("  income            %s lamports" % t["incomeLamports"])
+print("  contributor paid  %s lamports (CONFIRMED)" % t["contributorPayoutsLamports"])
+print("  protocol fee      %s lamports" % t["protocolFeeLamports"])
+print("  retained          %s lamports" % t["retainedLamports"])
+print("  compute cost      $%.2f (estimated; cost is not value)" % (t["computeCostMicroUsd"] / 1e6))
+print("  policies          reward pool=%s  revenue share=%s bps  fee=%s bps  signer max=%s" % (p["rewardPoolLamports"], p["revenueShareBps"], p["protocolFeeBps"], p.get("signerMaxLamports")))
+for e in t["recentEvents"][:8]:
+    print("  %-8s %-37s %12s  %s  %s" % (e["kind"], e["id"], e["lamports"], e["at"], e.get("txSignature") or ""))'
+}
+
+# ---- secrets check (KAN-575; shared by run.sh and pov-e2e.sh since KAN-826) --------------------------
+# secrets_scan <env-file> <file>...: every SECRET value of the env file must be absent from the files. Only keys named like a
+# secret count (JWT_SECRET, *_TOKEN, *_PASSWORD, *_SIGNING_KEY, *_SALT_SECRET) — public values (wallet addresses, the policy
+# hash, CRYPTOBOT_DB_USER) are never searched, and values under 12 characters neither (a short value false-positives on hashes).
+# Prints the NAME of each leaked key (never the value) and "searched=<n> hits=<m>"; returns 0 only with 0 hits.
+secrets_scan() {
+  local env="$1" k v hits=0 n=0; shift
+  [[ -f "$env" ]] || { echo "searched=0 hits=0"; return 0; }
+  while IFS='=' read -r k v; do
+    [[ "$k" =~ ^(JWT_SECRET|.*_TOKEN|.*_PASSWORD|.*_SIGNING_KEY|.*_SALT_SECRET)$ ]] || continue
+    (( ${#v} >= 12 )) || continue
+    n=$((n + 1))
+    if grep -q -F -- "$v" "$@" 2>/dev/null; then echo "LEAK ${k}"; hits=$((hits + 1)); fi
+  done < "$env"
+  echo "searched=${n} hits=${hits}"
+  (( hits == 0 ))
+}
+
+# read_summary <file> <assoc-array-name>: the key=value summary e2e-devnet.sh writes (--summary) into an associative array.
+read_summary() {
+  local -n _a="$2"; local k v
+  while IFS='=' read -r k v; do [[ -n "$k" ]] && _a["$k"]="$v"; done < "$1"
+}
+
+# demo_token <env-file>: an HS256 demo token (jwt_hs256) minted with JWT_SECRET of the env file for the STABLE demo operator
+# (uuid5 of demo@cryptobot.local — the subject ui-url.sh uses, so the UI shows the same data). Printed to the caller's
+# capture only: never echo it. Fails without the env file or the secret.
+demo_token() {
+  local secret sub
+  [[ -f "$1" ]] || fail "no $1 and no CRYPTOBOT_DEMO_TOKEN"
+  secret="$(sed -n 's/^JWT_SECRET=//p' "$1" | tail -1)"
+  [[ -n "$secret" ]] || fail "JWT_SECRET missing in $1"
+  sub="$(python3 -c 'import uuid; print(uuid.uuid5(uuid.NAMESPACE_DNS, "demo@cryptobot.local"))')"
+  jwt_hs256 "$secret" "$sub" "demo@cryptobot.local"
+}

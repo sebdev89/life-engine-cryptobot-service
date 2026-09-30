@@ -64,6 +64,9 @@ scripts/demo/wallet-devnet.sh            # ~/.cryptobot-demo/{demo-wallet,rebala
 scripts/demo/e2e-devnet.sh               # stack up → flow → out/evidence-<ts>.md → stack stopped
 scripts/demo/e2e-devnet.sh --keep        # leave it running (UI, curl, Postgres inspection)
 scripts/demo/e2e-devnet.sh --it          # the Java test instead of curl (E2EDevnetIT, Failsafe)
+
+# 3. Proof of Value, the whole story in 9 steps (stack kept up): docs/PROOF-OF-VALUE.md "End-to-end demo"
+scripts/demo/pov-e2e.sh --task-id TASK-042 --acceptance-json <release-truth.json> [--skip-op]
 ```
 
 The evidence file lists: wallet, proposal id, verdict + `H_R`, the 409 before approval, the

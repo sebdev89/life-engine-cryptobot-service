@@ -99,10 +99,7 @@ act_end() { # act_end PASS|SKIPPED "<note>"
   CURRENT=-1
 }
 hms() { printf '%dm%02ds' $(( $1 / 60 )) $(( $1 % 60 )); }
-read_summary() { # read_summary <file> <assoc-array-name>
-  local -n _a="$2"; local k v
-  while IFS='=' read -r k v; do [[ -n "$k" ]] && _a["$k"]="$v"; done < "$1"
-}
+# read_summary <file> <assoc-array-name>: lib.sh (shared with pov-e2e.sh, KAN-826)
 
 # ---- report + secrets check, always (EXIT trap) ---------------------------------------------------
 on_exit() {
@@ -195,14 +192,13 @@ write_report() {
 secrets_check() {
   local k v hits=0 n=0
   [[ -f "$ENV_FILE" ]] || { log "secrets check: no env file, nothing to check"; return 0; }
-  while IFS='=' read -r k v; do
-    [[ "$k" =~ ^(JWT_SECRET|.*_TOKEN|.*_PASSWORD|.*_SIGNING_KEY|.*_SALT_SECRET)$ ]] || continue
-    (( ${#v} >= 12 )) || continue
-    n=$((n + 1))
-    if grep -q -F -- "$v" "$REPORT" "$LOG" 2>/dev/null; then
-      printf '\033[1;31m[demo]\033[0m SECRET LEAK: the value of %s appears in the report or the log\n' "$k" >&2; hits=$((hits + 1))
-    fi
-  done < "$ENV_FILE"
+  # secrets_scan (lib.sh, KAN-826): the same rule as pov-e2e.sh — only secret-named keys, never public values.
+  while IFS= read -r k; do
+    case "$k" in
+      LEAK\ *) printf '\033[1;31m[demo]\033[0m SECRET LEAK: the value of %s appears in the report or the log\n' "${k#LEAK }" >&2; hits=$((hits + 1)) ;;
+      searched=*) v="${k#searched=}"; n="${v%% *}" ;;
+    esac
+  done < <(secrets_scan "$ENV_FILE" "$REPORT" "$LOG" || true)
   if git -C "$PROJECT" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
     # A file outside the repo (e.g. --out /tmp/…) cannot be committed: `git check-ignore` answers
     # "fatal: … is outside repository" (rc 128), which is not a leak. Only paths inside are checked.
