@@ -136,6 +136,30 @@ On the local validator act 1 is `ALLOW` (no timelock); a larger devnet position 
 which adds `CRYPTOBOT_TIMELOCK_ESCALATED` to scene A. Always the project `cryptobot-demo-main`, and
 one run at a time: two sessions on the same project recreate each other's service mid-run.
 
+## Values for the video (KAN-797)
+
+The wallet, the label and the sell size are what appears on screen; none of them needs a code change.
+
+- **Wallet.** `/demo` (UI) reads `UI_DEMO_WALLET`; the compose passes `DEMO_WALLET_ADDRESS` from `.env.demo`
+  to the `cryptobot-ui` service, so `/demo` does not ask for it by hand. Needs the UI image with the
+  KAN-785 entrypoint (`demoWallet` from `UI_DEMO_WALLET`); an older image ignores the variable.
+  Unset in `.env.demo` → the UI gets an empty value and falls back to asking once.
+- **Label.** The wallet is registered as `KAN-570 demo`. For the recording: `DEMO_WALLET_LABEL="Treasury demo"`
+  in the environment of `run.sh` / `e2e-devnet.sh` (default unchanged).
+- **Where the `SELL … SOL → 79 %` comes from.** `run.sh` sells `--sell-sol` (default `0.5`), but
+  `e2e-devnet.sh` clamps the sale to 21–40 % of the SOL held, and the target is
+  `int(weight × (1 − sell/amount))`. On a wallet with ≈ 5 SOL, 0.5 SOL is below the 21 % floor, so the
+  sale is 21 % → `SOL → 79 %` (100 × 0.79). Not a bug, but not a round number either.
+- **Recommended for the video:** wallet with ≈ 5 SOL and **`--sell-sol 1.5`** (30 % of the position,
+  inside the 21–40 % band and under the 2 SOL/tx cap) → `SOL → 70 %`, a round figure that is also
+  under the `R_v` 80 % concentration limit. On 5 SOL: 1.5 ≤ 2 SOL cap. Do not lower the cap or the
+  band for looks: they are the rules the demo is showing.
+- **`/demo` (UI, scene A/B) has its own size**: the runner sells 0.5 SOL clamped to 21–40 % like the
+  script (KAN-785), so on a ≈ 5 SOL wallet it also shows `SOL → 79 %`. That constant lives in the UI repo
+  (out of this repo's scope); measure what the screen shows in the rehearsal and, if 79 % is unwanted, propose it there.
+- The adversarial intents (`SOL → 5 %`, `SOL → 50 %`, BONK mint) are fixed on purpose: 5 % is the
+  "dump 95 %" the policy must refuse.
+
 ## Recovery, visible (KAN-571 / HK-3): `--chaos <mode>`
 
 The demo compose enables **fault injection** (`CRYPTOBOT_CHAOS_ENABLED=true`, demo only — UAT/PROD

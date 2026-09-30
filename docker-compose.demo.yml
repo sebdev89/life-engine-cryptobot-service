@@ -179,6 +179,8 @@ services:
       UI_AUTH_BASE: ${UI_AUTH_BASE:-http://localhost:8081}
       # devnet (explorer links resolve) or local (solana-test-validator, --profile local-validator).
       UI_DEMO_CLUSTER: ${UI_DEMO_CLUSTER:-devnet}
+      # KAN-797 — the wallet /demo uses without asking: the demo wallet the scripts already use (.env.demo).
+      UI_DEMO_WALLET: ${DEMO_WALLET_ADDRESS}
     ports:
       - "127.0.0.1:${UI_PORT:-4204}:80"
     healthcheck:
