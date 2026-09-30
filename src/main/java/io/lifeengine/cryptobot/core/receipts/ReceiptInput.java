@@ -28,6 +28,9 @@ public record ReceiptInput(String type, String hash) {
     public static final String APPROVAL = "APPROVAL";
     public static final String RAG_DOC = "RAG_DOC";
     public static final String MARKET_SNAPSHOT = "MARKET_SNAPSHOT";
+    /** Proof of Value (KAN-818): {@code artifactHash} (sha256 of the canonical artifact) / {@code acceptanceHash} (sha256 of the canonical acceptance). */
+    public static final String CONTRIBUTION_EVIDENCE = "CONTRIBUTION_EVIDENCE";
+    public static final String ACCEPTANCE_EVIDENCE = "ACCEPTANCE_EVIDENCE";
 
     public ReceiptInput {
         if (type == null || type.isBlank()) {

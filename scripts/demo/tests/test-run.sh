@@ -56,6 +56,15 @@ check "bad --chaos" 1 "${DEMO}/e2e-devnet.sh" --chaos explode
 check "--it with --base-url is refused" 1 "${DEMO}/e2e-devnet.sh" --it --base-url http://x
 check "missing env file" 1 "${DEMO}/e2e-devnet.sh" --env-file "${TMP}/missing.env"
 
+echo "pov-v1.sh — arguments and dry run (KAN-818)"
+check "--help exits 0" 0 "${DEMO}/pov-v1.sh" --help
+check "unknown argument" 1 "${DEMO}/pov-v1.sh" --bogus
+check "missing env file" 1 "${DEMO}/pov-v1.sh" --env-file "${TMP}/missing.env" --commit abcdef1
+check "dry run exits 0" 0 "${DEMO}/pov-v1.sh" --dry-run --env-file "${TMP}/demo.env" --commit abcdef1
+for want in 'value-events?anchor=true' 'http://127.0.0.1:18091' '"commitSha":"abcdef1"' '"ACCEPTED":true' 'dev-agent-17'; do
+  printf '%s' "$OUT" | grep -q -F -- "$want" && ok "pov plan mentions '${want}'" || bad "pov plan lacks '${want}'"
+done
+
 echo "secrets stay out of git"
 if git -C "$PROJECT" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
   # `out/` (directory rule) only matches an existing directory by its bare name: ask for a path inside it.
@@ -69,7 +78,7 @@ fi
 
 echo "lint"
 if command -v shellcheck >/dev/null 2>&1; then
-  shellcheck -S warning "${DEMO}"/run.sh "${DEMO}"/e2e-devnet.sh "${DEMO}"/wallet-devnet.sh "${HERE}"/test-run.sh && ok "shellcheck -S warning" || bad "shellcheck"
+  shellcheck -S warning "${DEMO}"/run.sh "${DEMO}"/e2e-devnet.sh "${DEMO}"/wallet-devnet.sh "${DEMO}"/pov-v1.sh "${HERE}"/test-run.sh && ok "shellcheck -S warning" || bad "shellcheck"
 else
   echo "  (shellcheck not installed: skipped)"
 fi

@@ -63,6 +63,9 @@ import java.util.concurrent.atomic.AtomicLong;
  *   anchored.receipts             → anchored_receipts_total               receipts stamped by a FINALIZED batch
  *   anchor.pending                → anchor_pending          (gauge)       receipts without a finalized anchor (Endgame §24)
  *   anchor.finality.latency       → anchor_finality_latency_seconds       broadcast → finalized, per batch
+ *   --- KAN-818 (Proof of Value V1: fed by proofofvalue.ValueEventService / IdentityService) ---
+ *   pov.value.events              → pov_value_events_total{status}        recorded | anchored | rejected (AcceptancePolicy 422) — one per POST outcome
+ *   pov.identities                → pov_identities_total                  contributor identities created (an idempotent re-POST does not count)
  *   --- KAN-393 (provenance DAG: lineage API + REUSES edge) ---
  *   artifact.reuse                → artifact_reuse_total{external}       a STRATEGY that declared REUSES over an earlier MARKET_ANALYSIS; external=false until public receipts exist
  *   provenance.depth              → provenance_depth (distribution)       max depth of the graph a lineage query returned
@@ -128,6 +131,8 @@ public class CryptobotMetrics {
     static final String ANCHORED_RECEIPTS = "anchored.receipts";
     static final String ANCHOR_PENDING = "anchor.pending";
     static final String ANCHOR_FINALITY_LATENCY = "anchor.finality.latency";
+    static final String POV_VALUE_EVENTS = "pov.value.events";
+    static final String POV_IDENTITIES = "pov.identities";
     static final String ARTIFACT_REUSE = "artifact.reuse";
     static final String PROVENANCE_DEPTH = "provenance.depth";
     static final String EXECUTION_REFUSED = "cryptobot.execution.refused";
@@ -440,6 +445,18 @@ public class CryptobotMetrics {
                 .description("Time from memo broadcast to finalized, per anchoring batch (KAN-394)")
                 .register(registry)
                 .record(elapsed);
+    }
+
+    // ---- KAN-818: Proof of Value V1 ------------------------------------------------------------------
+
+    /** One outcome of {@code POST /value-events}: {@code recorded | anchored | rejected}. */
+    public void povValueEvent(String status) {
+        counter(POV_VALUE_EVENTS, "status", low(status)).increment();
+    }
+
+    /** A contributor identity was created. */
+    public void povIdentity() {
+        counter(POV_IDENTITIES).increment();
     }
 
     // ---- KAN-393: provenance DAG ------------------------------------------------------------------
