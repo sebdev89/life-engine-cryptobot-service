@@ -1,4 +1,4 @@
-# Proof of Value — Verifiable Value Creation on Solana
+# CryptoBot — Proof of Value for Autonomous Agents
 
 Proof of Value records who created an accepted software outcome, anchors that record on Solana, and pays the
 contributors — humans, agents, knowledge and compute — from the value it creates. CryptoBot, a trusted-execution
