@@ -1,6 +1,6 @@
 # Demo path — 3 minutes
 
-**Proof of Value — Verifiable Value Creation on Solana.** The full demo, told as one story:
+**CryptoBot — Proof of Value for Autonomous Agents.** The full demo, told as one story:
 **real operation → accepted software → contribution attribution → value created → revenue → contributors paid on Solana**,
 and only then: open `/value` and show the verifiable receipts.
 
