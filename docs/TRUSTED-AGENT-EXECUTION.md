@@ -16,9 +16,9 @@ Trusted execution infrastructure for financial AI agents — reference implement
 > with signed receipts anchored on Solana. Built on Life Engine (Auth · Runtime · observability); this
 > repo holds only the execution and crypto domain.
 
-1. [The demo, one command](#the-demo-one-command-from-zero-kan-575--hk-7)
-2. [Architecture](#architecture-documents-kan-583--trusted-agent-execution)
-3. [Decision Receipts](#decision-receipts-kan-391-endgame-67--10)
+1. [The demo, one command](#the-demo-one-command-from-zero-hk-7)
+2. [Architecture](#architecture-documents-trusted-agent-execution)
+3. [Decision Receipts](#decision-receipts-endgame-67--10)
 4. [`scripts/demo/run.sh`](../scripts/demo/run.sh)
 5. [Submission (`SUBMISSION.md`)](../SUBMISSION.md)
 
