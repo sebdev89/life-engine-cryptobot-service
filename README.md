@@ -75,14 +75,17 @@ Requirements: Linux or macOS with Docker (Compose v2), bash, curl, python3 and g
 Engine services are needed: the demo stack brings its own Postgres, validator, signer, service and UI.
 
 ```bash
-git clone https://github.com/sebdev89/life-engine-cryptobot-service && cd life-engine-cryptobot-service
+git clone https://github.com/sebdev89/life-engine-cryptobot-service
+git clone https://github.com/sebdev89/life-engine-cryptobot-ui cryptobot-ui   # the UI is built from ../cryptobot-ui
+cd life-engine-cryptobot-service
 scripts/demo/wallet-devnet.sh      # devnet keys under ~/.cryptobot-demo + .env.demo (both never committed), airdrop
 scripts/demo/run.sh --keep         # stack up + the trusted-execution demo in 4 acts; the stack stays up
 docker compose -f docker-compose.demo.yml --env-file .env.demo --profile ui up -d --build   # the UI
 scripts/demo/pov-e2e.sh --task "Improve CryptoBot opportunity detection" --task-id TASK-042 --assume-accepted --skip-op
 ```
 
-Then `scripts/demo/ui-url.sh --path /value` prints a signed-in URL (1 h demo token). `pov-e2e.sh` prints one block per step
+The UI image is built from the sibling checkout `../cryptobot-ui` (cloned above under that name); to build it from another
+path set `CRYPTOBOT_UI_CONTEXT=<absolute path of the UI checkout>`. Then `scripts/demo/ui-url.sh --path /value` prints a signed-in URL (1 h demo token). `pov-e2e.sh` prints one block per step
 and a final **VALUE GENERATED / ATTRIBUTION** screen, and writes `out/pov-e2e-<ts>.md` with every id, hash, tx and explorer
 link; the report and the log are scanned for every secret of `.env.demo` before it exits (exit 3 on a hit).
 

@@ -81,8 +81,9 @@ The compose also builds and serves the operator UI (`cryptobot-ui`, the sibling 
 `run.sh` / `e2e-devnet.sh` and a checkout without the UI repo behave exactly as before.
 
 ```bash
-# from active/cryptobot/cryptobot-service (the UI repo is ../cryptobot-ui)
-export CRYPTOBOT_DEMO_PROJECT=cryptobot-demo-main     # ALWAYS this project: a new name = a new network (the host ran out of subnets on 2026-09-29)
+# from the service checkout; the UI repo must sit next to it as ../cryptobot-ui:
+#   git clone https://github.com/sebdev89/life-engine-cryptobot-ui ../cryptobot-ui
+export CRYPTOBOT_DEMO_PROJECT=cryptobot-demo-main     # keep ONE project name: every new name creates a new Docker network
 docker compose -p cryptobot-demo-main -f docker-compose.demo.yml --env-file .env.demo --profile ui up -d --build
 scripts/demo/ui-url.sh                                # → http://127.0.0.1:4204/live?token=<1 h demo JWT>
 ```
@@ -93,7 +94,7 @@ timeline, approve/execute, chaos panel (visible because the demo enables it), de
 | knob | default | what |
 |---|---|---|
 | `UI_PORT` | `4204` | host port of the UI (`127.0.0.1` only). The service CORS is built from the **same** variable, so changing it keeps both in step. |
-| `CRYPTOBOT_UI_CONTEXT` | `../cryptobot-ui` | build context of the UI. From a worktree outside `active/cryptobot/`, set it to the absolute path of the UI checkout. |
+| `CRYPTOBOT_UI_CONTEXT` | `../cryptobot-ui` | build context of the UI. From a worktree outside `active/cryptobot/`, set it to the absolute path of the UI checkout (e.g. when it was cloned as `life-engine-cryptobot-ui`). |
 | `UI_DEMO_CLUSTER` | `devnet` | label + explorer links in the UI; `local` when the stack runs with `--profile local-validator`. |
 | `CRYPTOBOT_DEMO_PORT` | `8091` | the service's published port; `config.js` points the browser at `http://127.0.0.1:<it>`. |
 
