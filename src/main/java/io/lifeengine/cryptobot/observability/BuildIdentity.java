@@ -2,8 +2,8 @@ package io.lifeengine.cryptobot.observability;
 
 /**
  * Verifiable build identity of this service, as exposed on {@code /actuator/info} (LIFE-OPS-02 §2.2) and
- * attached as common tags to every Micrometer metric (KAN-199 / T7, replicating the Auth reference
- * implementation KAN-194).
+ * attached as common tags to every Micrometer metric (T7, replicating the Auth reference
+ * implementation an internal ticket).
  *
  * <p>Sources, in order of precedence, are resolved once at startup by {@link BuildIdentityResolver}:
  *

@@ -11,7 +11,7 @@ import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
 /**
- * Append-only store of the provenance DAG (KAN-391). There is no update path for a receipt's
+ * Append-only store of the provenance DAG. There is no update path for a receipt's
  * body or signature; the only mutable columns are the anchor, written once by the anchoring batch.
  */
 public interface ReceiptRepository {
@@ -32,7 +32,7 @@ public interface ReceiptRepository {
 
     Mono<IntelligenceReceipt> findByHash(String receiptHash);
 
-    /** The stored input/output trees of an L1 receipt (KAN-392), if the issuing step kept them. */
+    /** The stored input/output trees of an L1 receipt, if the issuing step kept them. */
     Mono<DeterministicInference> findInference(String receiptHash);
 
     /** Owner-scoped lookup: a receipt of another owner is a 404, not a 403. */

@@ -23,7 +23,7 @@ import org.junit.jupiter.api.Test;
 import reactor.core.publisher.Mono;
 
 /**
- * KAN-439 — the envelope's data-integrity assumptions at execution time: a fresh reading is taken
+ * the envelope's data-integrity assumptions at execution time: a fresh reading is taken
  * right before signing, the plan is re-checked against it, and the EXECUTION receipt names the
  * quotes the decision was priced with.
  */

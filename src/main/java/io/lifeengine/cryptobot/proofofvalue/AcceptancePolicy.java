@@ -5,7 +5,7 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * AcceptancePolicy V1 (KAN-818): a contribution is value only once the outcome went all the way
+ * AcceptancePolicy V1: a contribution is value only once the outcome went all the way
  * {@code MERGED → BUILT → DEPLOYED → RUNNING → ACCEPTED} (P-16: a merged PR is not a delivered
  * outcome). Every stage must be present and {@code true}; anything else is a list of violations,
  * one per stage, that the API returns as a 422.

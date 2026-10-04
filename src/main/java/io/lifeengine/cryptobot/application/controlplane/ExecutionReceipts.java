@@ -14,7 +14,7 @@ import reactor.core.publisher.Mono;
 
 /**
  * The {@code EXECUTION} receipt of a proposal that reached a terminal state ({@code EXECUTED} or
- * {@code FAILED}) — KAN-391. Shared by {@link ExecutionService} (the synchronous path) and the
+ * {@code FAILED}) — an internal ticket. Shared by {@link ExecutionService} (the synchronous path) and the
  * reconciler (the attempts the service could not finish), so both terminal paths leave the same
  * receipt: parents are the proposal's {@code SIMULATION} (DERIVES_FROM) and {@code STRATEGY}
  * (EXECUTES); inputs the transaction message, the policy verdict hash and the approval; the nonce

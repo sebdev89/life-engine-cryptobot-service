@@ -37,13 +37,13 @@ import java.util.Set;
  * <pre>
  *   production (cryptobot-service, main)                    harness (this class)
  *   ----------------------------------------------------    ----------------------------------------------
- *   IntentSchema.parse / TradingIntent  (KAN-435)           the authoritative state S: agent registry,
- *   JsonCanonicalizer, IntentHash       (KAN-435)             nonce ledger, oracle (2 sources), slot clock,
+ *   IntentSchema.parse / TradingIntent           the authoritative state S: agent registry,
+ *   JsonCanonicalizer, IntentHash             nonce ledger, oracle (2 sources), slot clock,
  *   SolanaKeypair.verify (Ed25519)      (Colosseum MVP)       daily/asset exposure ledgers
  *   DeterministicPolicyEngine, PolicyRules,                  TradingIntent → IntentFacts (asset, trade value
- *     PolicyInput, PolicyVerdict        (KAN-436)             in cents from the oracle) — see proposal
- *   CryptobotMetrics                    (KAN-425/440)         intent-to-policy-binding for the production version
- *   ReferencePolicyValidator (test, KAN-436)                 the execution stub: nonce consumed, exposure added
+ *     PolicyInput, PolicyVerdict             in cents from the oracle) — see proposal
+ *   CryptobotMetrics                    (440)         intent-to-policy-binding for the production version
+ *   ReferencePolicyValidator (test)                 the execution stub: nonce consumed, exposure added
  * </pre>
  *
  * Pipeline, every stage fail-closed (§17): {@code SCHEMA} (parse the JSON the agent emitted) →
@@ -102,7 +102,7 @@ public final class AuthorityLayer {
 
     /**
      * Three independent price sources reduced by the real {@link PriceOracle} under real
-     * {@link OracleLimits} (KAN-439 / KAN-572): quorum 2, max age 60 s, deviation 100 bps. A refused
+     * {@link OracleLimits}: quorum 2, max age 60 s, deviation 100 bps. A refused
      * consensus is an unknown price ({@code null} cents) and {@link #refusalRule} names the
      * {@code PolicyEngine} rule the service would block with ({@code PRICE_DEVIATION},
      * {@code PRICE_STALE}, {@code PRICE_QUORUM}). The breaker is not exercised here (no memory
@@ -144,12 +144,12 @@ public final class AuthorityLayer {
             secondaryCents.put(asset, primaryCents.get(asset));
         }
 
-        /** KAN-572: every source's observation is 15 minutes old (quorum lost to staleness). */
+        /** every source's observation is 15 minutes old (quorum lost to staleness). */
         public void staleSources(boolean stale) {
             this.staleSources = stale;
         }
 
-        /** KAN-572: only the primary source answers (no quorum). */
+        /** only the primary source answers (no quorum). */
         public void singleSource(boolean single) {
             this.singleSource = single;
         }
@@ -367,7 +367,7 @@ public final class AuthorityLayer {
         switch (verdict.decision()) {
             case DENY -> {
                 metrics.tradeRequested("blocked_by_policy", asset(input));
-                // KAN-572: when the price was refused, the reason also names the price-integrity rule the service blocks with.
+                // when the price was refused, the reason also names the price-integrity rule the service blocks with.
                 String priceRule = oracle.refusalRule();
                 return new Outcome(Result.DENIED, Stage.GATE, "DENY " + verdict.failedPredicates() + (priceRule == null ? "" : " · " + priceRule), intent, input, verdict, signatureValid,
                         new Timings(t1 - t0, t2 - t1, t3 - t2, t4 - t3, t5 - t4, System.nanoTime() - t5));
@@ -399,7 +399,7 @@ public final class AuthorityLayer {
                     new Timings(t1 - t0, t2 - t1, t3 - t2, t4 - t3, t5 - t4, System.nanoTime() - t5));
         }
         if (!broadcastOnline) {
-            // The transaction is signed but the node did not answer: uncertain, left for reconciliation (KAN-403). Never retried here.
+            // The transaction is signed but the node did not answer: uncertain, left for reconciliation. Never retried here.
             return new Outcome(Result.PAUSED, Stage.EXECUTION, "rpc degraded: broadcast uncertain", intent, input, verdict, signatureValid,
                     new Timings(t1 - t0, t2 - t1, t3 - t2, t4 - t3, t5 - t4, System.nanoTime() - t5));
         }

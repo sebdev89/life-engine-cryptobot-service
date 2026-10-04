@@ -15,7 +15,7 @@ import org.springframework.web.reactive.function.client.WebClient;
 import reactor.test.StepVerifier;
 
 /**
- * KAN-493 — the broadcast guard. {@code sendTransaction} refuses a mainnet transaction before any
+ * the broadcast guard. {@code sendTransaction} refuses a mainnet transaction before any
  * bytes leave the process unless {@code cryptobot.execution.allow-mainnet=true}; the cluster is
  * the one the caller passes with the transaction, never a global.
  */

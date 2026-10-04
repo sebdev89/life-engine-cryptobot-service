@@ -81,7 +81,7 @@ public class SolanaRpcClient {
         }
     }
 
-    /** {@code slot} is the slot the transaction was processed in, when the node reports one (KAN-394). */
+    /** {@code slot} is the slot the transaction was processed in, when the node reports one. */
     public record SignatureStatus(String signature, String confirmationStatus, boolean failed, String error, Long slot) {
         public SignatureStatus(String signature, String confirmationStatus, boolean failed, String error) {
             this(signature, confirmationStatus, failed, error, null);
@@ -90,7 +90,7 @@ public class SolanaRpcClient {
 
     /**
      * A finalized transaction as {@code getTransaction} returns it: where it landed, whether it
-     * failed, and the SPL Memo texts it carried (KAN-394 reads the anchor's root back from here).
+     * failed, and the SPL Memo texts it carried (internal ticket reads the anchor's root back from here).
      */
     public record TransactionInfo(String signature, long slot, Instant blockTime, boolean failed, String error, List<String> memos) {
         public TransactionInfo {
@@ -162,7 +162,7 @@ public class SolanaRpcClient {
     /**
      * Current block height (not slot). A transaction whose {@code lastValidBlockHeight} is below
      * this can never be included any more — the fact reconciliation uses to fail a never-seen
-     * signature without retrying it (KAN-403).
+     * signature without retrying it.
      */
     public Mono<Long> getBlockHeight(SolanaCluster cluster) {
         return call(cluster, "getBlockHeight", List.of(Map.of("commitment", "confirmed"))).map(JsonNode::asLong);
@@ -207,7 +207,7 @@ public class SolanaRpcClient {
 
     /**
      * Broadcast. The cluster travels with the transaction: a mainnet transaction is refused here,
-     * before any RPC call, unless {@code cryptobot.execution.allow-mainnet=true} (KAN-493). This is
+     * before any RPC call, unless {@code cryptobot.execution.allow-mainnet=true}. This is
      * the last of the three guards and does not trust that the PolicyEngine or the
      * ExecutionService already said no.
      */

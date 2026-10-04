@@ -21,7 +21,7 @@ import reactor.core.publisher.Mono;
 /**
  * Coinbase spot price ({@code GET /v2/prices/{product}/spot}), keyless — a single exchange's
  * order book, the third mechanism next to the DEX aggregator (Jupiter) and the CEX aggregator
- * (CoinGecko). KAN-572: added because Pyth Hermes now answers {@code 401} without an API key and
+ * (CoinGecko). an internal ticket: added because Pyth Hermes now answers {@code 401} without an API key and
  * CoinGecko's public tier lags the market by minutes, which left the oracle one source short of
  * its quorum on a real run. One request per asset, concurrently; dated by fetch time (Coinbase
  * returns no timestamp). Products come from {@code cryptobot.marketdata.coinbase.products}

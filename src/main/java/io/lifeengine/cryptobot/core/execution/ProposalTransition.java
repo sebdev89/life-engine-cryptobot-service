@@ -8,7 +8,7 @@ import java.util.List;
  * One atomic step of a proposal: the new state, what the row must still look like for the step to
  * apply ({@code expectedStatus} + {@code expectedVersion}, i.e. the snapshot the caller read), the
  * audit events that describe it and the outbox events it publishes. The repository commits all of
- * it in a single transaction or nothing (KAN-403 §31: "DB y eventos desincronizados → outbox").
+ * it in a single transaction or nothing (internal ticket §31: "DB y eventos desincronizados → outbox").
  *
  * <p>A commit whose guard does not match (someone else moved the row first) fails with
  * {@code StaleProposal}; the caller re-reads and decides, never overwrites.

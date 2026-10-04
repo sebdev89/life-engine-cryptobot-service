@@ -45,7 +45,7 @@ import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.reactive.server.WebTestClient;
 
 /**
- * KAN-500 (CB-03/09) — <b>one</b> test that walks the whole chain with the gates and the pipeline
+ * (CB-03/09) — <b>one</b> test that walks the whole chain with the gates and the pipeline
  * together, nothing stubbed inside the service:
  *
  * <pre>
@@ -110,7 +110,7 @@ class ChainE2EIT {
         r.add("cryptobot.solana.rpc.devnet-url", () -> stack.baseUrl(stack.rpcServer));
         r.add("cryptobot.solana.rpc.mainnet-url", () -> stack.baseUrl(stack.rpcServer));
         r.add("cryptobot.runtime.base-url", () -> stack.baseUrl(stack.runtimeServer));
-        // KAN-439/KAN-500: quorum 2 against the fixed fake feed (SOL $100 / USDC $1) — without this the
+        // quorum 2 against the fixed fake feed (SOL $100 / USDC $1) — without this the
         // real Pyth/CoinGecko/Coinbase endpoints answer with the live price and `lamports` drifts.
         r.add("cryptobot.marketdata.pyth.enabled", () -> "true");
         r.add("cryptobot.marketdata.pyth.base-url", () -> stack.baseUrl(stack.pricesServer));
@@ -146,7 +146,7 @@ class ChainE2EIT {
         // 0. The wallet the signer controls: valued from the (mock) chain, 7 SOL @ $100 + 300 USDC ⇒ SOL 70 % ⇒ HIGH.
         JsonNode created = json(web.post().uri("/api/cryptobot/wallets").header(HttpHeaders.AUTHORIZATION, token)
                 .contentType(MediaType.APPLICATION_JSON)
-                .bodyValue("{\"address\":\"" + stack.walletAddress + "\",\"cluster\":\"devnet\",\"label\":\"KAN-500 e2e\"}")
+                .bodyValue("{\"address\":\"" + stack.walletAddress + "\",\"cluster\":\"devnet\",\"label\":\"e2e\"}")
                 .exchange().expectStatus().isCreated());
         walletId = created.path("wallet").path("id").asText();
         assertThat(created.path("risk").path("overall").asText()).isEqualTo("HIGH");
@@ -161,7 +161,7 @@ class ChainE2EIT {
         // 2-3. Plan → simulation on the exact bytes → policy: executable for real (signer controls the wallet, validator holds H_R).
         JsonNode proposed = json(web.post().uri("/api/cryptobot/wallets/" + walletId + "/proposals").header(HttpHeaders.AUTHORIZATION, token)
                 .contentType(MediaType.APPLICATION_JSON)
-                .bodyValue("{\"kind\":\"REBALANCE\",\"targetWeights\":{\"SOL\":50},\"reasoningSummary\":\"KAN-500 e2e\",\"runtimeRunId\":\"" + runtimeRunId + "\"}")
+                .bodyValue("{\"kind\":\"REBALANCE\",\"targetWeights\":{\"SOL\":50},\"reasoningSummary\":\"e2e\",\"runtimeRunId\":\"" + runtimeRunId + "\"}")
                 .exchange().expectStatus().isCreated());
         JsonNode p = proposed.path("proposal");
         String proposalId = p.path("id").asText();
@@ -219,7 +219,7 @@ class ChainE2EIT {
         assertThat(Base58.encode(sig)).as("the row's signature IS the signature inside the broadcast bytes").isEqualTo(signature);
         assertThat(SolanaKeypair.verify(Base58.decode(stack.walletAddress), message, sig)).as("signed by the wallet key").isTrue();
 
-        // The columns (KAN-500): intent_hash and execution_signature, next to the operation they belong to.
+        // The columns: intent_hash and execution_signature, next to the operation they belong to.
         Map<String, Object> row = db.sql("SELECT operation_id, intent_hash, execution_signature, status FROM action_proposal WHERE id = :id")
                 .bind("id", UUID.fromString(proposalId)).fetch().one().block();
         assertThat(row).isNotNull();
@@ -265,7 +265,7 @@ class ChainE2EIT {
         String receiptHash = execution.path("receiptHash").asText();
         assertThat(receiptHash).matches("sha256:[0-9a-f]{64}");
         assertThat(execution.path("body").path("nonce").asText()).isEqualTo("exec:" + intentHash.toOperationId());
-        assertThat(execution.path("body").path("runtime").path("runId").asText()).as("KAN-500: runtime.runId on the EXECUTION receipt").isEqualTo(runtimeRunId);
+        assertThat(execution.path("body").path("runtime").path("runId").asText()).as("runtime.runId on the EXECUTION receipt").isEqualTo(runtimeRunId);
         assertThat(execution.path("body").path("refs").path("proposalId").asText()).isEqualTo(proposalId);
         assertThat(execution.path("body").path("parents").size()).as("SIMULATION + STRATEGY parents").isEqualTo(2);
         assertThat(execution.path("canonicalJson").asText()).doesNotContain(signature).doesNotContain(stack.walletAddress);
@@ -299,7 +299,7 @@ class ChainE2EIT {
     @Order(2)
     @DisplayName("validator down at execution time: FAILED at VALIDATE, the signer is never asked, nothing is sent")
     void validatorDownFailsClosed() throws Exception {
-        String proposalId = approvedAndUnlocked("KAN-500 e2e validator down");
+        String proposalId = approvedAndUnlocked("e2e validator down");
         int sends0 = stack.rpc.sends();
         int signs0 = stack.signerRelay.signCalls();
         stack.validatorRelay.mode = Relay.Mode.DOWN;
@@ -334,7 +334,7 @@ class ChainE2EIT {
     @Order(3)
     @DisplayName("attestation corrupted on the wire: the real signer refuses (attestation_bad_signature) ⇒ FAILED at SIGN, nothing is sent")
     void invalidAttestationIsRefusedByTheSigner() throws Exception {
-        String proposalId = approvedAndUnlocked("KAN-500 e2e bad attestation");
+        String proposalId = approvedAndUnlocked("e2e bad attestation");
         int sends0 = stack.rpc.sends();
         int signs0 = stack.signerRelay.signCalls();
         stack.validatorRelay.mode = Relay.Mode.TAMPER_ATTESTATION;

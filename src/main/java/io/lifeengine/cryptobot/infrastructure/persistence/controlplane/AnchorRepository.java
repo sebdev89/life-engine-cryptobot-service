@@ -9,7 +9,7 @@ import reactor.core.publisher.Mono;
 /**
  * {@code receipt_anchor} + {@code receipt_anchor_member} and the one write the anchoring batch is
  * allowed on {@code intelligence_receipt}: stamping the anchor columns once a root is FINALIZED
- * (KAN-394). Separate from {@link ReceiptRepository} on purpose — receipts are append-only there;
+ *. Separate from {@link ReceiptRepository} on purpose — receipts are append-only there;
  * this is the only path that touches a receipt after it was issued, and it never touches the
  * body, the canonical bytes or the signature.
  */

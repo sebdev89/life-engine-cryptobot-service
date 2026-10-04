@@ -26,7 +26,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 /**
- * The invariants of the receipt layer (KAN-391, Endgame §6-7), on the real in-memory store:
+ * The invariants of the receipt layer (Endgame §6-7), on the real in-memory store:
  * content addressing, the parents property, replay, tenant scoping and {@code verify}.
  */
 class ReceiptServiceTest {
@@ -120,7 +120,7 @@ class ReceiptServiceTest {
         assertThat(ok.signatureValid()).isTrue();
         assertThat(ok.parentsPresent()).isTrue();
         assertThat(ok.keyId()).isEqualTo("unit-key");
-        assertThat(ok.reproduced()).isNull(); // L0: nothing to re-execute (KAN-392 only re-runs L1 receipts of a known engine)
+        assertThat(ok.reproduced()).isNull(); // L0: nothing to re-execute (internal ticket only re-runs L1 receipts of a known engine)
         assertThat(ok.reproduction().reason()).isEqualTo(DeterministicReproducer.REASON_NOT_L1);
 
         // Another owner cannot even see it.

@@ -53,7 +53,7 @@ class ControlPlaneFlowTest {
 
     private static MockWebServer rpc;
     private static MockWebServer runtime;
-    // KAN-439: one fake feed serving the three source shapes (Jupiter, Pyth Hermes, CoinGecko), all agreeing on SOL $100 / USDC $1.
+    // one fake feed serving the three source shapes (Jupiter, Pyth Hermes, CoinGecko), all agreeing on SOL $100 / USDC $1.
     private static MockWebServer prices;
     private static final ObjectMapper JSON = new ObjectMapper();
 
@@ -91,14 +91,14 @@ class ControlPlaneFlowTest {
         r.add("cryptobot.solana.rpc.devnet-url", () -> "http://localhost:" + rpc.getPort());
         r.add("cryptobot.solana.rpc.mainnet-url", () -> "http://localhost:" + rpc.getPort());
         r.add("cryptobot.runtime.base-url", () -> "http://localhost:" + runtime.getPort());
-        // KAN-439: the three independent sources, all against the fake feed — quorum 2, they agree, no breaker.
+        // the three independent sources, all against the fake feed — quorum 2, they agree, no breaker.
         r.add("cryptobot.marketdata.jupiter-enabled", () -> "true");
         r.add("cryptobot.marketdata.jupiter-base-url", () -> "http://localhost:" + prices.getPort());
         r.add("cryptobot.marketdata.pyth.enabled", () -> "true");
         r.add("cryptobot.marketdata.pyth.base-url", () -> "http://localhost:" + prices.getPort());
         r.add("cryptobot.marketdata.coingecko.enabled", () -> "true");
         r.add("cryptobot.marketdata.coingecko.base-url", () -> "http://localhost:" + prices.getPort());
-        // KAN-572: the demo's adversarial price (PUT /api/cryptobot/demo/price) exists only with chaos enabled, as in the demo stack.
+        // the demo's adversarial price (PUT /api/cryptobot/demo/price) exists only with chaos enabled, as in the demo stack.
         r.add("cryptobot.chaos.enabled", () -> "true");
     }
 
@@ -126,7 +126,7 @@ class ControlPlaneFlowTest {
     void fullDemoFlowAsPaperTradeWithCompleteAuditTrail() throws Exception {
         UUID user = UUID.randomUUID();
         String token = bearer(user);
-        // KAN-425: the business counters before the flow, on the real registry (they accumulate across tests).
+        // the business counters before the flow, on the real registry (they accumulate across tests).
         double risk0 = counter("risk.analysis", "result", "high");
         double strategy0 = counter("strategies", "result", "proposed", "asset", "SOL");
         double requested0 = counter("trade.requested", "result", "awaiting_approval", "asset", "SOL");
@@ -138,7 +138,7 @@ class ControlPlaneFlowTest {
                 .exchange().expectStatus().isCreated().expectBody().returnResult().getResponseBody());
         String walletId = created.path("wallet").path("id").asText();
         assertThat(created.path("snapshot").path("totalUsd").decimalValue()).isEqualByComparingTo("1000");
-        // KAN-439: valued by the multi-source consensus, not by the static fallback.
+        // valued by the multi-source consensus, not by the static fallback.
         assertThat(created.path("snapshot").path("priceSource").asText()).startsWith("oracle:").contains("jupiter").contains("pyth").contains("coingecko");
         assertThat(created.path("risk").path("overall").asText()).isEqualTo("HIGH");
         assertThat(created.path("risk").path("findings").get(0).path("code").asText()).isEqualTo("CONCENTRATION");
@@ -172,7 +172,7 @@ class ControlPlaneFlowTest {
         assertThat(input.path("contractId").asText()).isEqualTo("crypto.portfolio-advisor-input.v1");
         assertThat(input.path("riskFindings").get(0).path("code").asText()).isEqualTo("CONCENTRATION");
         assertThat(input.toString()).doesNotContain("unsignedTransaction").doesNotContain("secret");
-        // KAN-391: the answer carries its MARKET_ANALYSIS receipt; the receipt carries hashes, never the question or the answer.
+        // the answer carries its MARKET_ANALYSIS receipt; the receipt carries hashes, never the question or the answer.
         String analysisHash = asked.path("receiptHash").asText();
         assertThat(analysisHash).matches("sha256:[0-9a-f]{64}");
         JsonNode analysis = JSON.readTree(web.get().uri("/api/cryptobot/receipts/" + analysisHash).header(HttpHeaders.AUTHORIZATION, token)
@@ -233,7 +233,7 @@ class ControlPlaneFlowTest {
         assertThat(p.path("policy").path("allowed").asBoolean()).isTrue();
         assertThat(p.path("policy").path("executable").asBoolean()).isFalse(); // signer disabled in tests
         assertThat(p.path("policy").path("executionViolations").toString()).contains("SIGNER_CONTROLS_WALLET");
-        // KAN-436: the graduated verdict with H_R travels with the proposal. $200 on a $1000 wallet:
+        // the graduated verdict with H_R travels with the proposal. $200 on a $1000 wallet:
         // over the $100 autonomous tier, within the $250 second-agent tier of test-policy-v1.
         JsonNode verdict = p.path("policy").path("authorization");
         assertThat(verdict.path("decision").asText()).isEqualTo("ESCALATE");
@@ -244,7 +244,7 @@ class ControlPlaneFlowTest {
         assertThat(verdict.path("policyVersion").asText()).isEqualTo("test-policy-v1");
         assertThat(verdict.path("policyHash").asText()).matches("sha256:[0-9a-f]{64}");
         assertThat(verdict.path("inputHash").asText()).matches("sha256:[0-9a-f]{64}");
-        // KAN-439: the decision carries the reading it was priced with — SOL and USDC, each a 3-source consensus at $100 / $1.
+        // the decision carries the reading it was priced with — SOL and USDC, each a 3-source consensus at $100 / $1.
         JsonNode oracle = p.path("policy").path("oracle");
         assertThat(p.path("policy").path("rulesApplied").toString()).contains("PRICE_QUORUM").contains("PRICE_DEVIATION").contains("PRICE_DRIFT");
         assertThat(oracle.path("assets")).hasSize(2);
@@ -259,13 +259,13 @@ class ControlPlaneFlowTest {
         assertThat(oracle.path("limits").path("minSources").asInt()).isEqualTo(2);
         // No secret and no key in what the oracle recorded: sources, mints, prices, timestamps.
         assertThat(sol.path("used").get(0).fieldNames()).toIterable().containsExactlyInAnyOrder("source", "asset", "mint", "priceUsd", "observedAt");
-        // KAN-391: the proposal left STRATEGY (L1, derives from the snapshot and the analysis), RISK_DECISION (validates the
+        // the proposal left STRATEGY (L1, derives from the snapshot and the analysis), RISK_DECISION (validates the
         // strategy, L1) and SIMULATION (derives from the strategy). No EXECUTION yet: nothing was approved.
         JsonNode proposalReceipts = JSON.readTree(web.get().uri("/api/cryptobot/proposals/" + proposalId + "/receipts").header(HttpHeaders.AUTHORIZATION, token)
                 .exchange().expectStatus().isOk().expectBody().returnResult().getResponseBody());
         List<String> kinds = new java.util.ArrayList<>();
         proposalReceipts.forEach(r -> kinds.add(r.path("body").path("kind").asText()));
-        // KAN-572: …and the Decision Receipt — a second RISK_DECISION, by the policy engine, over the simulated proposal.
+        // …and the Decision Receipt — a second RISK_DECISION, by the policy engine, over the simulated proposal.
         assertThat(kinds).containsExactly("STRATEGY", "RISK_DECISION", "SIMULATION", "RISK_DECISION");
         JsonNode decisionReceipt = proposalReceipts.get(3);
         assertThat(decisionReceipt.path("body").path("engine").path("id").asText()).isEqualTo("policy-engine");
@@ -294,7 +294,7 @@ class ControlPlaneFlowTest {
         JsonNode riskEdges = JSON.readTree(web.get().uri("/api/cryptobot/receipts/" + riskAfter.path("receiptHash").asText()).header(HttpHeaders.AUTHORIZATION, token)
                 .exchange().expectStatus().isOk().expectBody().returnResult().getResponseBody());
         assertThat(riskEdges.path("parents").get(0).path("role").asText()).isEqualTo("VALIDATES");
-        // KAN-392: the RISK_DECISION is L1 for real — it names the engine version and weightsHash, declares its canonical
+        // the RISK_DECISION is L1 for real — it names the engine version and weightsHash, declares its canonical
         // input (RISK_INPUT) and its discrete verdict (risk-decision/1), and verify re-runs the engine and gets the same hash.
         assertThat(riskAfter.path("body").path("reproducibility").asText()).isEqualTo("L1_REPRODUCIBLE");
         assertThat(riskAfter.path("body").path("engine").path("version").asText()).isEqualTo("1.0.0");
@@ -357,19 +357,19 @@ class ControlPlaneFlowTest {
         audit.forEach(e -> types.add(e.path("eventType").asText()));
         assertThat(types).containsExactly("PROPOSAL_CREATED", "SIMULATED", "POLICY_EVALUATED", "AWAITING_APPROVAL", "APPROVED");
         assertThat(audit.get(4).path("actor").asText()).isEqualTo("operator@test.local");
-        // KAN-436: the POLICY_EVALUATED event commits the policy hash, the input hash and the verdict hash.
+        // the POLICY_EVALUATED event commits the policy hash, the input hash and the verdict hash.
         JsonNode policyEvent = audit.get(2).path("payload");
         assertThat(policyEvent.path("decision").asText()).isEqualTo("ESCALATE");
         assertThat(policyEvent.path("policyHash").asText()).isEqualTo(verdict.path("policyHash").asText());
         assertThat(policyEvent.path("inputHash").asText()).isEqualTo(verdict.path("inputHash").asText());
         assertThat(policyEvent.path("verdictHash").asText()).matches("sha256:[0-9a-f]{64}");
-        // KAN-439: …and the state reference — which quotes, under which limits, and that they agreed.
+        // …and the state reference — which quotes, under which limits, and that they agreed.
         assertThat(policyEvent.path("oracleAccepted").asBoolean()).isTrue();
         assertThat(policyEvent.path("oracleQuotesHash").asText()).matches("sha256:[0-9a-f]{64}");
         assertThat(policyEvent.path("oracleLimitsHash").asText()).matches("sha256:[0-9a-f]{64}");
         assertThat(policyEvent.path("oracleProblems")).isEmpty();
 
-        // 7b. KAN-403: the durable event stream was written with the state (trade.requested, trade.approved),
+        // 7b. an internal ticket: the durable event stream was written with the state (trade.requested, trade.approved),
         // PENDING until the publisher's tick, then PUBLISHED — visible to the owner, invisible to anyone else.
         JsonNode events = JSON.readTree(web.get().uri("/api/cryptobot/proposals/" + proposalId + "/events").header(HttpHeaders.AUTHORIZATION, token)
                 .exchange().expectStatus().isOk().expectBody().returnResult().getResponseBody());
@@ -388,12 +388,12 @@ class ControlPlaneFlowTest {
         web.get().uri("/api/cryptobot/proposals/" + proposalId + "/events").header(HttpHeaders.AUTHORIZATION, bearer(UUID.randomUUID()))
                 .exchange().expectStatus().isNotFound();
 
-        // 7c. KAN-403: a malformed Idempotency-Key is a 400 before anything is looked at.
+        // 7c. an internal ticket: a malformed Idempotency-Key is a 400 before anything is looked at.
         web.post().uri("/api/cryptobot/proposals/" + proposalId + "/execute").header(HttpHeaders.AUTHORIZATION, token)
                 .header("Idempotency-Key", "not-a-uuid")
                 .exchange().expectStatus().isBadRequest().expectBody().jsonPath("$.code").isEqualTo("INVALID_OPERATION_ID");
 
-        // 7d. KAN-435: an intent hash is a valid key — it derives the operationId, so the request gets past
+        // 7d. an internal ticket: an intent hash is a valid key — it derives the operationId, so the request gets past
         // the key check and is refused for the real reason (not executable ⇒ 409). A malformed hash is still a 400.
         web.post().uri("/api/cryptobot/proposals/" + proposalId + "/execute").header(HttpHeaders.AUTHORIZATION, token)
                 .header("Idempotency-Key", "sha256:877dcaf96566ba02b058d41c01af02ff69d8d4c60dc375a610f3f9f15aa89081")
@@ -407,7 +407,7 @@ class ControlPlaneFlowTest {
         web.get().uri("/api/cryptobot/proposals/" + proposalId).header(HttpHeaders.AUTHORIZATION, bearer(UUID.randomUUID()))
                 .exchange().expectStatus().isNotFound();
 
-        // 8. KAN-425: the funnel moved exactly as the flow did — requested → approved, never submitted.
+        // 8. an internal ticket: the funnel moved exactly as the flow did — requested → approved, never submitted.
         assertThat(counter("risk.analysis", "result", "high")).isGreaterThan(risk0);
         assertThat(counter("strategies", "result", "proposed", "asset", "SOL")).isEqualTo(strategy0 + 1);
         assertThat(counter("trade.requested", "result", "awaiting_approval", "asset", "SOL")).isEqualTo(requested0 + 1);
@@ -484,7 +484,7 @@ class ControlPlaneFlowTest {
     }
 
     /**
-     * KAN-572 (HK-4): the second adversarial intent of the demo — nothing wrong with the trade, everything wrong with the
+     * (HK-4): the second adversarial intent of the demo — nothing wrong with the trade, everything wrong with the
      * price. One source is made to say −90 % ({@code PUT /demo/price}); the real oracle refuses the consensus
      * ({@code DEVIATION_EXCEEDED}); the policy blocks with {@code PRICE_DEVIATION} and a message a human reads; the
      * Decision Receipt names the rule, verifies live (hash, signature, L1 re-execution of the verdict) and sits in the
@@ -560,7 +560,7 @@ class ControlPlaneFlowTest {
             assertThat(verified.path("reproduction").path("engineId").asText()).isEqualTo("policy-engine");
             assertThat(verified.path("reproduction").path("reason").asText()).isEqualTo("REPRODUCED");
             assertThat(verified.path("reproduction").path("actualOutputHash").asText()).isEqualTo(decision.path("body").path("output").path("hash").asText());
-            // 4. …and in the lineage (KAN-393): the decision descends from the STRATEGY, which the lineage lists with its parents
+            // 4. …and in the lineage: the decision descends from the STRATEGY, which the lineage lists with its parents
             JsonNode lineage = JSON.readTree(web.get().uri("/api/cryptobot/proposals/" + p.path("id").asText() + "/lineage").header(HttpHeaders.AUTHORIZATION, token)
                     .exchange().expectStatus().isOk().expectBody().returnResult().getResponseBody());
             assertThat(lineage.toString()).contains(decision.path("receiptHash").asText());
@@ -628,7 +628,7 @@ class ControlPlaneFlowTest {
     }
 
     /**
-     * KAN-439: the fake price feed. Three shapes, one price — Jupiter {@code /price/v3}, Pyth Hermes
+     * the fake price feed. Three shapes, one price — Jupiter {@code /price/v3}, Pyth Hermes
      * {@code /v2/updates/price/latest} (mantissa/expo, published "now") and CoinGecko {@code /api/v3/simple/price}.
      * SOL $100, USDC $1: what every legacy snapshot of this test was priced at.
      */

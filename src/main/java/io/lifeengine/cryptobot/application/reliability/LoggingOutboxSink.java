@@ -7,7 +7,7 @@ import org.springframework.stereotype.Component;
 import reactor.core.publisher.Mono;
 
 /**
- * The only consumer until KAN-402: one structured log line per published event (Loki-searchable
+ * The only consumer until a later change: one structured log line per published event (Loki-searchable
  * by {@code eventType} and {@code proposalId}). Never logs the payload — it can carry a signature
  * and an explorer URL, which are public, but the rule is one line, bounded fields. A broker sink
  * replaces this bean (mark it {@code @Primary}); nothing else changes.

@@ -1,6 +1,6 @@
-//! # intent-authority — CryptoBot's on-chain authority (paper level 4, KAN-437)
+//! # intent-authority — CryptoBot's on-chain authority (paper level 4)
 //!
-//! Level 3 (KAN-435/436/440) proves off-chain that an intent `I` with hash `H_I` satisfied policy
+//! Level 3 (436/440) proves off-chain that an intent `I` with hash `H_I` satisfied policy
 //! `R_v` with hash `H_R`. This program makes four of those facts **unforgeable by the client**:
 //!
 //! | | checked on-chain against | refusal |

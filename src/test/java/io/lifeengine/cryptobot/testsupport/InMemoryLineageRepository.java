@@ -18,7 +18,7 @@ import reactor.core.publisher.Flux;
 /**
  * {@link LineageRepository} over {@link InMemoryControlPlaneRepositories#RECEIPTS} and
  * {@link InMemoryControlPlaneRepositories#EDGES}: a breadth-first walk with the same contract as
- * the {@code WITH RECURSIVE} of the Postgres store (KAN-393) — tenant-scoped, depth-bounded,
+ * the {@code WITH RECURSIVE} of the Postgres store — tenant-scoped, depth-bounded,
  * minimum depth per receipt, roots at depth 0, ordered by depth / createdAt / hash.
  */
 public final class InMemoryLineageRepository implements LineageRepository {

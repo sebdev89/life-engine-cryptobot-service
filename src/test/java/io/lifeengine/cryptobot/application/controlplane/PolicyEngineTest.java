@@ -58,7 +58,7 @@ class PolicyEngineTest {
                 8_000, 100, 50, Duration.ofMinutes(15), List.of("REBALANCE"));
     }
 
-    /** KAN-572: a signer on devnet that controls {@code publicKey}, with the demo's caps and the vault allowlisted. */
+    /** a signer on devnet that controls {@code publicKey}, with the demo's caps and the vault allowlisted. */
     static Optional<SignerClient.Identity> signer(String publicKey) {
         return Optional.of(new SignerClient.Identity(publicKey, "devnet", 2_000_000_000L, List.of(Fixtures.VAULT)));
     }
@@ -109,7 +109,7 @@ class PolicyEngineTest {
                 8_000, 100, 50, Duration.ofMinutes(15), List.of("REBALANCE"));
         PolicyDecision d = engine(tight, auth).evaluate(proposal(w, new BigDecimal("50"), true, true), w, fresh(), signer(w.address()));
         assertThat(d.allowed()).isFalse();
-        // KAN-436: one cap, two names — the legacy rule and the deterministic predicate both fire on it
+        // one cap, two names — the legacy rule and the deterministic predicate both fire on it
         assertThat(d.violations()).extracting(PolicyDecision.Violation::rule).containsExactly(PolicyEngine.RULE_MAX_TRADE_USD, PolicyEngine.RULE_AUTHORIZATION);
         assertThat(d.authorization().failedPredicates()).containsExactly(PolicyPredicate.TRADE_WITHIN_MAX);
     }
@@ -183,7 +183,7 @@ class PolicyEngineTest {
         assertThat(problems).anyMatch(s -> s.contains("not APPROVED")).anyMatch(s -> s.contains("No approval record"));
     }
 
-    // ---- KAN-436: the deterministic verdict wired into the flow -----------------------------
+    // ---- an internal ticket: the deterministic verdict wired into the flow -----------------------------
 
     @Test
     void verdictIsRecordedWithThePolicyHashAndTheTier() {
@@ -250,7 +250,7 @@ class PolicyEngineTest {
         assertThat(u.allowed()).isFalse();
         assertThat(u.authorization().failedPredicates()).containsExactly(PolicyPredicate.ORACLE_FRESH);
 
-        // KAN-439: a consensus whose oldest observation is older than max-oracle-age is just as stale as an old snapshot
+        // a consensus whose oldest observation is older than max-oracle-age is just as stale as an old snapshot
         WalletState oldConsensus = new WalletState(Optional.empty(), BigDecimal.ZERO, NOW, Fixtures.oracle("100", NOW.minus(Duration.ofMinutes(16))));
         PolicyDecision oc = engine(defaults()).evaluate(proposal(w, new BigDecimal("50"), true, true), w, oldConsensus, signer(w.address()));
         assertThat(oc.allowed()).isFalse();
@@ -293,20 +293,20 @@ class PolicyEngineTest {
                 8_000, 100, 50, Duration.ofMinutes(15), List.of("REBALANCE"));
         assertThat(engine(defaults(), v2).executionPreconditions(approved)).singleElement().asString().contains("Policy changed since evaluation");
 
-        // A pre-KAN-436 row has neither a verdict nor (pre-KAN-439) an oracle reading: both are named, both refuse.
+        // A legacy row has neither a verdict nor (legacy) an oracle reading: both are named, both refuse.
         ActionProposal legacy = approved.withPolicy(new PolicyDecision(true, true, List.of(), List.of(), List.of(), NOW, null), NOW);
         assertThat(v1.executionPreconditions(legacy)).hasSize(2)
                 .anySatisfy(m -> assertThat(m).contains("No policy verdict"))
                 .anySatisfy(m -> assertThat(m).contains("No oracle reading"));
 
-        // KAN-438: a verdict without its recorded (I, S) cannot be re-derived by the validator; without a reading (KAN-439) it does not execute either.
+        // a verdict without its recorded (I, S) cannot be re-derived by the validator; without a reading it does not execute either.
         ActionProposal noInput = approved.withPolicy(new PolicyDecision(true, true, List.of(), List.of(), List.of(), NOW, decided.authorization()), NOW);
         assertThat(v1.executionPreconditions(noInput)).hasSize(2)
                 .anySatisfy(m -> assertThat(m).contains("No recorded (I, S)"))
                 .anySatisfy(m -> assertThat(m).contains("No oracle reading"));
     }
 
-    // ---- KAN-438: independent validator + timelock (paper §19, §20) ---------------------------
+    // ---- an internal ticket: independent validator + timelock (paper §19, §20) ---------------------------
 
     private static io.lifeengine.cryptobot.integration.validator.ValidatorClient.Identity validator(String hash, boolean enabled) {
         return new io.lifeengine.cryptobot.integration.validator.ValidatorClient.Identity("vkey", "test-policy-v1", hash, true, enabled);
@@ -365,13 +365,13 @@ class PolicyEngineTest {
         PolicyDecision small = new PolicyDecision(true, true, List.of(), List.of(), List.of(), NOW, allow, decided.input());
         assertThat(engine.executableAt(NOW, small)).isEqualTo(NOW);
 
-        // A row approved before KAN-438 (no executableAt) derives its lock from the approval time.
+        // A row approved before a later change (no executableAt) derives its lock from the approval time.
         ActionProposal legacy = approved.withApproval(new ApprovalRecord(ApprovalRecord.Decision.APPROVED, "op", NOW.minus(Duration.ofMinutes(10)), null), NOW);
         assertThat(engine.executableAt(legacy)).isEqualTo(NOW.plus(Duration.ofMinutes(20)));
         assertThat(engine.executionPreconditions(legacy)).singleElement().asString().contains("1200s remaining");
     }
 
-    // ---- KAN-582: each failed precondition carries the bounded reason the 409 is counted under ----
+    // ---- an internal ticket: each failed precondition carries the bounded reason the 409 is counted under ----
 
     @Test
     void executionRefusalsCarryTheReasonAndThePrimaryOneIsTheMostSpecific() {
@@ -415,7 +415,7 @@ class PolicyEngineTest {
         assertThat(PolicyEngine.primaryRefusal(List.of())).isEqualTo(io.lifeengine.cryptobot.observability.CryptobotMetrics.RefusalReason.STATE);
     }
 
-    // ---- KAN-439: CorrectRules + CorruptState ⇏ SafeExecution (paper §22) --------------------------
+    // ---- an internal ticket: CorrectRules + CorruptState ⇏ SafeExecution (paper §22) --------------------------
 
     @Test
     void noOracleReadingDeniesFailClosed() {
@@ -484,7 +484,7 @@ class PolicyEngineTest {
         PolicyEngine engine = engine(defaults());
         ActionProposal p = proposal(w, new BigDecimal("50"), true, true);
         PolicyDecision decided = engine.evaluate(p, w, fresh(), signer(w.address()));
-        // approved with an already-elapsed timelock (KAN-438): the oracle is the only thing under test here
+        // approved with an already-elapsed timelock: the oracle is the only thing under test here
         ActionProposal approved = p.withPolicy(decided, NOW).withStatus(ProposalStatus.AWAITING_APPROVAL, NOW)
                 .withApproval(new ApprovalRecord(ApprovalRecord.Decision.APPROVED, "op", NOW, null, NOW), NOW).withStatus(ProposalStatus.APPROVED, NOW);
         assertThat(engine.executionPreconditions(approved)).isEmpty();
@@ -498,7 +498,7 @@ class PolicyEngineTest {
         assertThat(engine.priceViolations(approved, null)).singleElement().satisfies(v -> assertThat(v.rule()).isEqualTo(PolicyEngine.RULE_PRICE_QUORUM));
     }
 
-    // ---- KAN-572: every price-integrity refusal names its rule, with a message a human reads -------
+    // ---- an internal ticket: every price-integrity refusal names its rule, with a message a human reads -------
 
     @Test
     void staleSourcesBlockWithPriceStaleAndTheAges() {
@@ -538,7 +538,7 @@ class PolicyEngineTest {
         assertThat(d.violations().get(0).message()).contains("SOL moved 9000 bps (100 → 10)").contains("circuit breaker");
     }
 
-    // ---- KAN-572: the signer's own caps, visible before the signer refuses -------------------------
+    // ---- an internal ticket: the signer's own caps, visible before the signer refuses -------------------------
 
     @Test
     void signerCapsAreVisibleAsExecutionRules() {

@@ -6,12 +6,12 @@ import java.util.UUID;
 
 /**
  * A business event written in the <em>same transaction</em> as the state change it describes
- * (transactional outbox, KAN-403). The row is the guarantee: if the state moved, the event exists;
+ * (transactional outbox). The row is the guarantee: if the state moved, the event exists;
  * if the process dies before anyone publishes it, the {@code OutboxPublisher} finds it on the next
  * tick. Nothing here is ever deleted — {@code PUBLISHED} rows are the durable event log a client
  * reads through {@code GET /api/cryptobot/proposals/{id}/events}.
  *
- * <p>There is no broker yet (KAN-402): the publisher hands events to an in-process
+ * <p>There is no broker yet: the publisher hands events to an in-process
  * {@code OutboxSink}. Swapping the sink for NATS/JetStream does not touch this record.
  */
 public record OutboxEvent(
@@ -53,7 +53,7 @@ public record OutboxEvent(
         return new OutboxEvent(id, aggregateType, aggregateId, ownerUserId, eventType, payload, Status.PENDING, attempts + 1, next, error, createdAt, null);
     }
 
-    /** KAN-571: back to the publisher after a human requeue — PENDING, attempts reset, due now. */
+    /** back to the publisher after a human requeue — PENDING, attempts reset, due now. */
     public OutboxEvent requeued(Instant now) {
         return new OutboxEvent(id, aggregateType, aggregateId, ownerUserId, eventType, payload, Status.PENDING, 0, now, null, createdAt, null);
     }

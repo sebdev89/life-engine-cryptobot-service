@@ -5,7 +5,7 @@ import java.util.List;
 import java.util.UUID;
 
 /**
- * KAN-822 (V5): the immediate reward of one ANCHORED ValueEvent ({@code pov_distribution} + its {@code pov_payout} rows).
+ * (V5): the immediate reward of one ANCHORED ValueEvent ({@code pov_distribution} + its {@code pov_payout} rows).
  * {@code receiptHash} is the VALUE_DISTRIBUTION receipt, {@code null} until every payout left PENDING.
  */
 public record PovDistribution(

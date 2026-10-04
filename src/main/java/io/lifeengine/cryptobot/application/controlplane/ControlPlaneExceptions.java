@@ -33,7 +33,7 @@ public final class ControlPlaneExceptions {
     }
 
     /**
-     * The row moved under the caller (optimistic lock or status guard failed, KAN-403). Mapped to
+     * The row moved under the caller (optimistic lock or status guard failed). Mapped to
      * 409: the caller re-reads; it never overwrites.
      */
     public static class StaleProposal extends Conflict {

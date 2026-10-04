@@ -10,10 +10,10 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
 /**
- * Common tags de la identidad del build en cada meter (KAN-573): {@code environment} / {@code service} /
+ * Common tags de la identidad del build en cada meter: {@code environment} / {@code service} /
  * {@code version} / {@code commit}, los mismos que cryptobot-service y los otros seis servicios, para que
  * {@code /actuator/prometheus} del signerNAME sea filtrable por build. El commit prefiere el build-arg
- * {@code GIT_COMMIT} (la imagen no tiene .git, KAN-579) y cae a {@code git.properties}; lo que no se
+ * {@code GIT_COMMIT} (la imagen no tiene .git) y cae a {@code git.properties}; lo que no se
  * resuelve es {@code unknown}, nunca vacío (Micrometer rechaza tags nulos).
  */
 @Configuration

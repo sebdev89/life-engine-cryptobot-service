@@ -12,7 +12,7 @@ import org.springframework.web.reactive.function.client.WebClient;
 import reactor.test.StepVerifier;
 
 /**
- * KAN-69 — el cliente de client-credentials de CryptoBot contra un Auth falso.
+ * el cliente de client-credentials de CryptoBot contra un Auth falso.
  *
  * <p>Cubre el contrato ({@code clientId, clientSecret, audience} → {@code access_token,
  * expires_in}), la caché POR audiencia, la renovación antes del vencimiento, la invalidación tras

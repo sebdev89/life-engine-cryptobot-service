@@ -23,7 +23,7 @@ import java.util.UUID;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
-/** KAN-819: the pure parts of V2–V4 + V6 — provenance contribution, canonical v2, reputation and the ledger folds. */
+/** the pure parts of V2–V4 + V6 — provenance contribution, canonical v2, reputation and the ledger folds. */
 class ProofOfValueAttributionUnitTest {
 
     static final String TENANT = "a0000000-0000-4000-8000-000000000001";
@@ -172,7 +172,7 @@ class ProofOfValueAttributionUnitTest {
     private static ValueEventRequest request(List<ContributionRequest> cs, List<PovKnowledgeAsset> assets, List<ComputeReceiptRequest> compute) {
         Map<String, Boolean> stages = new LinkedHashMap<>();
         AcceptancePolicy.STAGES.forEach(s -> stages.put(s, true));
-        return new ValueEventRequest("cryptobot", "KAN-819", "Improve CryptoBot opportunity detection", new ArtifactRequest(COMMIT, null, null),
+        return new ValueEventRequest("cryptobot", "TASK-819", "Improve CryptoBot opportunity detection", new ArtifactRequest(COMMIT, null, null),
                 new AcceptanceRequest("release-truth", "uat-k8s", stages, null, T1), cs, assets.stream().map(PovKnowledgeAsset::id).toList(), compute, null);
     }
 }

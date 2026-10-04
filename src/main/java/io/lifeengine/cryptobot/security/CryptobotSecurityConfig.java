@@ -18,7 +18,7 @@ import reactor.core.publisher.Mono;
 public class CryptobotSecurityConfig {
 
     public static final String AUTHORITY_MARKET_REVIEW = "RUNTIME_OPERATOR";
-    /** Opening and submitting an anchoring batch on devnet (KAN-394) is an admin/cron action, not an operator's. */
+    /** Opening and submitting an anchoring batch on devnet is an admin/cron action, not an operator's. */
     public static final String AUTHORITY_ANCHOR_ADMIN = "RUNTIME_ADMIN";
 
     @Bean
@@ -54,7 +54,7 @@ public class CryptobotSecurityConfig {
                                         .permitAll()
                                         .pathMatchers(HttpMethod.GET, "/actuator/prometheus")
                                         .permitAll()
-                                        // Build identity (KAN-199). Internal-network readable like the
+                                        // Build identity. Internal-network readable like the
                                         // other scrape endpoints; nginx keeps /actuator/info blocked
                                         // externally (LIFE-OPS-02 §2.2). Only /actuator/info is opened —
                                         // /actuator/metrics and the rest stay denied. Carries no secrets.
@@ -68,16 +68,16 @@ public class CryptobotSecurityConfig {
                                         .hasAuthority(AUTHORITY_MARKET_REVIEW)
                                         .pathMatchers(HttpMethod.POST, "/api/cryptobot/anchors")
                                         .hasAuthority(AUTHORITY_ANCHOR_ADMIN)
-                                        // KAN-571 / KAN-501: the global DLQ and its resolution are an admin's, not an operator's.
-                                        // KAN-822: an immediate reward moves devnet funds (the controller checks it too).
+                                        // the global DLQ and its resolution are an admin's, not an operator's.
+                                        // an immediate reward moves devnet funds (the controller checks it too).
                                         .pathMatchers(HttpMethod.POST, "/api/cryptobot/value-events/*/distribute")
                                         .hasAuthority(AUTHORITY_ANCHOR_ADMIN)
-                                        // KAN-824: a revenue event pays its contributor pool (devnet funds) too.
+                                        // a revenue event pays its contributor pool (devnet funds) too.
                                         .pathMatchers(HttpMethod.POST, "/api/cryptobot/revenue-events")
                                         .hasAuthority(AUTHORITY_ANCHOR_ADMIN)
                                         .pathMatchers("/api/cryptobot/dead-letters/**")
                                         .hasAuthority(AUTHORITY_ANCHOR_ADMIN)
-                                        // KAN-571: fault injection exists only in the demo stack (cryptobot.chaos.enabled); admin there too.
+                                        // fault injection exists only in the demo stack (cryptobot.chaos.enabled); admin there too.
                                         .pathMatchers("/api/cryptobot/demo/**")
                                         .hasAuthority(AUTHORITY_ANCHOR_ADMIN)
                                         .pathMatchers("/api/cryptobot/**")

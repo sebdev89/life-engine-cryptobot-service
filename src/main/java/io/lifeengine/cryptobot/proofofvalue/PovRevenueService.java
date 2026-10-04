@@ -39,7 +39,7 @@ import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
 /**
- * Proof of Value V7 (KAN-824): a RevenueEvent — an economic result attributed to ANCHORED ValueEvents and split with the fixed
+ * Proof of Value V7: a RevenueEvent — an economic result attributed to ANCHORED ValueEvents and split with the fixed
  * policy {@code pov/revenue-share/v1}.
  *
  * <pre>

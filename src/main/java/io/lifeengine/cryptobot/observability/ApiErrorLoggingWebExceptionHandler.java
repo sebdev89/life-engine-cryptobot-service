@@ -12,7 +12,7 @@ import reactor.core.publisher.Mono;
 /**
  * Deja UNA línea estructurada por cada excepción que llega al borde HTTP sin pasar por
  * {@code ControlPlaneExceptionHandler} (404 de ruta, validación, 500 no manejado), y no toca la respuesta:
- * devuelve el error tal cual para que lo resuelva el handler de siempre. Sólo observa (KAN-426).
+ * devuelve el error tal cual para que lo resuelva el handler de siempre. Sólo observa.
  *
  * <p>Un 5xx sale como ERROR con stack; un 4xx como WARN sin stack: el cliente se equivocó, no el
  * servicio.

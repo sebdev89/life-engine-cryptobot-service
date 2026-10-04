@@ -1,4 +1,4 @@
-# KAN-500 — profile of the in-process E2E of the whole chain (ChainE2EIT, `./mvnw -Pe2e-chain verify`).
+# profile of the in-process E2E of the whole chain (ChainE2EIT, `./mvnw -Pe2e-chain verify`).
 #
 # Unlike `test`, nothing is excluded: R2DBC + Flyway run against a real Postgres (Testcontainers, or
 # CRYPTOBOT_IT_PG_* when set), the R2DBC stores are the real beans (@Profile("!test")), the signer
@@ -34,7 +34,7 @@ cryptobot:
   solana:
     rpc:
       timeout: 5s
-  # KAN-439: no network from this profile either — the test turns pyth + coingecko back on (quorum 2)
+  # no network from this profile either — the test turns pyth + coingecko back on (quorum 2)
   # against its own fake feed (both agreeing on SOL $100 / USDC $1), the same pattern ControlPlaneFlowTest
   # uses. Without this, the real Pyth/CoinGecko/Coinbase endpoints answer with the live price and
   # `lamports` (asserted against a fixed value) drifts with the market.

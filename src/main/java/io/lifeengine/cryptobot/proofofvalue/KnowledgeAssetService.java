@@ -21,7 +21,7 @@ import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
 /**
- * Proof of Value V3 (KAN-820): the registry of knowledge assets — create (idempotent by id), list, get, each with
+ * Proof of Value V3: the registry of knowledge assets — create (idempotent by id), list, get, each with
  * {@code usedIn}: the accepted ValueEvents that declared the asset. The creator must be a registered identity and the
  * parents registered assets of the same tenant (422 otherwise). The content itself never reaches the service: only its
  * {@code sha256}.

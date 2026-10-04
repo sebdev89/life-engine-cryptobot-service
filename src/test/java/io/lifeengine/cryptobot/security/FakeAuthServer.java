@@ -10,7 +10,7 @@ import okhttp3.mockwebserver.MockWebServer;
 import okhttp3.mockwebserver.RecordedRequest;
 
 /**
- * Un Auth falso que sólo sabe emitir tokens S2S (KAN-69), para los tests que arrancan el contexto
+ * Un Auth falso que sólo sabe emitir tokens S2S, para los tests que arrancan el contexto
  * completo y necesitan que CryptoBot consiga un token antes de hablar con Runtime.
  *
  * <p>Responde {@code POST /api/auth/internal/service-token} con el contrato real

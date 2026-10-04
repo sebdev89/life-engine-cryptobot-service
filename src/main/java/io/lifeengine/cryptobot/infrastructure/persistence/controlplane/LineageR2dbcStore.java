@@ -13,7 +13,7 @@ import org.springframework.stereotype.Component;
 import reactor.core.publisher.Flux;
 
 /**
- * {@link LineageRepository} over Postgres (KAN-393): one bounded {@code WITH RECURSIVE} per
+ * {@link LineageRepository} over Postgres: one bounded {@code WITH RECURSIVE} per
  * direction. The recursion is anchored on the roots <em>filtered by tenant</em> and every step
  * joins the reached receipt on the same tenant, so a walk cannot cross a tenant boundary even if
  * an edge somehow did. {@code UNION} (not {@code UNION ALL}) plus the depth guard bounds the work

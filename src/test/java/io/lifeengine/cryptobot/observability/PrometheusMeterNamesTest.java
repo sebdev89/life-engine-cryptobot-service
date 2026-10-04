@@ -23,8 +23,8 @@ import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.web.reactive.server.WebTestClient;
 
 /**
- * Los nombres y los label sets que salen por {@code /actuator/prometheus} (KAN-573, como en Runtime
- * KAN-489): ningún {@code _total_total}, las series del funnel y de HK-3 existen desde el arranque
+ * Los nombres y los label sets que salen por {@code /actuator/prometheus} (como en Runtime
+ * an internal ticket): ningún {@code _total_total}, las series del funnel y de HK-3 existen desde el arranque
  * con los common tags de la identidad del build, y ningún nombre se registra con dos conjuntos de
  * labels distintos (Prometheus exige un solo label set por nombre; Micrometer descarta el segundo
  * en silencio y el panel queda en "No data").
@@ -54,14 +54,14 @@ class PrometheusMeterNamesTest {
             "dlq_size",
             "reconciliation_mismatch_total",
             "duplicate_trade_suppressed_total",
-            // KAN-582: the 409 by reason and the per-stage histograms
+            // the 409 by reason and the per-stage histograms
             "cryptobot_execution_refused_total",
             "cryptobot_stage_latency_seconds_bucket",
             "cryptobot_stage_latency_seconds_count",
             "cryptobot_stage_latency_seconds_sum");
 
     /**
-     * KAN-595 (TAE phase 1, audit §21 item 4, §13): the full 27-series set the two dashboards
+     * (TAE phase 1, audit §21 item 4, §13): the full 27-series set the two dashboards
      * ({@code life-engine-cryptobot-demo.json}, {@code -negocio.json}) and the 3 alert rules query,
      * per {@code CryptobotMetrics}'s own naming table — the audit's list, verbatim. A subset of
      * {@link #DEMO_SERIES} above (which this list also repeats) plus the market/risk/strategy funnel,
@@ -146,7 +146,7 @@ class PrometheusMeterNamesTest {
     }
 
     @Test
-    @DisplayName("KAN-582: cada reason del 409 existe en 0 y cada etapa del demo path expone un histograma con sus buckets")
+    @DisplayName("cada reason del 409 existe en 0 y cada etapa del demo path expone un histograma con sus buckets")
     void refusalReasonsAndStageHistogramsAreScraped() {
         metrics.executionRefused(CryptobotMetrics.RefusalReason.MAINNET);
         metrics.stageLatency(CryptobotMetrics.Stage.CONFIRM, java.time.Duration.ofSeconds(12));
@@ -177,7 +177,7 @@ class PrometheusMeterNamesTest {
     }
 
     @Test
-    @DisplayName("KAN-595: las 27 series de los dos dashboards (demo + negocio) y las 3 alertas existen en el scrape")
+    @DisplayName("las 27 series de los dos dashboards (demo + negocio) y las 3 alertas existen en el scrape")
     void dashboardSeriesAreScraped() {
         // A few series are only registered on first use (not in CryptobotMetrics#registerPlaceholders):
         // trigger them once so this test proves they exist under the names the dashboards query,
@@ -203,7 +203,7 @@ class PrometheusMeterNamesTest {
                 .toList();
         assertThat(names)
                 .as("las 27 series que life-engine-cryptobot-demo.json, -negocio.json y las 3 alertas consultan"
-                        + " (audit TAE §13) siguen existiendo bajo el mismo nombre tras el movimiento de paquetes de KAN-595")
+                        + " (audit TAE §13) siguen existiendo bajo el mismo nombre tras el movimiento de paquetes de an internal ticket")
                 .contains(DASHBOARD_SERIES.toArray(String[]::new));
     }
 

@@ -5,7 +5,7 @@ The only CryptoBot process that holds a private key. It is deliberately dumb:
 - **Input:** an unsigned legacy Solana transaction (base64) + the proposal id.
 - **Checks, from the bytes themselves:** one signer and it is us · one instruction and it is
   `SystemProgram.transfer` · from us · to an allow-listed destination · lamports ≤ cap.
-- **And, since KAN-438 (paper §20, level 5):** an **attestation** from `cryptobot-validator` —
+- **And (paper §20, level 5):** an **attestation** from `cryptobot-validator` —
   the validator's canonical-JSON payload and its Ed25519 signature. The signer verifies the
   signature with the pinned `SIGNER_VALIDATOR_PUBLIC_KEY`, that `proposal_id` is this proposal,
   that `message_hash` is SHA-256 of the message bytes it just decoded, that `decision` is ALLOW
@@ -31,16 +31,16 @@ mvn -f signer/pom.xml spring-boot:run                            # :8096
 attestation: {payload, signature}}`. `SIGNER_ENABLED=false` is the emergency stop on this side;
 `CRYPTOBOT_EXECUTION_ENABLED=false` is the one on the service side; `VALIDATOR_ENABLED=false` the
 one on the validator's. Any one alone is enough. `SIGNER_REQUIRE_ATTESTATION=false` restores the
-pre-KAN-438 behaviour and is for tests and empty demo wallets only — since KAN-493 it is accepted
+pre-change behaviour and is for tests and empty demo wallets only — it is accepted
 only under the Spring profile `local` or `test`; any other profile refuses to start.
 
-Mainnet is fail-closed here too (KAN-493): `cluster` is required in the sign request, must be the
+Mainnet is fail-closed here too: `cluster` is required in the sign request, must be the
 cluster this signer is configured for (`SIGNER_CLUSTER`), and `mainnet-beta` is refused with
 `403 mainnet_disabled` unless `SIGNER_ALLOW_MAINNET=true` (default `false`) — whatever the
 attestation says. The attestation must carry the same `cluster` (`attestation_cluster_mismatch`
 otherwise). Independent of the service's `CRYPTOBOT_ALLOW_MAINNET`.
 
-`sign-anchor` (KAN-394) is the only non-transfer this signer signs: a transaction whose single
+`sign-anchor` is the only non-transfer this signer signs: a transaction whose single
 instruction is an SPL Memo with **no accounts** and whose text is exactly
 `ir/1 root=<sha256> n=<count> ts=<…>` for the `root`/`receiptCount` the caller claims — the
 signer re-derives it from the bytes, never from the request. Refused on any cluster but devnet

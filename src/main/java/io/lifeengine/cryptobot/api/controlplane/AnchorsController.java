@@ -15,7 +15,7 @@ import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
 /**
- * Anchoring batches (KAN-394, Endgame §11 / §15). A batch is not tenant data — it is a root, a
+ * Anchoring batches (Endgame §11 / §15). A batch is not tenant data — it is a root, a
  * memo and a transaction — so listing and verifying one is open to any operator; the receipts
  * of a batch a caller sees are only the caller's own. {@code POST /anchors} (open + submit a
  * batch) is an admin action, gated in {@code CryptobotSecurityConfig}.

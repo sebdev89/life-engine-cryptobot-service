@@ -5,7 +5,7 @@ import java.util.List;
 import java.util.UUID;
 
 /**
- * KAN-824 (V7): an economic result attributed to ANCHORED ValueEvents ({@code pov_revenue_event} + {@code pov_revenue_link} +
+ * (V7): an economic result attributed to ANCHORED ValueEvents ({@code pov_revenue_event} + {@code pov_revenue_link} +
  * its {@code pov_payout} rows, V15). {@code contributorPoolLamports + protocolFeeLamports + retainedLamports = amountLamports}
  * always: the pool is what the contributions were allocated (floor), the fee is only recorded, the rest is retained.
  * {@code receiptHash} is the REVENUE_EVENT receipt, {@code null} until every payout left PENDING.

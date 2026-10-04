@@ -31,7 +31,7 @@ import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.reactive.server.WebTestClient;
 
 /**
- * KAN-393 over HTTP, with the same fake Solana RPC and fake Runtime as {@link ControlPlaneFlowTest}:
+ * over HTTP, with the same fake Solana RPC and fake Runtime as {@link ControlPlaneFlowTest}:
  * a proposal created <em>without</em> naming the advisor run reuses the fresh analysis of the same
  * asset ({@code REUSES}), and the lineage API returns the DAG the UI draws — nodes with hash,
  * producer, compute, level and anchor; typed edges; summary — owner-scoped and depth-bounded.
@@ -140,7 +140,7 @@ class LineageFlowTest {
         assertThat(reusedBy.get(0).path("node").path("kind").asText()).isEqualTo("STRATEGY");
         assertThat(reusedBy.get(0).path("node").path("receiptHash").asText()).isEqualTo(strategyHash);
 
-        // 3. The DAG of the proposal: its 4 receipts at depth 0 (KAN-572 adds the policy's Decision Receipt, a RISK_DECISION that
+        // 3. The DAG of the proposal: its 4 receipts at depth 0 (internal ticket adds the policy's Decision Receipt, a RISK_DECISION that
         // VALIDATES the strategy and derives from the simulation), the 4 they came from above; typed edges; honest summary.
         JsonNode graph = get("/api/cryptobot/proposals/" + proposalId + "/lineage", token);
         assertThat(graph.path("direction").asText()).isEqualTo("ANCESTORS");
@@ -198,7 +198,7 @@ class LineageFlowTest {
         JsonNode parents = get("/api/cryptobot/receipts/" + strategyHash + "/parents", token);
         assertThat(parents).hasSize(2);
         JsonNode children = get("/api/cryptobot/receipts/" + strategyHash + "/children", token);
-        assertThat(children).hasSize(3); // risk-after, simulation, the Decision Receipt (KAN-572)
+        assertThat(children).hasSize(3); // risk-after, simulation, the Decision Receipt
         List<String> childRoles = new ArrayList<>();
         children.forEach(c -> childRoles.add(c.path("role").asText()));
         assertThat(childRoles).containsExactlyInAnyOrder("VALIDATES", "DERIVES_FROM", "VALIDATES");

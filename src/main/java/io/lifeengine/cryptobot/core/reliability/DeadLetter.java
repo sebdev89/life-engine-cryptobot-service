@@ -10,7 +10,7 @@ import java.util.UUID;
  * discarded; a human resolves it. {@code dlq_size} / {@code cryptobot_dead_letter_open} count the
  * unresolved rows.
  *
- * <p>KAN-571 / KAN-501: resolution is recorded on the row — {@code resolvedAt}, who
+ * <p>an internal ticket: resolution is recorded on the row — {@code resolvedAt}, who
  * ({@code resolvedBy}), the note ({@code resolution}) and what was done ({@link Outcome}: closed by
  * hand, or requeued so the system tries again). A resolved letter is never resolved twice.
  */
@@ -41,7 +41,7 @@ public record DeadLetter(
         REQUEUED
     }
 
-    /** Pre-KAN-571 shape. */
+    /** Legacy shape. */
     public DeadLetter(UUID id, Source source, UUID refId, UUID proposalId, UUID ownerUserId, String reason, Map<String, Object> payload, Instant createdAt, Instant resolvedAt) {
         this(id, source, refId, proposalId, ownerUserId, reason, payload, createdAt, resolvedAt, null, null, null);
     }

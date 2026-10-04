@@ -11,7 +11,7 @@ import java.time.Instant;
  * {@code sendTransaction}: a crash anywhere after signing leaves a row reconciliation can look up.
  * {@code recentBlockhash}/{@code lastValidBlockHeight} are the ones the signed bytes carry; past
  * that height the chain can no longer include the transaction, which is what lets reconciliation
- * declare a never-seen signature dead — and, since KAN-571, retry it <em>idempotently</em>: same
+ * declare a never-seen signature dead — and, since an earlier change, retry it <em>idempotently</em>: same
  * {@code operationId}, fresh blockhash, new signature. {@code retries} counts those retries (0 on
  * the first attempt; absent in older documents ⇒ 0) and {@code previousSignature} keeps the last
  * signature that was superseded, so the trail never loses a signature that might have been seen.
@@ -32,7 +32,7 @@ public record ExecutionRecord(
         int retries,
         String previousSignature) {
 
-    /** Pre-KAN-571 shape: first attempt, no superseded signature. */
+    /** Legacy shape: first attempt, no superseded signature. */
     public ExecutionRecord(String status, String signature, String explorerUrl, String signerPublicKey, Instant submittedAt, Instant confirmedAt,
             String confirmationStatus, String error, String recentBlockhash, Long lastValidBlockHeight, int reconciliationAttempts, Instant reconciledAt) {
         this(status, signature, explorerUrl, signerPublicKey, submittedAt, confirmedAt, confirmationStatus, error, recentBlockhash, lastValidBlockHeight,
@@ -66,7 +66,7 @@ public record ExecutionRecord(
     }
 
     /**
-     * KAN-571: a retry supersedes this record. The new record is {@code SIGNED} with the fresh
+     * a retry supersedes this record. The new record is {@code SIGNED} with the fresh
      * signature/blockhash, {@code retries + 1}, this signature as {@code previousSignature}, and the
      * reconciliation counter back to 0 — the chain is asked again about the new signature.
      */

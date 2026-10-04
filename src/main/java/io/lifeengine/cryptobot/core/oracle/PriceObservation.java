@@ -6,7 +6,7 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 
 /**
- * One price, from one independent source, for one asset, observed at one instant (KAN-439, paper
+ * One price, from one independent source, for one asset, observed at one instant (paper
  * §22). {@code asset} is the symbol the policy speaks ({@code SOL}), {@code mint} the mainnet mint
  * the source was asked about. {@code observedAt} is the source's own publish time when it has one
  * (Pyth) and the fetch time otherwise (Jupiter, CoinGecko) — the consensus treats both as the

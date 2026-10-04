@@ -32,7 +32,7 @@ import org.testcontainers.utility.DockerImageName;
 import reactor.core.publisher.Mono;
 
 /**
- * KAN-604 (Gap G7, audit §15/§17, mandate §29): {@link OutboxEventR2dbcStore#processDue} against a
+ * (Gap G7, audit §15/§17, mandate §29): {@link OutboxEventR2dbcStore#processDue} against a
  * real Postgres, with two workers pulling concurrently — the scenario {@code SELECT … FOR UPDATE
  * SKIP LOCKED} exists for and the in-memory replica cannot reproduce (it has no row locks).
  *
@@ -83,12 +83,12 @@ class OutboxEventR2dbcStoreIT {
     }
 
     /**
-     * KAN-604 — two real, concurrently open workers. Worker1 is a plain JDBC connection that runs
+     * two real, concurrently open workers. Worker1 is a plain JDBC connection that runs
      * the exact same {@code SELECT … FOR UPDATE SKIP LOCKED} and deliberately never commits (it is
      * "still processing", the state a crashed worker would leave behind); worker2 is the real
      * {@link OutboxEventR2dbcStore#processDue}, running concurrently while worker1's transaction is
      * still open. The lock-hold is a real, uncommitted Postgres transaction — not a sleep timed
-     * against a reactive scheduler — so the overlap is deterministic instead of racy in CI (KAN-296).
+     * against a reactive scheduler — so the overlap is deterministic instead of racy in CI.
      */
     @Test
     @DisplayName("SKIP LOCKED, 2 concurrent workers: while worker1 still holds half the rows (uncommitted), worker2 only ever gets the other half — no id delivered twice")

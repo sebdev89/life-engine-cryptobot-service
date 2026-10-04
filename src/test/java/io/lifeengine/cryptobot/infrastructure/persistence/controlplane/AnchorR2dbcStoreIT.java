@@ -34,7 +34,7 @@ import org.springframework.r2dbc.core.DatabaseClient;
 import org.springframework.transaction.reactive.TransactionalOperator;
 
 /**
- * {@link AnchorR2dbcStore} against a real Postgres (KAN-394): {@code V8} applies on top of the
+ * {@link AnchorR2dbcStore} against a real Postgres: {@code V8} applies on top of the
  * receipts schema, and the store keeps the contract the in-memory one promises — a root is
  * inserted once with its members, unanchored excludes what a live batch covers, stamping writes
  * the anchor columns of every member (with the proof round-tripping through JSONB) and only

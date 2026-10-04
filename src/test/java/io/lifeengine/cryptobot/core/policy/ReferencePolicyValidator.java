@@ -15,7 +15,7 @@ import java.util.Map;
  * "independent validation"; §29, "every conforming validator must return the same decision").
  * One boolean per predicate, hand-inlined, none of the engine's helpers, no shared code beyond
  * the value types. {@code PolicyDeterminismTest} compares it with the engine over a seeded
- * corpus; the adversarial benchmark (KAN-440) uses it as the offline validator that must agree
+ * corpus; the adversarial benchmark uses it as the offline validator that must agree
  * with the engine on the verdict hash of every one of the 10 000 intents before anything executes.
  */
 public final class ReferencePolicyValidator {

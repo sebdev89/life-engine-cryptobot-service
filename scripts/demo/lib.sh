@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Shared helpers of the demo scripts (KAN-570). Sourced, never executed.
+# Shared helpers of the demo scripts. Sourced, never executed.
 #
 # Rules: the wallet key, the validator key and the tokens are SECRETS. They live in
 # $CRYPTOBOT_DEMO_HOME (0700) and in .env.demo (gitignored). These helpers print public keys
@@ -14,7 +14,7 @@ fail() { printf '\033[1;31m[demo]\033[0m %s\n' "$*" >&2; exit 1; }
 
 need() { command -v "$1" >/dev/null 2>&1 || fail "missing tool: $1"; }
 
-# ---- HTTP against the service (KAN-575: shared by e2e-devnet.sh and run.sh) --------------------
+# ---- HTTP against the service (shared by e2e-devnet.sh and run.sh) --------------------
 # Globals the caller sets: BASE (service URL), TOKEN (bearer, never printed), CURL_OPTS (array,
 # extra curl arguments, e.g. --resolve for a UAT host without public DNS).
 # api <method> <path> [json-body] [extra curl args...]  → body, newline, HTTP status
@@ -129,7 +129,7 @@ PY
 # DefaultPolicyHashParityTest (service) and PolicyStoreTest (validator). If you override any
 # CRYPTOBOT_POLICY_* / VALIDATOR_POLICY_* value, re-pin VALIDATOR_POLICY_HASH from the hash the
 # service logs (proposal_policy … policyHash=) — or leave it empty to run unpinned (WARN).
-# default_policy_hash [strategies]: a comma list (default REBALANCE). KAN-822: the demo runs with REBALANCE,POV_REWARD
+# default_policy_hash [strategies]: a comma list (default REBALANCE). an internal ticket: the demo runs with REBALANCE,POV_REWARD
 # (Proof of Value payouts) — pinned by DefaultPolicyHashParityTest.demoPolicyWithPovRewardIsSortedAndStable.
 default_policy_hash() {
   python3 - "${1:-REBALANCE}" <<'PY'
@@ -144,7 +144,7 @@ print("sha256:" + hashlib.sha256(canonical.encode()).hexdigest())
 PY
 }
 
-# KAN-822: the Proof of Value identities of the demo that get a devnet wallet (~/.cryptobot-demo/pov-<id>.json) — sebas
+# the Proof of Value identities of the demo that get a devnet wallet (~/.cryptobot-demo/pov-<id>.json) — sebas
 # (HUMAN) too, so the payment to the human shows. wallet-devnet.sh generates them BEFORE writing .env.demo and adds their
 # PUBLIC keys to SIGNER_ALLOWED_DESTINATIONS; pov-v1.sh registers them.
 # shellcheck disable=SC2034  # read by wallet-devnet.sh and pov-v1.sh
@@ -154,7 +154,7 @@ POV_WALLET_IDS=(sebas dev-agent-17 cryptobot-001 review-agent-3 compute-node-8)
 DEMO_POLICY_STRATEGIES="REBALANCE,POV_REWARD"
 
 
-# ---- Proof of Value (KAN-818…KAN-826): shared by pov-v1.sh and pov-e2e.sh ------------------------
+# ---- Proof of Value (internal ticket…an internal ticket): shared by pov-v1.sh and pov-e2e.sh ------------------------
 # They use api / split_status (BASE, TOKEN, CURL_OPTS set by the caller) and set RESP / STATUS / BODY.
 
 # pov_identity_body <id> <wallet>: the POST /identities body of a seed identity.
@@ -264,7 +264,7 @@ for e in t["recentEvents"][:8]:
     print("  %-8s %-37s %12s  %s  %s" % (e["kind"], e["id"], e["lamports"], e["at"], e.get("txSignature") or ""))'
 }
 
-# ---- secrets check (KAN-575; shared by run.sh and pov-e2e.sh since KAN-826) --------------------------
+# ---- secrets check (shared by run.sh and pov-e2e.sh since an earlier change) --------------------------
 # secrets_scan <env-file> <file>...: every SECRET value of the env file must be absent from the files. Only keys named like a
 # secret count (JWT_SECRET, *_TOKEN, *_PASSWORD, *_SIGNING_KEY, *_SALT_SECRET) — public values (wallet addresses, the policy
 # hash, CRYPTOBOT_DB_USER) are never searched, and values under 12 characters neither (a short value false-positives on hashes).

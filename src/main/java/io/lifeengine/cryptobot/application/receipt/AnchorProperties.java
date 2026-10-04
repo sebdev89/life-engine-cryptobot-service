@@ -5,7 +5,7 @@ import java.time.Duration;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
 /**
- * {@code cryptobot.anchor.*} (KAN-394, Endgame §11).
+ * {@code cryptobot.anchor.*} (Endgame §11).
  *
  * <ul>
  *   <li>{@code enabled} — the background job (startup + every {@code interval}). The service

@@ -1,6 +1,9 @@
-# Proof of Value V1 (KAN-818), V2–V4 + V6 (KAN-819), V5 immediate reward (KAN-822), V7 revenue (KAN-824), V8 treasury (KAN-825) and V9 end-to-end (KAN-826)
+# Proof of Value — Verifiable Value Creation on Solana: protocol and API reference
 
-Life Engine records an **accepted** contribution as a `ValueEvent`, anchors it on Solana devnet and
+Covers V1 (value events), V2–V4 + V6 (attribution primitives), V5 (immediate reward), V7 (revenue), V8 (treasury) and
+V9 (end-to-end). CryptoBot is the first real case that proves the protocol.
+
+Proof of Value records an **accepted** contribution as a `ValueEvent`, anchors it on Solana devnet and
 correlates the on-chain hash with the off-chain evidence. No new service, no signer change: a
 ValueEvent is one more Decision Receipt (`ReceiptKind.VALUE_EVENT`, Flyway `V12__pov_value_event.sql`).
 
@@ -40,7 +43,7 @@ Roles: all under the catch-all `RUNTIME_OPERATOR` of `CryptobotSecurityConfig`, 
 | GET | `/value-events/{id}/proof` | the `/receipts/{hash}/verify` checks (unwrapped) + `anchor` (Merkle inclusion) + `receiptHash`, `root`, `txSignature`, `slot`, `explorerUrl`, `valueEventHashValid`, `verified` |
 
 ```json
-{"projectId":"cryptobot","taskId":"KAN-818","title":"Improve CryptoBot opportunity detection",
+{"projectId":"cryptobot","taskId":"TASK-042","title":"Improve CryptoBot opportunity detection",
  "artifact":{"commitSha":"<sha>","prUrl":"https://github.com/…/pull/N","imageDigest":"sha256:…"},
  "acceptance":{"source":"release-truth","environment":"uat-k8s",
    "stages":{"MERGED":true,"BUILT":true,"DEPLOYED":true,"RUNNING":true,"ACCEPTED":true},
@@ -57,7 +60,7 @@ KNOWLEDGE_PROVIDER, COMPUTE_PROVIDER, OPERATOR, CAPITAL_PROVIDER`. `explorerUrl`
 
 Metrics: `pov_value_events_total{status=recorded|anchored|rejected}`, `pov_identities_total`.
 
-## V2–V4 + V6 — attribution primitives (KAN-819: KAN-820, KAN-821, KAN-823)
+## V2–V4 + V6 — attribution primitives
 
 Flyway `V13__pov_attribution.sql`. Nothing new goes on-chain: knowledge assets and compute receipts are part of the
 event's canonical JSON, so the `VALUE_EVENT` receipt's `output.hash` — and the Merkle root in the `ir/1` memo — cover
@@ -89,7 +92,7 @@ and, on each contribution, `derivedFrom` (`null` unless the service added it). T
 
 Metrics: `pov_knowledge_assets_total`, `pov_compute_receipts_total`.
 
-## Immediate reward (V5, KAN-822)
+## Immediate reward (V5)
 
 An **ANCHORED** ValueEvent can pay its contributors right away, in **devnet SOL** (devnet SOL stands in for stablecoin
 settlement in this demo; no SPL/USDC — that would widen the signer's surface).
@@ -145,14 +148,14 @@ its containers are recreated — **never `down`**:
 ```bash
 scripts/demo/wallet-devnet.sh --no-airdrop                     # regenerates .env.demo, keeps every existing key and token
 docker compose -p <project> -f docker-compose.demo.yml --env-file .env.demo up -d --no-deps cryptobot-signer
-# only if CRYPTOBOT_POLICY_ENABLED_STRATEGIES / VALIDATOR_POLICY_HASH changed (first time after KAN-822):
+# only if CRYPTOBOT_POLICY_ENABLED_STRATEGIES / VALIDATOR_POLICY_HASH changed (first time after enabling POV_REWARD):
 docker compose -p <project> -f docker-compose.demo.yml --env-file .env.demo up -d --no-deps cryptobot-validator cryptobot-service
 ```
 
 `scripts/demo/pov-v1.sh` ends with step 6: `distribute?anchor=true`, the payouts with tx and explorer link, and each wallet's
 balance before/after (RPC `getBalance`). `--no-distribute` skips it.
 
-## Revenue (V7, KAN-824)
+## Revenue (V7)
 
 A **RevenueEvent** records an economic result and attributes it to one or more **ANCHORED** ValueEvents. In the demo the amount is
 a **simulated economic result** (`simulated=true`, labelled so in every read, in the receipt and in the metrics) — never presented as
@@ -193,7 +196,7 @@ Request `{projectId, source:{kind: PROPOSAL|SIMULATED|EXTERNAL, ref}, amountLamp
   share_lamports)`, and `pov_payout` gains `revenue_event_id` (nullable; `CHECK` exactly one of `value_event_id` / `revenue_event_id`).
 - **Metrics** — `pov_revenue_events_total{source,simulated}`, `pov_revenue_lamports_total{source,simulated}`.
 
-## Treasury (V8, KAN-825)
+## Treasury (V8)
 
 `GET /treasury/{identityId}` (e.g. `cryptobot-001`) — a **read model**, nothing is moved:
 
@@ -232,19 +235,19 @@ scripts/demo/pov-v1.sh --dry-run               # prints the plan and the payload
 It seeds, idempotently, `sebas` (HUMAN), `dev-agent-17`, `cryptobot-001`, `review-agent-3` and `compute-node-8` (AGENT;
 each wallet is the public key of `~/.cryptobot-demo/pov-<id>.json`, generated once with `solana-keygen new
 --no-bip39-passphrase` or the same layout from python — the keypair never leaves the host), the assets
-`production-acceptance-model@1` (RULESET) and `strategy-knowledge@3` (STRATEGY), and posts the example event (taskId
-`KAN-819`, both assets, a compute receipt of `compute-node-8`, `commitSha = git rev-parse HEAD`, `acceptedAt` = the commit's
+`production-acceptance-model@1` (RULESET) and `strategy-knowledge@3` (STRATEGY), and posts the example event (a fixed
+example taskId, both assets, a compute receipt of `compute-node-8`, `commitSha = git rev-parse HEAD`, `acceptedAt` = the commit's
 date so the same commit is the same event; `--accepted-at` overrides it) with `?anchor=true`. It prints `receiptHash`, `root`,
 `txSignature`, `explorerUrl`, the units per contribution, knowledge and compute, the proof, the identities with their
 reputation and the ledger by identity. Exit 0 only when the event is ANCHORED and `verified` is true.
 
-Step 7 (KAN-824, `--no-revenue` skips it): `POST /revenue-events?anchor=true` with 0.05 devnet SOL, `simulated=true`, linked to the
+Step 7 (`--no-revenue` skips it): `POST /revenue-events?anchor=true` with 0.05 devnet SOL, `simulated=true`, linked to the
 event. The source is the EXECUTED proposal of the demo run (`--proposal <id>` or `POV_REVENUE_PROPOSAL_ID`, else the newest EXECUTED
 proposal of `GET /proposals`); without one — or if that proposal already has a revenue event for another content — `SIMULATED` with
 `ref = pov-v1:<commit>`. It prints the split, the payouts with tx and explorer link, the REVENUE_EVENT receipt and its anchor, and
 `GET /treasury/cryptobot-001`.
 
-## End-to-end demo: `scripts/demo/pov-e2e.sh` (V9, KAN-826)
+## End-to-end demo: `scripts/demo/pov-e2e.sh` (V9)
 
 One command walks the final demo against a running stack (devnet) and prints one block per step — `STEP n/9 — <title>` — with
 what the UI shows and the route that shows it, then a final **VALUE GENERATED / ATTRIBUTION** screen. It writes

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # shellcheck disable=SC2034  # TOKEN/BASE/CURL_OPTS are read by the helpers sourced from lib.sh
-# KAN-818 / KAN-819 / KAN-822 / KAN-824 — Proof of Value V1–V8 against a running stack: identities with wallet →
+# Proof of Value V1–V8 against a running stack: identities with wallet →
 # knowledge assets → an ACCEPTED contribution that used them, with its compute receipt → ValueEvent →
 # VALUE_EVENT receipt → Merkle batch → memo on Solana devnet → proof → reputation and units ledger →
 # immediate reward: devnet SOL paid to the contributors' wallets (one attested + signed transfer each) →
@@ -11,16 +11,16 @@
 #
 # Steps: 1 identities  sebas (HUMAN), dev-agent-17 (AGENT, owner sebas), cryptobot-001 (AGENT, owner+operator
 #                       sebas), review-agent-3 (AGENT), compute-node-8 (AGENT, owner sebas). Each wallet (sebas's
-#                       too, KAN-822) is a devnet keypair ~/.cryptobot-demo/pov-<id>.json, generated once by
+#                       too) is a devnet keypair ~/.cryptobot-demo/pov-<id>.json, generated once by
 #                       wallet-devnet.sh (or here: solana-keygen new --no-bip39-passphrase, or the same layout from
 #                       python) — ONLY the public key is sent. An identity stored without wallet gets it backfilled.
 #        2 knowledge    production-acceptance-model@1 (RULESET) and strategy-knowledge@3 (STRATEGY), creator sebas
-#        3 value event  "Improve CryptoBot opportunity detection", taskId KAN-819, commitSha = HEAD (or --commit),
+#        3 value event  "Improve CryptoBot opportunity detection", taskId TASK-DEMO, commitSha = HEAD (or --commit),
 #                       both assets, one compute receipt of compute-node-8, POST /value-events?anchor=true.
 #                       acceptedAt = the commit's date (or --accepted-at): the same commit is the same event.
 #        4 proof        GET /value-events/{id}/proof
 #        5 read models  GET /identities (reputation) and /units/ledger?groupBy=identity
-#        6 reward       KAN-822: POST /value-events/{id}/distribute?anchor=true (RUNTIME_ADMIN): the pool
+#        6 reward       an internal ticket: POST /value-events/{id}/distribute?anchor=true (RUNTIME_ADMIN): the pool
 #                       (POV_REWARD_POOL_LAMPORTS, default 0.01 devnet SOL) split by units, one transfer per wallet,
 #                       each attested by the validator and signed by the signer; payouts with tx + explorer link and
 #                       every wallet's balance before/after (RPC getBalance). The signer only pays wallets in
@@ -28,12 +28,12 @@
 #                         docker compose -p <project> -f docker-compose.demo.yml --env-file .env.demo up -d --no-deps cryptobot-signer
 #                       (and the service/validator the same way if CRYPTOBOT_POLICY_ENABLED_STRATEGIES changed). Never `down`.
 #                       --no-distribute skips it.
-#        7 revenue      KAN-824: POST /revenue-events?anchor=true (RUNTIME_ADMIN) — 0.05 devnet SOL, simulated=true (a simulated
+#        7 revenue      an internal ticket: POST /revenue-events?anchor=true (RUNTIME_ADMIN) — 0.05 devnet SOL, simulated=true (a simulated
 #                       economic result, never presented as profit), linked to the event. Source: the EXECUTED proposal of the
 #                       demo run (--proposal <id> / POV_REVENUE_PROPOSAL_ID, else the newest EXECUTED one of GET /proposals); if
 #                       there is none, SIMULATED with ref pov-v1:<commit>. pov/revenue-share/v1: 20 % contributor pool (paid
 #                       like step 6), 5 % protocol fee (recorded only), the rest retained. Then GET /treasury/cryptobot-001
-#                       (KAN-825: accounting view; payouts are signed from the demo wallet). --no-revenue skips it.
+#                       (accounting view; payouts are signed from the demo wallet). --no-revenue skips it.
 # Idempotent: identities, assets, the event, its distribution and the revenue event (one per source) are returned as stored
 # when they exist (200). Exit 0 only when the event is ANCHORED, the proof is verified and (unless --no-distribute /
 # --no-revenue) neither the distribution nor the revenue event is FAILED.
@@ -82,12 +82,12 @@ fi
 [[ "$ACCEPTED_AT" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$ ]] || fail "--accepted-at must be UTC ISO-8601 (YYYY-MM-DDTHH:MM:SSZ)"
 
 AGENTS=(dev-agent-17 cryptobot-001 review-agent-3 compute-node-8)
-# pov_identity_body / pov_assets_json / pov_seed_* / pov_print_* live in lib.sh (shared with pov-e2e.sh, KAN-826).
+# pov_identity_body / pov_assets_json / pov_seed_* pov_print_* live in lib.sh (shared with pov-e2e.sh).
 ASSETS_JSON="$(pov_assets_json)"
 EVENT="$(C="$COMMIT" T="$ACCEPTED_AT" python3 - <<'PY'
 import json, os
 print(json.dumps({
-  "projectId": "cryptobot", "taskId": "KAN-819", "title": "Improve CryptoBot opportunity detection",
+  "projectId": "cryptobot", "taskId": "TASK-DEMO", "title": "Improve CryptoBot opportunity detection",
   "artifact": {"commitSha": os.environ["C"], "prUrl": "https://github.com/sebdev89/life-engine-cryptobot-service"},
   "acceptance": {"source": "pov-v1.sh", "environment": "cryptobot-demo",
                  "stages": {"MERGED": True, "BUILT": True, "DEPLOYED": True, "RUNNING": True, "ACCEPTED": True},
@@ -199,7 +199,7 @@ if (( ! DISTRIBUTE && ! REVENUE )); then
 fi
 
 if (( DISTRIBUTE )); then
-step "6 immediate reward (KAN-822): devnet SOL to the contributors' wallets — devnet SOL stands in for stablecoin settlement"
+step "6 immediate reward: devnet SOL to the contributors' wallets — devnet SOL stands in for stablecoin settlement"
 RPC_URL="$(pov_rpc_url "$ENV_FILE")"
 declare -A BEFORE=()
 for id in sebas "${AGENTS[@]}"; do
@@ -234,7 +234,7 @@ if (( ! REVENUE )); then
   exit 0
 fi
 
-step "7 revenue (KAN-824): a SIMULATED economic result of ${REVENUE_LAMPORTS} lamports — not real profit; devnet SOL stands in for stablecoin settlement"
+step "7 revenue: a SIMULATED economic result of ${REVENUE_LAMPORTS} lamports — not real profit; devnet SOL stands in for stablecoin settlement"
 if [[ -z "$PROPOSAL_ID" ]]; then
   RESP="$(api GET '/api/cryptobot/proposals?limit=50')"; split_status
   if [[ "$STATUS" == 200 ]]; then

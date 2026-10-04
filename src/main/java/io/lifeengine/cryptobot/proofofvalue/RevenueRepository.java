@@ -4,7 +4,7 @@ import java.util.UUID;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
-/** KAN-824 (V7): revenue events, their links and their payouts. Everything is tenant-scoped; one revenue event per source. */
+/** (V7): revenue events, their links and their payouts. Everything is tenant-scoped; one revenue event per source. */
 public interface RevenueRepository {
 
     /** The event, its links and its payouts in one transaction; errors when the source was already recorded (unique source). */
@@ -19,7 +19,7 @@ public interface RevenueRepository {
     /** Newest first. */
     Flux<PovRevenueEvent> findRecent(String tenantId, int limit);
 
-    /** KAN-825: every revenue event earned by one treasury identity, newest first (with links and payouts). */
+    /** every revenue event earned by one treasury identity, newest first (with links and payouts). */
     Flux<PovRevenueEvent> findByTreasury(String tenantId, String identityId);
 
     /** Status, receipt hash and updated_at of the event. */

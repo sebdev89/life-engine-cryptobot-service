@@ -13,7 +13,7 @@ import java.util.Set;
 import org.springframework.stereotype.Component;
 
 /**
- * The validator's own series (KAN-582, HK-5b). cryptobot-service already counts what it
+ * The validator's own series (HK-5b). cryptobot-service already counts what it
  * <em>received</em> ({@code validator_attestations_total{result}} on its side); this is what the
  * validator <em>decided</em>, by the rule that decided it.
  *

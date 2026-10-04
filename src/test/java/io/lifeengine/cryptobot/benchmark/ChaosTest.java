@@ -48,8 +48,8 @@ class ChaosTest {
     @AfterAll
     void report() throws Exception {
         evidence.put("unexpected contract upgrade", Map.of("result", "N/A", "stage", "-",
-                "reason", "no on-chain program yet (KAN-437 pending): nothing to upgrade; the envelope has no contract dependency to fail on"));
-        BenchmarkReport.writeSection("cryptobot chaos scenarios (KAN-440, paper §30)", "chaos", evidence, "chaos-v1");
+                "reason", "no on-chain program yet (internal ticket pending): nothing to upgrade; the envelope has no contract dependency to fail on"));
+        BenchmarkReport.writeSection("cryptobot chaos scenarios (paper §30)", "chaos", evidence, "chaos-v1");
     }
 
     /** A $500 SELL of USDC by a permitted agent: ALLOW tier, executes on a healthy layer. */

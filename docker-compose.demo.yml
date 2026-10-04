@@ -1,10 +1,10 @@
-# KAN-570 — the CryptoBot demo stack, self-contained: its own Postgres, the independent validator,
+# the CryptoBot demo stack, self-contained: its own Postgres, the independent validator,
 # the isolated signer and the service, wired for REAL execution on Solana devnet.
 #
 #   scripts/demo/wallet-devnet.sh                                   # keys + .env.demo + airdrop (once)
 #   docker compose -f docker-compose.demo.yml --env-file .env.demo up -d --build
 #   scripts/demo/e2e-devnet.sh                                      # the flow by API + out/evidence-<ts>.md
-#   scripts/demo/e2e-devnet.sh --chaos rpc-down                     # KAN-571: injected failure → reconciliation → DLQ → requeue → retry
+#   scripts/demo/e2e-devnet.sh --chaos rpc-down                     # injected failure → reconciliation → DLQ → requeue → retry
 #
 # Plan B when devnet's faucet/RPC is not cooperating: the same stack against a local validator
 # (`--profile local-validator`, RPC http://solana-local:8899; unlimited airdrop). The pipeline is
@@ -14,7 +14,7 @@
 # own JWT_SECRET (the scripts mint the token); the LLM advisor (runtime PR #33) is optional and
 # not on the E2E path. Nothing here points at le-*/le-uat-*; the project name and network are
 # its own. Secrets come from .env.demo (gitignored) and the key files are mounted read-only.
-# CRYPTOBOT_DEMO_PROJECT (KAN-575): another project name = another set of containers, volumes and
+# CRYPTOBOT_DEMO_PROJECT: another project name = another set of containers, volumes and
 # network - how run.sh proves "from zero" without touching the stack of a previous rehearsal.
 name: ${CRYPTOBOT_DEMO_PROJECT:-cryptobot-demo}
 
@@ -33,7 +33,7 @@ services:
       retries: 20
     networks: [cryptobot-demo]
 
-  # KAN-438 (paper §20): a process that is not the agent. Own copy of R_v pinned by H_R, own
+  # (paper §20) a process that is not the agent. Own copy of R_v pinned by H_R, own
   # attestation key (moves nothing). No published port: only cryptobot-service reaches it.
   cryptobot-validator:
     build: ./validator
@@ -43,7 +43,7 @@ services:
       VALIDATOR_KEYPAIR_PATH: /run/secrets/validator-keypair
       VALIDATOR_TOKEN: ${VALIDATOR_TOKEN:?}
       VALIDATOR_POLICY_HASH: ${VALIDATOR_POLICY_HASH:-}
-      # KAN-822: the demo policy enables POV_REWARD (Proof of Value payouts) — the SAME list as the service below, or H_R differs.
+      # the demo policy enables POV_REWARD (Proof of Value payouts) — the SAME list as the service below, or H_R differs.
       VALIDATOR_POLICY_ENABLED_STRATEGIES: ${CRYPTOBOT_POLICY_ENABLED_STRATEGIES:-REBALANCE,POV_REWARD}
       VALIDATOR_ENABLED: "true"
     volumes:
@@ -125,12 +125,12 @@ services:
       CRYPTOBOT_VALIDATOR_ENABLED: "true"
       CRYPTOBOT_VALIDATOR_BASE_URL: http://cryptobot-validator:8097
       CRYPTOBOT_VALIDATOR_TOKEN: ${CRYPTOBOT_VALIDATOR_TOKEN:?}
-      # KAN-822 — Proof of Value V5, immediate reward: POST /value-events/{id}/distribute pays an ANCHORED event's pool in devnet
+      # Proof of Value V5, immediate reward: POST /value-events/{id}/distribute pays an ANCHORED event's pool in devnet
       # SOL to the contributors' wallets (only those in SIGNER_ALLOWED_DESTINATIONS). Same strategies as the validator above.
       CRYPTOBOT_POLICY_ENABLED_STRATEGIES: ${CRYPTOBOT_POLICY_ENABLED_STRATEGIES:-REBALANCE,POV_REWARD}
       POV_REWARD_ENABLED: ${POV_REWARD_ENABLED:-true}
       POV_REWARD_POOL_LAMPORTS: ${POV_REWARD_POOL_LAMPORTS:-10000000}
-      # KAN-795 — "perfil video": the waits of the demo, all overridable from .env.demo or the shell with
+      # "perfil video": the waits of the demo, all overridable from .env.demo or the shell with
       # the SAME names (run.sh / e2e-devnet.sh read them too, to know how long to wait). Defaults = the
       # rehearsed values. For the recording (measured 2026-09-29, see scripts/demo/README.md):
       #   CRYPTOBOT_TIMELOCK_ESCALATED=10s  CRYPTOBOT_POLICY_COOLDOWN=15s
@@ -142,18 +142,18 @@ services:
       # Per-wallet cooldown after an execution (rule COOLDOWN; application.yml default 60s).
       CRYPTOBOT_POLICY_COOLDOWN: ${CRYPTOBOT_POLICY_COOLDOWN:-60s}
       # Reconciliation runs for real (startup + periodic); demo knobs so recovery is visible in minutes, not hours:
-      # sweep every 10 s, a 20 s grace, 3 attempts without a verdict ⇒ dead letter, 2 idempotent retries (KAN-571).
+      # sweep every 10 s, a 20 s grace, 3 attempts without a verdict ⇒ dead letter, 2 idempotent retries.
       CRYPTOBOT_RECONCILIATION_ENABLED: "true"
       CRYPTOBOT_RECONCILIATION_INTERVAL: ${CRYPTOBOT_RECONCILIATION_INTERVAL:-10s}
       CRYPTOBOT_RECONCILIATION_GRACE: ${CRYPTOBOT_RECONCILIATION_GRACE:-20s}
       CRYPTOBOT_RECONCILIATION_MAX_ATTEMPTS: ${CRYPTOBOT_RECONCILIATION_MAX_ATTEMPTS:-3}
       CRYPTOBOT_RECONCILIATION_MAX_RETRIES: ${CRYPTOBOT_RECONCILIATION_MAX_RETRIES:-2}
       CRYPTOBOT_OUTBOX_ENABLED: "true"
-      # KAN-571 — fault injection, DEMO ONLY (never set in UAT/PROD): PUT /api/cryptobot/demo/chaos {"broadcast":"rpc-down"}.
+      # fault injection, DEMO ONLY (never set in UAT/PROD): PUT /api/cryptobot/demo/chaos {"broadcast":"rpc-down"}.
       # The service logs `chaos_enabled — DEMO ONLY` at startup. Nothing is armed until the script (or you) arms it.
       CRYPTOBOT_CHAOS_ENABLED: "true"
       CRYPTOBOT_CHAOS_BROADCAST: ${CRYPTOBOT_CHAOS_BROADCAST:-}
-      # KAN-572 — the adversarial price of act 2, DEMO ONLY: PUT /api/cryptobot/demo/price {"asset":"SOL","source":"pyth-hermes","factor":0.1}.
+      # the adversarial price of act 2, DEMO ONLY: PUT /api/cryptobot/demo/price {"asset":"SOL","source":"pyth-hermes","factor":0.1}.
       # Armed at startup only if you set it (e.g. SOL:pyth-hermes:factor=0.1); run.sh arms and disarms it itself.
       CRYPTOBOT_DEMO_PRICE_OVERRIDE: ${CRYPTOBOT_DEMO_PRICE_OVERRIDE:-}
       # Decision receipts signed with a stable key across restarts (generated into .env.demo).
@@ -170,7 +170,7 @@ services:
       - "host.docker.internal:host-gateway"
     networks: [cryptobot-demo]
 
-  # KAN-794 — the operator UI (repo cryptobot-ui, sibling of this one under active/cryptobot/): the same
+  # the operator UI (repo cryptobot-ui, sibling of this one under active/cryptobot/): the same
   # Angular build its Dockerfile makes (node → nginx), with config.js generated at start pointing the
   # BROWSER at the service's published port. Profile `ui`, not always-on, so run.sh and a checkout without
   # the UI repo behave exactly as before. Start everything with:
@@ -194,7 +194,7 @@ services:
       UI_AUTH_BASE: ${UI_AUTH_BASE:-http://localhost:8081}
       # devnet (explorer links resolve) or local (solana-test-validator, --profile local-validator).
       UI_DEMO_CLUSTER: ${UI_DEMO_CLUSTER:-devnet}
-      # KAN-797 — the wallet /demo uses without asking: the demo wallet the scripts already use (.env.demo).
+      # the wallet /demo uses without asking: the demo wallet the scripts already use (.env.demo).
       UI_DEMO_WALLET: ${DEMO_WALLET_ADDRESS}
     ports:
       - "127.0.0.1:${UI_PORT:-4204}:80"
@@ -205,7 +205,7 @@ services:
       retries: 20
     networks: [cryptobot-demo]
 
-  # Plan B (KAN-570 §risks): a local Solana validator with unlimited airdrop. Start with
+  # Plan B: a local Solana validator with unlimited airdrop. Start with
   #   docker compose -f docker-compose.demo.yml --env-file .env.demo --profile local-validator up -d
   # and CRYPTOBOT_SOLANA_DEVNET_RPC=http://solana-local:8899 in .env.demo (the scripts use the
   # published port 127.0.0.1:${SOLANA_LOCAL_PORT:-8999} from the host).

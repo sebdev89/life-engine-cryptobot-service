@@ -11,7 +11,7 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
 /**
- * Wires {@link CryptobotMetrics} on the application's {@link MeterRegistry} (KAN-425).
+ * Wires {@link CryptobotMetrics} on the application's {@link MeterRegistry}.
  *
  * <p>The {@code asset} label allow-list is the union of the policy's tradable assets, the monitoring
  * symbols and {@code cryptobot.metrics.assets} (comma-separated, optional). Anything else is

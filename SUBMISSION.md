@@ -1,56 +1,72 @@
-# CryptoBot — Trusted Agent Execution on Solana
+# CryptoBot — Proof of Value for Autonomous Agents
 
-CryptoBot is a reference implementation of Trusted Agent Execution on Solana. AI agents can already
-decide what financial actions to take. CryptoBot provides the layer that safely turns those decisions
-into real on-chain execution through policy controls, idempotency, isolated signing, reconciliation,
-failure recovery and verifiable proofs.
+Proof of Value records who created an accepted software outcome, anchors that record on Solana, and pays the
+contributors — humans, agents, knowledge and compute — from the value it creates. CryptoBot, a trusted-execution
+agent on Solana, is the first real case that proves the protocol.
+
+> **AI can create value. Proof of Value makes sure we remember who created it.**
 
 ## The problem
 
-An LLM should never hold a private key. An agent that signs and broadcasts on its own produces
-duplicate executions, dangerous retries after timeouts and partial failures, and no evidence of what
-actually happened. Deciding is the easy part; moving the money exactly once is not.
+Agents already write, ship and operate software. Commits and PRs say who typed something, not who created value: nothing
+records which humans, agents, knowledge and compute produced an outcome that was actually **accepted** in production, and
+nothing pays them from what it earns. And an agent that moves money on its own should never hold a private key.
 
-## What runs today (`main` @ `777672c`)
+## The story (what the demo shows)
 
-```
-Agent → Intent → Policy / Approval / Timelock → Trusted Execution → Solana devnet
-   (idempotency · outbox · DLQ · retry · isolated signer · reconciliation · signed receipt · Merkle proof)
-```
+1. **Real operation** — CryptoBot executes a real devnet operation through policy, approval, an independent validator and
+   an isolated signer; the agent never holds a key.
+2. **Accepted software** — a task is specified by a human and implemented by an agent; it only counts after five
+   measured stages: MERGED → BUILT → DEPLOYED → RUNNING → ACCEPTED.
+3. **Contribution attribution** — a ValueEvent names every contributor with its role, the knowledge assets used (by
+   content hash) and the compute consumed, and assigns 100 Contribution Units.
+4. **Value created** — the ValueEvent is a signed receipt whose Merkle root is anchored on Solana; anyone can verify it.
+5. **Revenue** — a RevenueEvent linked to the ValueEvents shares an economic result by historical units.
+6. **Contributors paid on Solana** — one devnet transfer per contributor wallet, each validated, signed and finalized.
 
-![Trusted Agent Execution — architecture](docs/architecture/trusted-agent-execution.svg)
+Then `/value` shows the verifiable receipts: each payout, anchor and proof links to a finalized devnet transaction.
 
-- Real transfers on Solana devnet, reported only once **finalized**.
-- Policy check, human approval and timelock before anything is signed.
-- Idempotency: one operation id from intent to chain; transactional outbox.
-- Dead-letter queue with requeue and idempotent retry; reconciliation against the chain.
-- Isolated signer process, gated by an independent validator — the agent never holds a key.
-- Signed, content-addressed receipts forming a DAG; a Merkle root anchored on devnet, with inclusion proofs.
-- End-to-end demo: **5/5 acts passed** against live devnet (`scripts/demo/run.sh`).
+## Distribution policy — public and fixed
 
-## The demo, in two scenes
+**20% contributor pool · 5% protocol fee · 75% retained treasury.** Predictable and auditable, not a black box:
+100 Contribution Units per accepted outcome, split equally per contribution (`pov/equal-split/v1`); the creator of each
+knowledge asset used is credited automatically as `KNOWLEDGE_PROVIDER`; rewards and revenue are paid pro rata by
+Contribution Units. No AI decides the shares.
 
-1. **Trusted execution:** intent → policy → approval → execute → finalized on Solana → reconciled → proof.
-2. **Failure and recovery:** RPC cut at broadcast → dead letter → retry → recovered — one transaction
-   on chain, no duplicate.
+## What is verified today (Solana devnet)
+
+V1–V9 are **ACCEPTED**: running on the devnet demo stack built from `main`, with finalized devnet transactions as evidence
+(V8, the treasury, is a read model over those payouts; full table and links in [`README.md`](README.md#what-is-real-today)). V9 — the end-to-end run — completed **9/9 steps with a
+real CryptoBot operation** on 2026-09-30, all finalized on devnet:
+
+- [ValueEvent anchor](https://explorer.solana.com/tx/51nco1gL2wxNPT2Mi8T4PMSMwgxpPjSbae7djBrGZoYjyyWuRY4uc33aknjD514ixBhgXEwB1f2224PnoWjQCmKY?cluster=devnet)
+- [CryptoBot operation](https://explorer.solana.com/tx/xYpJkKrPa96jLbpJHEe5kBtNUVSKeiBdrDPThg4J8UfW9uTE4w5sE846tR5umc7qK3vM2AMcJ5FkUHvP73pBARF?cluster=devnet)
+- [RevenueEvent anchor](https://explorer.solana.com/tx/Bcq8cqYbUndGkzi74DtrmuZXGpLV1KQPd98k6SDXSjzjbVDBbFcx5XdbYiXp5gkLj7RVVe3NL2ofqdDqHNDJpT3?cluster=devnet)
+
+The operation is real; the **revenue amount is a simulated economic result** (`simulated=true`), labelled as such
+everywhere it appears.
+
+Known gap: the OCI build label (`life-engine.commit`) of the image running in the UAT pod is still stale; the fix is an
+open pull request, scheduled after the submission. The image itself is identified by digest.
 
 ## What it is not yet
 
-No multi-tenant organizations, no public API or SDK, no SPL/USDC, no swaps: SOL transfers to an
-allow-listed vault only. The on-chain `intent-authority` program is written and tested, not deployed.
-Mainnet is closed by default. Not a trading bot: the decision can come from any agent or model.
+Devnet only — devnet SOL stands in for stablecoin settlement (no SPL/USDC yet). One signer, one validator, no multisig.
+The on-chain `intent-authority` program is written and tested, not deployed. Mainnet is closed by default. Contribution
+Units are an attribution primitive, not equity and not a promise of financial return; there is no token. Full list:
+[`README.md` → Limitations](README.md#limitations).
 
 ## Stack
 
-Spring Boot · Postgres · Solana devnet (JSON-RPC, SPL Memo) · separate signer and validator processes · Angular UI.
+Spring Boot · Postgres · Solana devnet (JSON-RPC, SPL Memo, SystemProgram transfers) · separate signer and validator
+processes · Angular UI.
 
 ## Links
 
-- Service: `github.com/sebdev89/life-engine-cryptobot-service` — *[public link / access for judges: TBD]*
-- UI: `github.com/sebdev89/life-engine-cryptobot-ui` — *[public link / access for judges: TBD]*
-- Demo: [`scripts/demo/README.md`](scripts/demo/README.md) · video: *[TBD]*
-- Architecture: [`docs/architecture/TRUSTED-AGENT-EXECUTION-AUDIT.md`](docs/architecture/TRUSTED-AGENT-EXECUTION-AUDIT.md)
-- Devnet evidence (demo run on `777672c`, 2026-09-29):
-  [execution](https://explorer.solana.com/tx/3ofZGCjbMXgjHY6iB8w7VSXvr6pHvajzayS7sSJox1yZxeDwPHAyb17xs8cXzUf7Us8GTbqc5M3tVUL85pGfewmh?cluster=devnet) ·
-  [recovered retry](https://explorer.solana.com/tx/65g1juW9qSPuM3jNacoq12QjMa1cVZv2DCCoybCw7vA74oBYZEpeqgwkZHRkDPv1g21iXQZLkd2Uu7xdp8K13WEq?cluster=devnet) ·
-  [Merkle anchor](https://explorer.solana.com/tx/4xBC6UTVghYajPwWQKLe1mdByKXahah2YFdQgiRQTArhvJkLMoshWmbZTLk4jwWaGuUXTLL8sQULeiJ53XSPPvjY?cluster=devnet)
+- Repo access: **public (Apache-2.0)**
+- Service: https://github.com/sebdev89/life-engine-cryptobot-service
+- UI: https://github.com/sebdev89/life-engine-cryptobot-ui
+- Demo: [`scripts/demo/README.md`](scripts/demo/README.md) · video cuts: [`docs/DEMO-PATH-90S.md`](docs/DEMO-PATH-90S.md),
+  [`docs/DEMO-PATH-3MIN.md`](docs/DEMO-PATH-3MIN.md) · video: *[TBD]*
+- Protocol and API: [`docs/PROOF-OF-VALUE.md`](docs/PROOF-OF-VALUE.md) · trusted execution (CryptoBot):
+  [`docs/TRUSTED-AGENT-EXECUTION.md`](docs/TRUSTED-AGENT-EXECUTION.md)

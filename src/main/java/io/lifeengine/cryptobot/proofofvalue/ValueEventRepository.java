@@ -5,7 +5,7 @@ import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
 /**
- * Append-only store of ValueEvents (KAN-818): the event, its contributions and (KAN-819) its knowledge links and compute
+ * Append-only store of ValueEvents: the event, its contributions and its knowledge links and compute
  * receipts are written in one transaction.
  */
 public interface ValueEventRepository {

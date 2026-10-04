@@ -14,7 +14,7 @@ import reactor.core.publisher.Mono;
 /**
  * Every state change of a proposal goes through here, and also to the log with the same fields.
  *
- * <p>KAN-403: proposal steps build the event with {@link #event} and hand it to
+ * <p>an internal ticket: proposal steps build the event with {@link #event} and hand it to
  * {@code ProposalTransition}, so it is written in the same transaction as the state. {@link #record}
  * stays for events that are not a proposal step (wallet registered, …).
  */

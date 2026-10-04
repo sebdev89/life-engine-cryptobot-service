@@ -17,13 +17,13 @@ import org.springframework.web.reactive.result.method.RequestMappingInfo;
 import org.springframework.web.reactive.result.method.annotation.RequestMappingHandlerMapping;
 
 /**
- * KAN-595 (TAE phase 1, audit §21/§22 item 4): "/api/cryptobot/** inalteradas" — the package move
+ * (TAE phase 1, audit §21/§22 item 4): "/api/cryptobot/** inalteradas" — the package move
  * touched imports, never a controller's {@code @RequestMapping}. This is the mechanical proof: the
  * exact set of {@code METHOD path} pairs registered under {@code /api/cryptobot} today, so a future
  * PR that accidentally renames or drops one of them (the audit's 6 literal Grafana {@code uri}
  * values, the UI's {@code control-plane-api.ts}/{@code receipts-api.ts}/{@code lineage-api.ts}, the
  * demo scripts, {@code smoke-cryptobot-devnet.sh}) fails here instead of in a dashboard "No data" or
- * a 404 nobody notices. Phase 2 (KAN-457/KAN-597) is explicitly additive — this list only grows.
+ * a 404 nobody notices. Phase 2 is explicitly additive — this list only grows.
  */
 @SpringBootTest(
         classes = {CryptobotServiceApplication.class, StubRepositoriesConfiguration.class},
@@ -98,7 +98,7 @@ class RouteContractTest {
             "POST /api/cryptobot/receipts/{receiptHash}/verify",
             "GET /api/cryptobot/proposals/{proposalId}/receipts",
             "GET /api/cryptobot/wallets/{walletId}/receipts",
-            // KAN-818: Proof of Value V1 — additive, new resource.
+            // Proof of Value V1 — additive, new resource.
             "POST /api/cryptobot/identities",
             "GET /api/cryptobot/identities",
             "GET /api/cryptobot/identities/{id}",
@@ -106,15 +106,15 @@ class RouteContractTest {
             "GET /api/cryptobot/value-events",
             "GET /api/cryptobot/value-events/{id}",
             "GET /api/cryptobot/value-events/{id}/proof",
-            // KAN-822 (Proof of Value V5): immediate reward.
+            // (Proof of Value V5): immediate reward.
             "POST /api/cryptobot/value-events/{id}/distribute",
             "GET /api/cryptobot/value-events/{id}/distribution",
-            // KAN-824 / KAN-825 (Proof of Value V7 + V8): revenue events and the treasury read model.
+            // (Proof of Value V7 + V8): revenue events and the treasury read model.
             "POST /api/cryptobot/revenue-events",
             "GET /api/cryptobot/revenue-events",
             "GET /api/cryptobot/revenue-events/{id}",
             "GET /api/cryptobot/treasury/{identityId}",
-            // KAN-819: Proof of Value V2–V4 + V6 — additive, new resources.
+            // Proof of Value V2–V4 + V6 — additive, new resources.
             "POST /api/cryptobot/knowledge-assets",
             "GET /api/cryptobot/knowledge-assets",
             "GET /api/cryptobot/knowledge-assets/{id}",

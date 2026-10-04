@@ -30,7 +30,7 @@ import org.junit.jupiter.api.Test;
 import reactor.core.publisher.Mono;
 
 /**
- * KAN-403 — the two acceptance tests of the issue and the rules around them:
+ * the two acceptance tests of the issue and the rules around them:
  * <ul>
  *   <li>double POST with the same {@code operationId} ⇒ one transaction;
  *   <li>crash between submit and confirm ⇒ reconciliation finishes the trade without re-sending.
@@ -64,7 +64,7 @@ class ExecutionServiceReliabilityTest {
         assertThat(h.count("duplicate.trade.suppressed")).isEqualTo(1);
         assertThat(h.count("trade.submitted", "asset", "SOL")).isEqualTo(1);
 
-        // KAN-391: one attempt ⇒ one EXECUTION receipt (nonce = the operation id), signed, with the chain's answer hashed in.
+        // one attempt ⇒ one EXECUTION receipt (nonce = the operation id), signed, with the chain's answer hashed in.
         assertThat(h.receipts()).hasSize(1);
         var receipt = h.receipts().get(0);
         assertThat(receipt.kind()).isEqualTo(io.lifeengine.cryptobot.core.receipts.ReceiptKind.EXECUTION);
@@ -148,7 +148,7 @@ class ExecutionServiceReliabilityTest {
         assertThat(replay.status()).isEqualTo(ProposalStatus.EXECUTED);
         verify(h.rpc, times(1)).sendTransaction(eq(SolanaCluster.DEVNET), anyString());
 
-        // KAN-391: the reconciler left the EXECUTION receipt the interrupted path could not; the replay did not mint a second one.
+        // the reconciler left the EXECUTION receipt the interrupted path could not; the replay did not mint a second one.
         assertThat(h.receipts()).hasSize(1);
         assertThat(h.receipts().get(0).body().nonce()).isEqualTo("exec:" + op);
         assertThat(h.receipts().get(0).body().reproducibility()).isEqualTo(io.lifeengine.cryptobot.core.receipts.ReproducibilityLevel.L0_SIGNED);
@@ -191,7 +191,7 @@ class ExecutionServiceReliabilityTest {
         verify(h.rpc, never()).getSignatureStatus(any(), anyString());
         verify(h.rpc, never()).sendTransaction(any(), anyString());
         assertThat(h.outboxTypes()).containsExactly(TradeEvents.FAILED);
-        // KAN-391: a refused execution is a decision too — it leaves a FAILED EXECUTION receipt.
+        // a refused execution is a decision too — it leaves a FAILED EXECUTION receipt.
         assertThat(h.receipts()).hasSize(1);
         assertThat(h.receipts().get(0).kind()).isEqualTo(io.lifeengine.cryptobot.core.receipts.ReceiptKind.EXECUTION);
         assertThat(h.receipts().get(0).body().output().schema()).isEqualTo("execution/1");
@@ -215,7 +215,7 @@ class ExecutionServiceReliabilityTest {
         assertThat(strict.reconcile(h.current()).block()).isEqualTo(ReconciliationService.Result.DEAD_LETTERED);
 
         ActionProposal after = h.current();
-        assertThat(after.status()).isEqualTo(ProposalStatus.SUBMITTED); // the truth we have; a human decides (KAN-571)
+        assertThat(after.status()).isEqualTo(ProposalStatus.SUBMITTED); // the truth we have; a human decides
         assertThat(after.execution().error()).contains("blockhash expired").contains("0 idempotent retries exhausted");
         assertThat(InMemoryControlPlaneRepositories.DEAD_LETTERS).hasSize(1);
         assertThat(InMemoryControlPlaneRepositories.DEAD_LETTERS.get(0).payload()).containsEntry("kind", ReconciliationService.KIND_RETRIES_EXHAUSTED);

@@ -8,7 +8,7 @@ import org.springframework.core.env.Profiles;
 import org.springframework.stereotype.Component;
 
 /**
- * KAN-493 — {@code SIGNER_REQUIRE_ATTESTATION=false} is not a production setting. It is accepted
+ * {@code SIGNER_REQUIRE_ATTESTATION=false} is not a production setting. It is accepted
  * only when the Spring profile {@code local} or {@code test} is active; under any other profile
  * (including none) the signer refuses to start, so the level-5 gate cannot be switched off by an
  * environment variable on a deployed instance.

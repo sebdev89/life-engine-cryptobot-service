@@ -24,7 +24,7 @@ import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.utility.DockerImageName;
 
 /**
- * KAN-822: {@link ProofOfValueRewardApiTest}'s scenario on the REAL stores — R2DBC + Flyway V1..V14 against Postgres in
+ * {@link ProofOfValueRewardApiTest}'s scenario on the REAL stores — R2DBC + Flyway V1..V14 against Postgres in
  * Testcontainers (profile {@code e2e}). Devnet, the signer and the validator are HTTP fakes; the SOL price is a mock. Checks
  * what only Postgres enforces: the VALUE_DISTRIBUTION kind passes the receipt CHECK, the payout rows and their FKs, the
  * unique distribution per event, the status CHECKs.

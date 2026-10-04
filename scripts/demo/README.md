@@ -1,6 +1,6 @@
-# CryptoBot demo — the real pipeline on Solana devnet (KAN-570)
+# CryptoBot demo — the real pipeline on Solana devnet
 
-## One command, from zero, with a report (KAN-575 / HK-7)
+## One command, from zero, with a report (HK-7)
 
 ```bash
 scripts/demo/run.sh                 # keys (once) → stack up → 4 acts → out/demo-report-<ts>.md → stack stopped
@@ -17,7 +17,7 @@ each step printed with its evidence as it happens, each act timed:
 | act | what happens | who runs it |
 |---|---|---|
 | 1 execute | request → plan → simulation → 13 rules + `R_v` + validator → 409 before approval → approval → timelock → execute (`Idempotency-Key`) → validator attests → signer signs → Solana → `SUBMITTED` → confirmed on chain → `EXECUTED` → replay = same tx → outbox → `EXECUTION` receipt verified → a mainnet intent → 409 | `e2e-devnet.sh` |
-| 2 risk | an adversarial intent (dump 95 % of the position) → `BLOCKED_BY_POLICY` with the rules that failed (`MAX_TRADE_PCT_OF_PORTFOLIO`, `MAX_TRADE_USD`, `COOLDOWN`…), approve → 409, execute → 409, `RISK_DECISION` receipt verified; then the 60 s cooldown the wallet is under, waited out visibly; then (KAN-572 / HK-4) a **second adversarial intent, wrong only in its price**: one oracle source is made to say −90 % (`PUT /api/cryptobot/demo/price {"asset":"SOL","source":"pyth-hermes","factor":0.1}`) → `BLOCKED_BY_POLICY` by **`PRICE_DEVIATION`** with the sources, the median and the limit in the message; then every source is made 15 min old (`{"source":"*","ageSeconds":900}`) → **`PRICE_STALE`**. Each block leaves the policy's **Decision Receipt** (`RISK_DECISION` by `policy-engine@R_v`, params `blockedBy`, `rule.<NAME>`, `oracle.SOL`) that is verified live — hash, signature and the engine re-run on the stored `(I, S)` (`reproduced=true`) — and appears in the proposal's lineage under the `STRATEGY` it validates; approve → 409; the injection is disarmed (`DELETE`) before act 3 | `run.sh` |
+| 2 risk | an adversarial intent (dump 95 % of the position) → `BLOCKED_BY_POLICY` with the rules that failed (`MAX_TRADE_PCT_OF_PORTFOLIO`, `MAX_TRADE_USD`, `COOLDOWN`…), approve → 409, execute → 409, `RISK_DECISION` receipt verified; then the 60 s cooldown the wallet is under, waited out visibly; then (HK-4) a **second adversarial intent, wrong only in its price**: one oracle source is made to say −90 % (`PUT /api/cryptobot/demo/price {"asset":"SOL","source":"pyth-hermes","factor":0.1}`) → `BLOCKED_BY_POLICY` by **`PRICE_DEVIATION`** with the sources, the median and the limit in the message; then every source is made 15 min old (`{"source":"*","ageSeconds":900}`) → **`PRICE_STALE`**. Each block leaves the policy's **Decision Receipt** (`RISK_DECISION` by `policy-engine@R_v`, params `blockedBy`, `rule.<NAME>`, `oracle.SOL`) that is verified live — hash, signature and the engine re-run on the stored `(I, S)` (`reproduced=true`) — and appears in the proposal's lineage under the `STRATEGY` it validates; approve → 409; the injection is disarmed (`DELETE`) before act 3 | `run.sh` |
 | 3 recovery | the RPC dies at broadcast → no verdict → dead letter → RPC back → `POST /dead-letters/{id}/requeue` (replay = 409) → idempotent retry (same `operationId`, new signature) → `EXECUTED`; the chain, asked directly: signature #1 never seen, #2 confirmed, vault +1 | `e2e-devnet.sh --chaos rpc-down` |
 | 4 evidence | receipt DAG (parents of the `EXECUTION` receipt) → Merkle anchor of the receipts on Solana (`POST /anchors?wait=true`: memo tx signed by the signer, **finalized**) → inclusion proof of the `EXECUTION` receipt (`proofValid`) → batch verify (root recomputed, memo read back from the chain) → metrics | `run.sh` |
 
@@ -74,15 +74,16 @@ timelock 409, `operationId`, **transaction signature**, slot and confirmation as
 them, the explorer link, the validator's attestation, the audit trail, the outbox events, the
 `EXECUTION` receipt hash with its `verify` result, and the mainnet 409.
 
-## The operator UI in the demo stack (KAN-794)
+## The operator UI in the demo stack
 
 The compose also builds and serves the operator UI (`cryptobot-ui`, the sibling repo, with its own
 `Dockerfile`: Angular build → nginx) under the **`ui` profile**. It is a profile, not always-on, so
 `run.sh` / `e2e-devnet.sh` and a checkout without the UI repo behave exactly as before.
 
 ```bash
-# from active/cryptobot/cryptobot-service (the UI repo is ../cryptobot-ui)
-export CRYPTOBOT_DEMO_PROJECT=cryptobot-demo-main     # ALWAYS this project: a new name = a new network (the host ran out of subnets on 2026-09-29)
+# from the service checkout; the UI repo must sit next to it as ../cryptobot-ui:
+#   git clone https://github.com/sebdev89/life-engine-cryptobot-ui ../cryptobot-ui
+export CRYPTOBOT_DEMO_PROJECT=cryptobot-demo-main     # keep ONE project name: every new name creates a new Docker network
 docker compose -p cryptobot-demo-main -f docker-compose.demo.yml --env-file .env.demo --profile ui up -d --build
 scripts/demo/ui-url.sh                                # → http://127.0.0.1:4204/live?token=<1 h demo JWT>
 ```
@@ -93,7 +94,7 @@ timeline, approve/execute, chaos panel (visible because the demo enables it), de
 | knob | default | what |
 |---|---|---|
 | `UI_PORT` | `4204` | host port of the UI (`127.0.0.1` only). The service CORS is built from the **same** variable, so changing it keeps both in step. |
-| `CRYPTOBOT_UI_CONTEXT` | `../cryptobot-ui` | build context of the UI. From a worktree outside `active/cryptobot/`, set it to the absolute path of the UI checkout. |
+| `CRYPTOBOT_UI_CONTEXT` | `../cryptobot-ui` | build context of the UI. From a worktree outside `active/cryptobot/`, set it to the absolute path of the UI checkout (e.g. when it was cloned as `life-engine-cryptobot-ui`). |
 | `UI_DEMO_CLUSTER` | `devnet` | label + explorer links in the UI; `local` when the stack runs with `--profile local-validator`. |
 | `CRYPTOBOT_DEMO_PORT` | `8091` | the service's published port; `config.js` points the browser at `http://127.0.0.1:<it>`. |
 
@@ -110,7 +111,7 @@ Notes:
 - `run.sh` with `--keep` plus a later `--profile ui up -d cryptobot-ui` puts the UI on top of a
   rehearsal that is still running.
 
-## Timings for the video (KAN-795)
+## Timings for the video
 
 Every wait of the demo is a compose variable with the rehearsed value as default; put the short
 values in `.env.demo` (or a copy passed with `--env-file`) — `run.sh` and `e2e-devnet.sh` source
@@ -139,15 +140,15 @@ On the local validator act 1 is `ALLOW` (no timelock); a larger devnet position 
 which adds `CRYPTOBOT_TIMELOCK_ESCALATED` to scene A. Always the project `cryptobot-demo-main`, and
 one run at a time: two sessions on the same project recreate each other's service mid-run.
 
-## Values for the video (KAN-797)
+## Values for the video
 
 The wallet, the label and the sell size are what appears on screen; none of them needs a code change.
 
 - **Wallet.** `/demo` (UI) reads `UI_DEMO_WALLET`; the compose passes `DEMO_WALLET_ADDRESS` from `.env.demo`
   to the `cryptobot-ui` service, so `/demo` does not ask for it by hand. Needs the UI image with the
-  KAN-785 entrypoint (`demoWallet` from `UI_DEMO_WALLET`); an older image ignores the variable.
+  newer entrypoint (`demoWallet` from `UI_DEMO_WALLET`); an older image ignores the variable.
   Unset in `.env.demo` → the UI gets an empty value and falls back to asking once.
-- **Label.** The wallet is registered as `KAN-570 demo`. For the recording: `DEMO_WALLET_LABEL="Treasury demo"`
+- **Label.** The wallet is registered with a default demo label. For the recording: `DEMO_WALLET_LABEL="Treasury demo"`
   in the environment of `run.sh` / `e2e-devnet.sh` (default unchanged).
 - **Where the `SELL … SOL → 79 %` comes from.** `run.sh` sells `--sell-sol` (default `0.5`), but
   `e2e-devnet.sh` clamps the sale to 21–40 % of the SOL held, and the target is
@@ -158,12 +159,12 @@ The wallet, the label and the sell size are what appears on screen; none of them
   under the `R_v` 80 % concentration limit. On 5 SOL: 1.5 ≤ 2 SOL cap. Do not lower the cap or the
   band for looks: they are the rules the demo is showing.
 - **`/demo` (UI, scene A/B) has its own size**: the runner sells 0.5 SOL clamped to 21–40 % like the
-  script (KAN-785), so on a ≈ 5 SOL wallet it also shows `SOL → 79 %`. That constant lives in the UI repo
+  script, so on a ≈ 5 SOL wallet it also shows `SOL → 79 %`. That constant lives in the UI repo
   (out of this repo's scope); measure what the screen shows in the rehearsal and, if 79 % is unwanted, propose it there.
 - The adversarial intents (`SOL → 5 %`, `SOL → 50 %`, BONK mint) are fixed on purpose: 5 % is the
   "dump 95 %" the policy must refuse.
 
-## Recovery, visible (KAN-571 / HK-3): `--chaos <mode>`
+## Recovery, visible (HK-3): `--chaos <mode>`
 
 The demo compose enables **fault injection** (`CRYPTOBOT_CHAOS_ENABLED=true`, demo only — UAT/PROD
 never set it, and without it the endpoint and the faulty client do not exist). The script arms a
@@ -187,7 +188,7 @@ Every line lands in `out/evidence-<ts>.md`. Knobs (demo only): `CRYPTOBOT_RECONC
 `GET|PUT|DELETE /api/cryptobot/demo/chaos` (`RUNTIME_ADMIN`), body `{"broadcast":"rpc-down","shots":-1}`.
 Runbook for the human side: `docs/runbooks/dead-letter.md`.
 
-## Risk, visible (KAN-572 / HK-4): the adversarial price
+## Risk, visible (HK-4): the adversarial price
 
 The same demo profile enables the **price injection** (`/api/cryptobot/demo/price`, `RUNTIME_ADMIN`;
 or `CRYPTOBOT_DEMO_PRICE_OVERRIDE=SOL:pyth-hermes:factor=0.1` at startup). It tampers with what the
@@ -228,7 +229,7 @@ devnet for the recording. The devnet RPC airdrop allows a few SOL per day per IP
 | `.env.demo` (gitignored) | generated secrets: `JWT_SECRET`, signer/validator tokens, DB password, receipt signing key, the public keys, the key file paths, `VALIDATOR_POLICY_HASH` pin, demo knobs |
 | `~/.cryptobot-demo/*.json` (0600) | the wallet the signer controls, the rebalance vault (destination), the validator's attestation key. Mounted read-only; the containers run as your uid to read them |
 | `scripts/demo/wallet-devnet.sh` | generates keys (`solana-keygen` if installed, else python `cryptography`/openssl) and `.env.demo`; airdrops |
-| `scripts/demo/e2e-devnet.sh` | the flow by curl + evidence; `--chaos <mode>` injects a failure and shows the recovery (KAN-571); `--it` runs `E2EDevnetIT` |
+| `scripts/demo/e2e-devnet.sh` | the flow by curl + evidence; `--chaos <mode>` injects a failure and shows the recovery; `--it` runs `E2EDevnetIT` |
 | `scripts/demo/lib.sh` | helpers: JSON-RPC, base58 pubkey of a keypair, HS256 token, default `H_R` |
 | `src/test/java/io/lifeengine/cryptobot/e2e/E2EDevnetIT.java` | the same flow as assertions; `./mvnw -Pe2e-devnet verify` with the stack up |
 
@@ -238,7 +239,7 @@ devnet for the recording. The devnet RPC airdrop allows a few SOL per day per IP
 |---|---|---|
 | `CRYPTOBOT_TIMELOCK_ESCALATED` | `20s` | so an ESCALATE verdict shows the timelock (409 + wait) without the 30 min of a real environment |
 | `CRYPTOBOT_RECONCILIATION_INTERVAL` / `_GRACE` / `_MAX_ATTEMPTS` / `_MAX_RETRIES` | `10s` / `20s` / `3` / `2` | so the whole recovery loop (no verdict → DLQ → requeue → retry) fits in ≈ 3 min; production is 30s / 2m / 20 / 2 |
-| `CRYPTOBOT_CHAOS_ENABLED` | `true` (compose) | KAN-571 fault injection and the KAN-572 price injection (`/api/cryptobot/demo/price`); **never** in UAT/PROD |
+| `CRYPTOBOT_CHAOS_ENABLED` | `true` (compose) | fault injection and the adversarial price injection (`/api/cryptobot/demo/price`); **never** in UAT/PROD |
 | `CRYPTOBOT_DEMO_PORT` | `8091` | host port of the service |
 | `CRYPTOBOT_SOLANA_DEVNET_RPC` | `https://api.devnet.solana.com` | any devnet RPC; `--local-validator` overrides it |
 | `--sell-sol N` (script) / `CRYPTOBOT_E2E_SELL_SOL` (IT) | `1` | size of the SELL leg, clamped to 21–40 % of the SOL held so every rule holds: `R_v` `ASSET_CONCENTRATION` (SOL ≤ 80 % after), ≤ $500, ≤ 50 % of the portfolio, ≤ 2 SOL per tx. Keep the wallet between 0.5 and 9 SOL |
@@ -247,7 +248,7 @@ Everything else is the production configuration: `CRYPTOBOT_EXECUTION_ENABLED=tr
 `CRYPTOBOT_ALLOW_MAINNET=false`, `SIGNER_REQUIRE_ATTESTATION=true`, `SIGNER_ALLOW_MAINNET=false`,
 validator pinned by `H_R`.
 
-## What the first real run found (and fixed, KAN-570)
+## What the first real run found (and fixed)
 
 The pipeline had never run with the real signer and validator — `ControlPlaneFlowTest` stops at
 `execute = 409` and the execution tests mock both. Three things broke the moment they ran together:

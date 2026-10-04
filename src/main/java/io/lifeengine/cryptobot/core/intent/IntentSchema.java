@@ -37,7 +37,7 @@ public final class IntentSchema {
     private static final ObjectMapper JSON = JsonMapper.builder()
             .enable(JsonParser.Feature.STRICT_DUPLICATE_DETECTION)
             // "{…}{}" is two documents, not one: Jackson would read the first and drop the rest, and
-            // another parser might not (KAN-440 benchmark, serialization attack "trailing garbage").
+            // another parser might not (internal ticket benchmark, serialization attack "trailing garbage").
             .enable(DeserializationFeature.FAIL_ON_TRAILING_TOKENS)
             .enable(DeserializationFeature.USE_BIG_INTEGER_FOR_INTS)
             .enable(DeserializationFeature.USE_BIG_DECIMAL_FOR_FLOATS)

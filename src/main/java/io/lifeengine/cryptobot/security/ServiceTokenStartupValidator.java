@@ -10,13 +10,13 @@ import org.springframework.core.env.Profiles;
 import org.springframework.stereotype.Component;
 
 /**
- * KAN-69 — en un ambiente real, CryptoBot no arranca si el camino S2S está activo y falta la
+ * en un ambiente real, CryptoBot no arranca si el camino S2S está activo y falta la
  * credencial.
  *
  * <p>"Camino S2S activo" es cualquiera de: {@code cryptobot.runtime.auth-mode=service} (todas las
  * llamadas a Runtime con identidad de servicio) o {@code cryptobot.monitoring.enabled=true} (el
  * loop programado no tiene usuario y sólo puede autenticarse con la credencial propia; sin ella
- * saltearía cada tick en silencio — que es lo que pasaba antes de KAN-69).
+ * saltearía cada tick en silencio — que es lo que pasaba antes de un cambio posterior).
  *
  * <p>Con {@code auth-mode=passthrough} y el loop apagado no se exige nada: las llamadas viajan con
  * el JWT del usuario, como hasta ahora. Cambiar ese default es una decisión de rollout, no de

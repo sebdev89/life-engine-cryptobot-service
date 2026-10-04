@@ -18,7 +18,7 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 
 /**
- * KAN-350 — el binario no trae ningún secreto HS256 por default, en ningún perfil.
+ * el binario no trae ningún secreto HS256 por default, en ningún perfil.
  *
  * <p>{@code application-local.yml} traía {@code secret: ${JWT_SECRET:<default de 51 bytes>}}. Ese
  * default supera los 32 bytes que {@link CryptobotJwtService} exige para aceptar una clave HMAC,
@@ -30,7 +30,7 @@ import org.junit.jupiter.params.provider.ValueSource;
  * JWKS el servicio no se construye. Lo que faltaba era el guard del <em>archivo</em>, que es el
  * único que falla si alguien vuelve a escribir un default.
  *
- * <p>KAN-69 lo extiende a TODA credencial del {@code application.yml} común (S2S, DB, tokens,
+ * <p>an internal ticket lo extiende a TODA credencial del {@code application.yml} común (S2S, DB, tokens,
  * api keys): ninguna variable con nombre de credencial tiene default. {@code application-local.yml}
  * sólo aplica con el perfil {@code local} y conserva el par de desarrollo de Postgres; su secreto
  * S2S tampoco tiene default.
@@ -75,7 +75,7 @@ class DevSecretNotShippedTest {
     private static final Pattern PLACEHOLDER = Pattern.compile("\\$\\{([A-Z0-9_]+):([^}]*)\\}");
 
     @Test
-    @DisplayName("KAN-69: application.yml (común) no trae un valor default para ninguna credencial")
+    @DisplayName("application.yml (común) no trae un valor default para ninguna credencial")
     void sharedConfigHasNoCredentialDefault() throws IOException {
         String yaml = read("/application.yml");
         List<String> violations = new ArrayList<>();

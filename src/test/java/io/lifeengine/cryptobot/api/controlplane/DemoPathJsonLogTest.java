@@ -39,7 +39,7 @@ import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.web.reactive.server.WebTestClient;
 
 /**
- * Las líneas JSON del demo path (KAN-573): el rechazo de policy y el rechazo de ejecución salen con
+ * Las líneas JSON del demo path: el rechazo de policy y el rechazo de ejecución salen con
  * su {@code errorCode} CB-POLICY-*, y con {@code proposalId} / {@code operationId} / {@code tenantId}
  * en el MDC — sin que la línea los repita — para que en Loki {@code | json | proposalId="…"} sea la
  * historia de la propuesta. Mismos fakes que {@link ControlPlaneFlowTest}.

@@ -14,7 +14,7 @@ public interface DeadLetterRepository {
 
     Mono<Long> countUnresolved();
 
-    // ---- KAN-571 / KAN-501: the way out --------------------------------------------------------
+    // ---- an internal ticket: the way out --------------------------------------------------------
 
     Mono<DeadLetter> findById(UUID id);
 

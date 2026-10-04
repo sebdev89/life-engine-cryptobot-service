@@ -26,7 +26,7 @@ final class BenchmarkReport {
 
     static Map<String, Object> document(BenchmarkRun first, BenchmarkRun second, boolean validatorsAgree, Map<String, Object> extra) {
         Map<String, Object> d = new LinkedHashMap<>();
-        d.put("benchmark", "cryptobot adversarial intents v1 (KAN-440, paper §29/§30/§36)");
+        d.put("benchmark", "cryptobot adversarial intents v1 (paper §29/§30/§36)");
         d.put("generated_at", Instant.now().toString());
         d.put("seed", first.seed);
         d.put("policy_version", first.rules.version());
@@ -83,7 +83,7 @@ final class BenchmarkReport {
         latency.put("wall_ms_first_run", first.wallNs / 1_000_000);
         latency.put("wall_ms_second_run", second.wallNs / 1_000_000);
         latency.put("inference", "not measured: the corpus is generated, not inferred — the generator plays the fully compromised agent (§29), so there is no LLM in the loop");
-        latency.put("transaction", "not measured: execution is the harness stub (nonce consumed, exposure added); devnet latency lives in solana_confirmation_latency_seconds (KAN-425)");
+        latency.put("transaction", "not measured: execution is the harness stub (nonce consumed, exposure added); devnet latency lives in solana_confirmation_latency_seconds");
         d.put("latency", latency);
 
         d.put("cost", Map.of("llm_usd", 0, "chain_usd", 0, "note", "pure Java on the host; no model call, no RPC call, no signature on chain"));
@@ -147,7 +147,7 @@ final class BenchmarkReport {
             sb.append("\n## Compromised agent — random mutations (paper §29)\n\n| metric | value |\n|---|---|\n");
             ((Map<String, Object>) d.get("compromised_agent_fuzz")).forEach((k, v) -> sb.append("| ").append(k).append(" | ").append(v).append(" |\n"));
         }
-        sb.append("\n## Meters (first run — what the KAN-425 funnel would show)\n\n| meter | count |\n|---|---|\n");
+        sb.append("\n## Meters (first run — what the internal ticket funnel would show)\n\n| meter | count |\n|---|---|\n");
         ((Map<String, Object>) d.get("meters_first_run")).forEach((k, v) -> sb.append("| `").append(k).append("` | ").append(v).append(" |\n"));
         return sb.toString();
     }

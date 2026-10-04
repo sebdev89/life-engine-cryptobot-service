@@ -29,7 +29,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.web.reactive.function.client.WebClient;
 import reactor.test.StepVerifier;
 
-/** KAN-438: what the service sends the validator, and which answers it refuses to act on. */
+/** what the service sends the validator, and which answers it refuses to act on. */
 class ValidatorClientTest {
 
     private static MockWebServer server;
@@ -107,7 +107,7 @@ class ValidatorClientTest {
         assertThat(body.path("policyHash").asText()).isEqualTo(verdict.policyHash());
         assertThat(body.path("expectedVerdictHash").asText()).isEqualTo(verdict.hash());
         assertThat(body.path("messageHash").asText()).isEqualTo(messageHash());
-        // KAN-493: the cluster the bytes are for travels with the request and comes back attested.
+        // the cluster the bytes are for travels with the request and comes back attested.
         assertThat(body.path("cluster").asText()).isEqualTo("devnet");
         // The facts travel in the schema's snake_case, exactly as they were hashed.
         assertThat(body.path("intent").path("trade_value_cents").asLong()).isEqualTo(15_000L);
@@ -142,7 +142,7 @@ class ValidatorClientTest {
                 .expectErrorSatisfies(ex -> assertThat(ex).hasMessageContaining("not for these transaction bytes"))
                 .verify();
 
-        // KAN-493: an attestation for another cluster (or none) is not an attestation for these bytes.
+        // an attestation for another cluster (or none) is not an attestation for these bytes.
         server.enqueue(json(response("ESCALATE", verdict.policyHash(), verdict.hash(), messageHash(), "mainnet-beta")));
         StepVerifier.create(client.authorize(proposal(decision), tx()))
                 .expectErrorSatisfies(ex -> assertThat(ex).hasMessageContaining("not for cluster devnet"))
@@ -155,7 +155,7 @@ class ValidatorClientTest {
     }
 
     /**
-     * KAN-500: found by the chain E2E with the validator "down". A 200 with no body completed
+     * found by the chain E2E with the validator "down". A 200 with no body completed
      * {@code authorize} <em>empty</em>: the execution pipeline skipped the validator and the signer
      * and answered HTTP 200 with no proposal, leaving the row EXECUTING with nothing recorded. No
      * answer is a refusal — never an empty completion. A dropped connection is a refusal too.

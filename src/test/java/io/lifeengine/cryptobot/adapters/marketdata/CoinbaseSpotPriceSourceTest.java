@@ -18,7 +18,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.web.reactive.function.client.WebClient;
 import reactor.test.StepVerifier;
 
-/** KAN-572: Coinbase spot — one request per product, dated by fetch time, a failure is an absent observation. */
+/** Coinbase spot — one request per product, dated by fetch time, a failure is an absent observation. */
 class CoinbaseSpotPriceSourceTest {
 
     private static final Instant NOW = Instant.parse("2026-09-20T12:00:00Z");

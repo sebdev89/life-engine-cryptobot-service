@@ -22,7 +22,7 @@ import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
 /**
- * Read side of the receipts (KAN-391, the minimum of Endgame §15): one receipt with its edges,
+ * Read side of the receipts (the minimum of Endgame §15): one receipt with its edges,
  * {@code verify}, the receipts of one proposal, and the public key so anyone can check a
  * signature offline. Lineage walks (ancestors/descendants) are the DAG issue, not this one.
  * Everything is owner-scoped through the JWT principal; a receipt of another owner is a 404.
@@ -66,7 +66,7 @@ public class ReceiptsController {
     /**
      * The receipt's own checks (hash, body, signature, parents — {@link ReceiptService.Verification},
      * unwrapped so the fields and {@code valid} keep their names) plus its Merkle inclusion in the
-     * anchoring batch (KAN-394): {@code anchor.proofValid} folds the stored proof back to the root.
+     * anchoring batch: {@code anchor.proofValid} folds the stored proof back to the root.
      */
     public record ReceiptVerification(@JsonUnwrapped ReceiptService.Verification receipt, AnchorService.Inclusion anchor) {}
 

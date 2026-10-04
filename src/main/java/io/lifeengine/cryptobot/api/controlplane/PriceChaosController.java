@@ -15,7 +15,7 @@ import org.springframework.web.bind.annotation.RestController;
 import reactor.core.publisher.Mono;
 
 /**
- * KAN-572 — arm/disarm the demo's adversarial price. Exists only with {@code cryptobot.chaos.enabled=true}
+ * arm/disarm the demo's adversarial price. Exists only with {@code cryptobot.chaos.enabled=true}
  * (the same property that creates the chaos beans); {@code RUNTIME_ADMIN}. Not part of the product API.
  *
  * <pre>

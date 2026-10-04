@@ -37,12 +37,12 @@
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-actuator</artifactId>
         </dependency>
-        <!-- KAN-573: /actuator/prometheus con los common tags de la identidad del build (environment/service/version/commit). -->
+        <!-- /actuator/prometheus con los common tags de la identidad del build (environment/service/version/commit). -->
         <dependency>
             <groupId>io.micrometer</groupId>
             <artifactId>micrometer-registry-prometheus</artifactId>
         </dependency>
-        <!-- KAN-573 / KAN-426: logs JSON con campos comunes (service, env, version, commitSha, traceId, spanId,
+        <!-- logs JSON con campos comunes (service, env, version, commitSha, traceId, spanId,
              requestId, correlationId, proposalId, errorCode). Mismo patrón que el servicio y que ATP/Dev Agent. -->
         <dependency>
             <groupId>net.logstash.logback</groupId>
@@ -80,7 +80,7 @@
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-maven-plugin</artifactId>
                 <version>${spring.boot.version}</version>
-                <!-- KAN-570: the Dockerfile runs `java -jar app.jar`; without repackage the jar has no
+                <!-- the Dockerfile runs `java -jar app.jar`; without repackage the jar has no
                      main manifest and the container dies at boot ("no main manifest attribute"). -->
                 <executions>
                     <execution>
@@ -89,7 +89,7 @@
                             <goal>repackage</goal>
                         </goals>
                     </execution>
-                    <!-- KAN-573: META-INF/build-info.properties → `version` en cada línea de log y en los common tags. -->
+                    <!-- META-INF/build-info.properties → `version` en cada línea de log y en los common tags. -->
                     <execution>
                         <id>build-info</id>
                         <goals>
@@ -98,8 +98,8 @@
                     </execution>
                 </executions>
             </plugin>
-            <!-- KAN-573: git.properties (commit) en local/CI; la imagen no tiene .git y CI pasa GIT_COMMIT como
-                 build-arg (KAN-579), que BuildIdentityJsonProvider prefiere. failOnNoGitDirectory=false a propósito. -->
+            <!-- git.properties (commit) en local/CI; la imagen no tiene .git y CI pasa GIT_COMMIT como
+                 build-arg, que BuildIdentityJsonProvider prefiere. failOnNoGitDirectory=false a propósito. -->
             <plugin>
                 <groupId>io.github.git-commit-id</groupId>
                 <artifactId>git-commit-id-maven-plugin</artifactId>

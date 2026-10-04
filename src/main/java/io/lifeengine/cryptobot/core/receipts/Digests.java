@@ -14,7 +14,7 @@ import javax.crypto.spec.SecretKeySpec;
  *
  * <ul>
  *   <li>{@link #sha256(byte[])} — plain SHA-256, rendered {@code sha256:<64 lower-case hex>} like
- *       the intent hash (KAN-435) and the policy hash (KAN-436), so every hash in the system is
+ *       the intent hash and the policy hash, so every hash in the system is
  *       self-describing and recomputable with {@code sha256sum}.
  *   <li>{@link #domainSeparated(String, byte[])} — {@code SHA-256(domain ‖ 0x00 ‖ bytes)}: the
  *       receipt id. The tag makes a receipt hash unequal to the hash of its own canonical JSON and

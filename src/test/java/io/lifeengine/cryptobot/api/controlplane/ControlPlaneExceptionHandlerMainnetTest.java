@@ -8,7 +8,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 
-/** KAN-493: the execute gate surfaces as {@code 409 MAINNET_DISABLED}, not as a generic CONFLICT or a 502. */
+/** the execute gate surfaces as {@code 409 MAINNET_DISABLED}, not as a generic CONFLICT or a 502. */
 class ControlPlaneExceptionHandlerMainnetTest {
 
     @Test

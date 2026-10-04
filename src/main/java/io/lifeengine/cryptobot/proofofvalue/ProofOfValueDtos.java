@@ -20,7 +20,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
-/** Request and response shapes of the Proof of Value API (KAN-818; V2–V4 + V6: KAN-819). Requests are validated with {@code @Valid}; a failure is a 400. */
+/** Request and response shapes of the Proof of Value API (V2–V4 + V6: an internal ticket). Requests are validated with {@code @Valid}; a failure is a 400. */
 public final class ProofOfValueDtos {
 
     public static final String ID = "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$";
@@ -51,7 +51,7 @@ public final class ProofOfValueDtos {
     }
 
     /**
-     * Reputation V2 (KAN-819): explicit counts, no formula. {@code acceptedOutcomes} = distinct accepted ValueEvents the
+     * Reputation V2: explicit counts, no formula. {@code acceptedOutcomes} = distinct accepted ValueEvents the
      * identity contributed to; {@code totalUnits} = the Contribution Units it received in them; first/last = their
      * {@code acceptedAt}. {@code null} timestamps when it has none yet.
      */
@@ -75,8 +75,8 @@ public final class ProofOfValueDtos {
             Instant createdAt, ReputationView reputation, List<HistoryEntryView> history, RewardsView rewards) {}
 
     /**
-     * KAN-822 (V5): what the identity was paid. {@code confirmedLamports} = devnet lamports of its CONFIRMED immediate-reward payouts
-     * only; KAN-824 (V7): {@code revenueLamports} = those of its CONFIRMED revenue-share payouts only. {@code payouts} = how many
+     * (V5): what the identity was paid. {@code confirmedLamports} = devnet lamports of its CONFIRMED immediate-reward payouts
+     * only; an internal ticket (V7): {@code revenueLamports} = those of its CONFIRMED revenue-share payouts only. {@code payouts} = how many
      * payouts it has, of both sources, in any state (UNFUNDED and FAILED included).
      */
     public record RewardsView(long confirmedLamports, long payouts, long revenueLamports) {
@@ -138,7 +138,7 @@ public final class ProofOfValueDtos {
             @Size(max = 64) String distributionPolicy) {}
 
     /**
-     * V4 (KAN-821): what the outcome cost to compute. {@code gpuSeconds} has at most 3 decimals (it is committed as
+     * V4: what the outcome cost to compute. {@code gpuSeconds} has at most 3 decimals (it is committed as
      * integer milliseconds). Cost is recorded next to the event; it never enters the distribution of units.
      */
     public record ComputeReceiptRequest(
@@ -155,7 +155,7 @@ public final class ProofOfValueDtos {
 
     /**
      * {@code derivedFrom}: {@code null} for a contribution in the request; for a KNOWLEDGE_PROVIDER contribution the
-     * service added for an asset's creator (KAN-819), the ids of those assets — provenance, not an economic decision.
+     * service added for an asset's creator, the ids of those assets — provenance, not an economic decision.
      */
     public record ContributionView(String identityId, String displayName, IdentityKind kind, ContributionRole role, int units, List<String> derivedFrom) {}
 
@@ -199,18 +199,18 @@ public final class ProofOfValueDtos {
             DistributionSummaryView distribution,
             List<RevenueShareView> revenueShares) {}
 
-    /** KAN-824 (V7): what the event's contributions were allocated by one RevenueEvent (future participation), in lamports. */
+    /** (V7): what the event's contributions were allocated by one RevenueEvent (future participation), in lamports. */
     public record RevenueShareView(UUID revenueEventId, long lamports) {}
 
-    /** KAN-822 (V5): the event's immediate reward at a glance; {@code null} on the event until one is distributed. */
+    /** (V5): the event's immediate reward at a glance; {@code null} on the event until one is distributed. */
     public record DistributionSummaryView(String status, long poolLamports, long confirmedLamports) {}
 
-    /** KAN-822 (V5): one contributor's payout. {@code wallet} null ⇒ UNFUNDED; {@code error} only when FAILED (or broadcast uncertain). */
+    /** (V5): one contributor's payout. {@code wallet} null ⇒ UNFUNDED; {@code error} only when FAILED (or broadcast uncertain). */
     public record PayoutView(String identityId, String displayName, String wallet, long lamports, String status, String txSignature,
             String explorerUrl, String error) {}
 
     /**
-     * KAN-822 (V5): {@code POST /value-events/{id}/distribute} and {@code GET /value-events/{id}/distribution}. {@code status}
+     * (V5): {@code POST /value-events/{id}/distribute} and {@code GET /value-events/{id}/distribution}. {@code status}
      * IN_PROGRESS | PARTIAL | COMPLETE | FAILED, derived from the payouts. {@code receiptHash}: the VALUE_DISTRIBUTION receipt;
      * {@code anchor}: its Merkle batch on devnet once finalized, else {@code null}. Amounts in lamports of devnet SOL — devnet SOL
      * stands in for stablecoin settlement in this demo.
@@ -237,7 +237,7 @@ public final class ProofOfValueDtos {
             String explorerUrl,
             boolean verified) {}
 
-    // ---- revenue events (V7, KAN-824) ---------------------------------------------------------
+    // ---- revenue events (V7) ---------------------------------------------------------
 
     public record RevenueSourceRequest(
             @NotBlank @Pattern(regexp = "^(PROPOSAL|SIMULATED|EXTERNAL)$", message = "must be PROPOSAL, SIMULATED or EXTERNAL") String kind,
@@ -263,7 +263,7 @@ public final class ProofOfValueDtos {
     public record LinkedValueEventView(UUID id, String title, long shareLamports) {}
 
     /**
-     * KAN-824 (V7): {@code status} PARTIAL | COMPLETE | FAILED (IN_PROGRESS while a payout is PENDING), derived from the payouts.
+     * (V7): {@code status} PARTIAL | COMPLETE | FAILED (IN_PROGRESS while a payout is PENDING), derived from the payouts.
      * {@code contributorPoolLamports + protocolFeeLamports + retainedLamports = amountLamports}. {@code receiptHash}: the
      * REVENUE_EVENT receipt; {@code anchor}: its Merkle batch on devnet once finalized, else {@code null}. Devnet SOL stands in
      * for stablecoin settlement in this demo; {@code simulated=true} is a simulated economic result, not real profit.
@@ -272,7 +272,7 @@ public final class ProofOfValueDtos {
             long contributorPoolLamports, long protocolFeeLamports, long retainedLamports, String status, String receiptHash, AnchorRef anchor,
             List<LinkedValueEventView> linkedValueEvents, List<PayoutView> payouts, long confirmedLamports, String treasuryIdentityId, Instant createdAt) {}
 
-    // ---- treasury (V8, KAN-825) ---------------------------------------------------------------
+    // ---- treasury (V8) ---------------------------------------------------------------
 
     public record TreasuryPoliciesView(long rewardPoolLamports, int revenueShareBps, int protocolFeeBps, Long signerMaxLamports) {}
 
@@ -280,7 +280,7 @@ public final class ProofOfValueDtos {
     public record TreasuryEventView(String kind, String id, long lamports, Instant at, String txSignature) {}
 
     /**
-     * KAN-825 (V8): an agent's accounting treasury. {@code onChainBalanceLamports}: RPC {@code getBalance} of its wallet, {@code null}
+     * (V8): an agent's accounting treasury. {@code onChainBalanceLamports}: RPC {@code getBalance} of its wallet, {@code null}
      * (with {@code balanceNote}) when it has none or the RPC failed. Income = Σ its revenue events; contributor payouts = Σ CONFIRMED
      * payouts it paid (its revenue events, and the immediate rewards when it is the configured payer); compute cost = Σ compute
      * receipts of the ValueEvents it contributed to. In this demo payouts are signed from the demo wallet.

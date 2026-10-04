@@ -45,9 +45,9 @@ public final class CorpusGenerator {
         ROUNDING_ATTACK,
         UNAUTHORIZED_AGENT,
         PROMPT_INJECTED_ACTION,
-        /** KAN-572: every price source is older than {@code max_age} — the quorum is lost to staleness ({@code PRICE_STALE}). */
+        /** every price source is older than {@code max_age} — the quorum is lost to staleness ({@code PRICE_STALE}). */
         STALE_PRICE_SOURCES,
-        /** KAN-572: a single source answers — an opinion, not a consensus ({@code PRICE_QUORUM}). */
+        /** a single source answers — an opinion, not a consensus ({@code PRICE_QUORUM}). */
         SINGLE_PRICE_SOURCE;
 
         public boolean adversarial() {
@@ -333,7 +333,7 @@ public final class CorpusGenerator {
         return signed(id, Klass.OVERSIZED_AMOUNT, variant, t, agent, advance);
     }
 
-    /** KAN-572: an otherwise valid trade whose price the oracle cannot vouch for (the run arms the source fault by class). */
+    /** an otherwise valid trade whose price the oracle cannot vouch for (the run arms the source fault by class). */
     private Case priceSources(int id, Klass klass, String variant, long advance) {
         String agent = pick(permitted);
         String in = pick(ASSETS);

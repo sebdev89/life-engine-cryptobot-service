@@ -114,7 +114,7 @@ public class StubRepositoriesConfiguration {
         return new InMemoryAnchorRepository();
     }
 
-    /** KAN-818: Proof of Value — identities and value events. */
+    /** Proof of Value — identities and value events. */
     @Bean
     io.lifeengine.cryptobot.proofofvalue.PovIdentityRepository povIdentityRepository() {
         return InMemoryPovRepositories.identities();
@@ -125,25 +125,25 @@ public class StubRepositoriesConfiguration {
         return InMemoryPovRepositories.events();
     }
 
-    /** KAN-819: knowledge assets. */
+    /** knowledge assets. */
     @Bean
     io.lifeengine.cryptobot.proofofvalue.KnowledgeAssetRepository povKnowledgeAssetRepository() {
         return InMemoryPovRepositories.assets();
     }
 
-    /** KAN-822: immediate-reward distributions and payouts. */
+    /** immediate-reward distributions and payouts. */
     @Bean
     io.lifeengine.cryptobot.proofofvalue.PayoutRepository povPayoutRepository() {
         return InMemoryPovRepositories.payouts();
     }
 
-    /** KAN-824: revenue events (their payouts share the payouts store). */
+    /** revenue events (their payouts share the payouts store). */
     @Bean
     io.lifeengine.cryptobot.proofofvalue.RevenueRepository povRevenueRepository() {
         return InMemoryPovRepositories.revenues();
     }
 
-    /** KAN-393: the DAG walks over the same in-memory receipts and edges. */
+    /** the DAG walks over the same in-memory receipts and edges. */
     @Bean
     io.lifeengine.cryptobot.infrastructure.persistence.controlplane.LineageRepository lineageRepository() {
         return new InMemoryLineageRepository();

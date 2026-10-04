@@ -129,7 +129,7 @@ class SignerControllerTest {
                 .exchange().expectStatus().isUnauthorized();
     }
 
-    // ---- KAN-493: mainnet is fail-closed at the signer ---------------------------------------
+    // ---- an internal ticket: mainnet is fail-closed at the signer ---------------------------------------
 
     @Test
     void mainnetIsRefusedWithoutTheExplicitFlagEvenWithAValidAttestation() {
@@ -158,7 +158,7 @@ class SignerControllerTest {
                 .bodyValue(Map.of("proposalId", "p1", "unsignedTransactionBase64", tx.unsignedBase64(), "expectedFeePayer", me,
                         "cluster", "devnet", "attestation", attestation(forMainnet)))
                 .exchange().expectStatus().isForbidden().expectBody().jsonPath("$.reason").isEqualTo("attestation_cluster_mismatch");
-        // A request that does not say where the bytes go (a pre-KAN-493 client).
+        // A request that does not say where the bytes go (a legacy client).
         AttestationVerifier.Attestation att = Attestations.fresh(VALIDATOR, "p1", tx.serializeMessage(), Instant.now().getEpochSecond());
         web.post().uri("/api/signer/sign").header("X-Signer-Token", "test-token")
                 .bodyValue(Map.of("proposalId", "p1", "unsignedTransactionBase64", tx.unsignedBase64(), "expectedFeePayer", me, "attestation", attestation(att)))

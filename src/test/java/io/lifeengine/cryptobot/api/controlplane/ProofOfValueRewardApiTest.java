@@ -36,7 +36,7 @@ import org.springframework.test.web.reactive.server.WebTestClient;
 import reactor.core.publisher.Mono;
 
 /**
- * KAN-822 (Proof of Value V5) over HTTP with the real transfer pipeline ({@code ExecutionService.submitTransfer}): an ANCHORED
+ * (Proof of Value V5) over HTTP with the real transfer pipeline ({@code ExecutionService.submitTransfer}): an ANCHORED
  * ValueEvent → {@code POST /distribute?anchor=true} → per contributor wallet: fresh blockhash, simulation, the validator's
  * attestation over the payout's (I, S), the signer (a fake that really signs and enforces an allowlist), broadcast and
  * confirmation on fake devnet. In-memory stores; only the SOL price is a mock (the oracle's sources are off in this profile).

@@ -8,7 +8,7 @@ import java.util.List;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
 /**
- * Source of the versioned policy {@code R_v} (KAN-436). USD amounts here are converted to cents
+ * Source of the versioned policy {@code R_v}. USD amounts here are converted to cents
  * and the rest to integers once, at startup, into a {@link PolicyRules}; the hash of that record
  * — not of this file — is what every verdict commits to. {@code max-trade-usd} and
  * {@code allowed-assets} are shared with the legacy rules ({@code cryptobot.policy.*}) so there is

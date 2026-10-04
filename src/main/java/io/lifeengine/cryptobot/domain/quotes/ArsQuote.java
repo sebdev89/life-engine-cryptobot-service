@@ -7,7 +7,7 @@ import java.util.List;
 import java.util.Objects;
 
 /**
- * One exchange's ARS quote for one crypto asset, normalised across exchanges (KAN-355).
+ * One exchange's ARS quote for one crypto asset, normalised across exchanges.
  *
  * <p>Conventions: {@code ask} is what the user pays in ARS per 1 unit of {@code asset} when buying;
  * {@code bid} is what the user receives in ARS per unit when selling. {@code withdrawalFees} are

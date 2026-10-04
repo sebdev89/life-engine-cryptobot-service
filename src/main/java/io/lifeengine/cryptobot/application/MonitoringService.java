@@ -26,7 +26,7 @@ import reactor.core.scheduler.Schedulers;
  *       is {@code true}. Uses {@link MonitoringProperties#interval()} as the period.
  * </ol>
  *
- * <p>The scheduled path has no user behind it. Since KAN-69 it runs with the service's own S2S
+ * <p>The scheduled path has no user behind it. Since an internal ticket it runs with the service's own S2S
  * credential (Auth client-credentials, {@code aud=runtime}) when {@code cryptobot.s2s.*} is
  * configured; otherwise the scheduler logs that it has nothing to authenticate with and skips the
  * tick. Manual triggers via the controller keep using the caller's principal token (pass-through).

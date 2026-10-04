@@ -4,7 +4,7 @@ import java.time.Duration;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
 /**
- * Knobs of the outbox publisher and the reconciliation job (KAN-403). Defaults are for a single
+ * Knobs of the outbox publisher and the reconciliation job. Defaults are for a single
  * instance on the current host; none of them changes a financial decision, only how often the
  * system checks and how long it keeps trying before it asks a human.
  */
@@ -40,7 +40,7 @@ public record ReliabilityProperties(Outbox outbox, Reconciliation reconciliation
      * @param grace an in-flight row younger than this is assumed to be handled by a live request and is skipped
      * @param maxAttempts sweeps without a verdict before the trade is dead-lettered as ambiguous
      * @param batchSize rows per sweep
-     * @param maxRetries KAN-571: how many times a signature the chain never saw, whose blockhash
+     * @param maxRetries an internal ticket: how many times a signature the chain never saw, whose blockhash
      *     expired, is re-executed idempotently (same operationId, fresh blockhash, new signature)
      *     before the trade is dead-lettered as {@code retries_exhausted}. {@code null} ⇒ 2;
      *     {@code 0} ⇒ never retried (dead letter on the first expiry)

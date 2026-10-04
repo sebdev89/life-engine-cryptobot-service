@@ -25,7 +25,7 @@ import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.utility.DockerImageName;
 
 /**
- * KAN-818: {@code POST /value-events?anchor=true} + {@code GET} over HTTP on the REAL stores — the
+ * {@code POST /value-events?anchor=true} + {@code GET} over HTTP on the REAL stores — the
  * whole Spring context with R2DBC + Flyway (V1..V13) against Postgres in Testcontainers (profile
  * {@code e2e}, nothing stubbed inside the service). Only devnet and the signer are HTTP fakes (the
  * same as {@link AnchorFlowTest}: the signer really signs, devnet confirms then finalizes).
@@ -141,7 +141,7 @@ class ProofOfValueApiIT {
                 .expectBody().jsonPath("$.valid").isEqualTo(true);
     }
 
-    /** KAN-819 on Postgres: assets, compute receipt and the provenance contribution persisted; read models over the real tables. */
+    /** on Postgres: assets, compute receipt and the provenance contribution persisted; read models over the real tables. */
     @Test
     void attributionIsPersistedAndReadBackFromPostgres() throws Exception {
         AnchorFlowTest.DevnetDispatcher.reset();
@@ -160,7 +160,7 @@ class ProofOfValueApiIT {
         post(admin, "/api/cryptobot/knowledge-assets", ProofOfValueAttributionApiTest.asset("strategy-knowledge@3", 3, "STRATEGY",
                 "Strategy knowledge", "sebas", ProofOfValueAttributionApiTest.STRATEGY_HASH, "[\"production-acceptance-model@1\"]")).expectStatus().isCreated();
 
-        JsonNode e = JSON.readTree(post(admin, "/api/cryptobot/value-events?anchor=true", ProofOfValueAttributionApiTest.event("KAN-819",
+        JsonNode e = JSON.readTree(post(admin, "/api/cryptobot/value-events?anchor=true", ProofOfValueAttributionApiTest.event("TASK-819",
                         "[\"production-acceptance-model@1\",\"strategy-knowledge@3\"]", ProofOfValueAttributionApiTest.compute("compute-node-8"),
                         ProofOfValueAttributionApiTest.FULL_TEAM))
                 .expectStatus().isCreated().expectBody().returnResult().getResponseBody());

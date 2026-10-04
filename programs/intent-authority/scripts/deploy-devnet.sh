@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Build the program for SBF and deploy it to **devnet** (KAN-437). Devnet only: the script
+# Build the program for SBF and deploy it to **devnet**. Devnet only: the script
 # refuses any other cluster. Needs the Solana CLI (`cargo build-sbf`, `solana`), a funded devnet
 # keypair for the deploy fee (~2 SOL, faucet: https://faucet.solana.com) and a program keypair.
 #

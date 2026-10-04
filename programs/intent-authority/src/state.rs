@@ -31,7 +31,7 @@ pub struct Policy {
     /// The Ed25519 key that must sign every execution under this policy (the `agent_id`).
     pub agent: Pubkey,
     pub policy_version: u32,
-    /// `SHA-256(canonical R_v)` — the `H_R` of KAN-436, raw 32 bytes.
+    //`SHA-256(canonical R_v)` — the `H_R` of an internal ticket, raw 32 bytes.
     pub policy_hash: [u8; 32],
     pub active: bool,
     pub registered_slot: u64,
@@ -85,7 +85,7 @@ impl Nonce {
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq)]
 pub struct Receipt {
     pub discriminator: u8,
-    /// `H_I` — raw 32 bytes of `sha256:<hex>` (KAN-435).
+    //`H_I` — raw 32 bytes of `sha256:<hex>`.
     pub intent_hash: [u8; 32],
     pub agent: Pubkey,
     pub policy_version: u32,

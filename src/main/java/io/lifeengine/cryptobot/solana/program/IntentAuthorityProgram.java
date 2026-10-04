@@ -13,7 +13,7 @@ import java.util.HexFormat;
 import java.util.List;
 
 /**
- * Client of the {@code intent-authority} program ({@code programs/intent-authority}, KAN-437,
+ * Client of the {@code intent-authority} program ({@code programs/intent-authority}, an internal ticket,
  * paper level 4): derives the three PDAs, encodes the three instructions and decodes the three
  * account layouts. Byte-exact with the Rust side — both assert the same
  * {@code src/test/resources/authority/vectors-v1.json}, whose reference values come from the

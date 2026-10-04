@@ -15,7 +15,7 @@ import org.springframework.context.annotation.Primary;
 import org.springframework.web.reactive.function.client.WebClient;
 
 /**
- * KAN-571 — wires the chaos RPC as the {@code @Primary} {@link SolanaRpcClient} only when
+ * wires the chaos RPC as the {@code @Primary} {@link SolanaRpcClient} only when
  * {@code cryptobot.chaos.enabled=true}. Off (default): this class contributes nothing and the
  * production client is the only bean. The startup log says so loudly either way it is on.
  */
@@ -38,7 +38,7 @@ public class ChaosConfiguration {
         return chaos;
     }
 
-    /** KAN-572: the demo's adversarial price. Consulted by {@code PriceOracleService} only when this bean exists. */
+    /** the demo's adversarial price. Consulted by {@code PriceOracleService} only when this bean exists. */
     @Bean
     PriceChaos priceChaos(ChaosProperties props) {
         PriceChaos chaos = new PriceChaos();

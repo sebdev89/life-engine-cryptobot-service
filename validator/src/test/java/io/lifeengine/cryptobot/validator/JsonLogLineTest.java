@@ -26,7 +26,7 @@ import org.springframework.test.web.reactive.server.WebTestClient;
 
 /**
  * Lo que de verdad sale por stdout del validador tiene que ser JSON con los campos comunes de la
- * plataforma (KAN-426 / KAN-573): el veredicto lleva event/status y el proposalId del pedido en el
+ * plataforma: el veredicto lleva event/status y el proposalId del pedido en el
  * MDC; un token rechazado, errorCode CB-VALIDATOR-002; la identidad del build en cada línea.
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)

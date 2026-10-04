@@ -13,7 +13,7 @@ import org.springframework.transaction.reactive.TransactionalOperator;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
-/** {@code receipt_anchor} + {@code receipt_anchor_member} + the anchor columns of {@code intelligence_receipt} (V8, KAN-394). */
+/** {@code receipt_anchor} + {@code receipt_anchor_member} + the anchor columns of {@code intelligence_receipt} (V8). */
 @Profile("!test")
 @Component
 public class AnchorR2dbcStore implements AnchorRepository {

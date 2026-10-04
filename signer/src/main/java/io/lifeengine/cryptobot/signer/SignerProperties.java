@@ -4,14 +4,14 @@ import java.util.List;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
 /**
- * @param validatorPublicKey base58 Ed25519 public key of {@code cryptobot-validator} (KAN-438).
+ * @param validatorPublicKey base58 Ed25519 public key of {@code cryptobot-validator}.
  *     Every sign request must carry an attestation signed by it; empty ⇒ nothing is ever signed
  *     while {@code requireAttestation} is on.
- * @param requireAttestation the level-5 gate (paper §20). {@code false} is the pre-KAN-438
+ * @param requireAttestation the level-5 gate (paper §20). {@code false} is the legacy
  *     behaviour (token + byte-level limits only) and is meant for tests and local demos, never for
- *     a wallet with anything in it. KAN-493: only accepted under the Spring profile {@code local}
+ *     a wallet with anything in it. an internal ticket: only accepted under the Spring profile {@code local}
  *     or {@code test}; any other profile refuses to start ({@link AttestationRequirementGuard}).
- * @param allowMainnet KAN-493: mainnet is fail-closed. {@code false} (default, env
+ * @param allowMainnet an internal ticket: mainnet is fail-closed. {@code false} (default, env
  *     {@code SIGNER_ALLOW_MAINNET}) ⇒ a sign request for {@code mainnet-beta} is refused whatever
  *     the attestation says. Independent of the service's {@code CRYPTOBOT_ALLOW_MAINNET}.
  */

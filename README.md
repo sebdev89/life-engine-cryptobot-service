@@ -1,8 +1,11 @@
 <!-- Product name: defined only in the title below; change it there. -->
-# Proof of Value — CryptoBot, the first economic agent
+# CryptoBot — Proof of Value for Autonomous Agents
+
+<p align="center"><img src="docs/brand/png/cryptobot-wordmark-dark.png" alt="CryptoBot — Proof of Value for Autonomous Agents" width="480"></p>
 
 Proof of Value records who created an accepted software outcome, anchors that record on Solana, and pays
-contributors — humans, agents, knowledge and compute — from the value it creates.
+contributors — humans, agents, knowledge and compute — from the value it creates. CryptoBot, a trusted-execution
+agent on Solana, is the first real case that proves the protocol.
 
 > **AI can create value. Proof of Value makes sure we remember who created it.**
 > **Don't reward commits. Reward outcomes.**
@@ -38,14 +41,14 @@ transaction.
 - **UI** (`life-engine-cryptobot-ui`) reads the service APIs: `/value`, `/value/ledger`, `/value/identities/:id`,
   `/value/revenue`, `/value/treasury`, `/proof/:root`, `/live`.
 
-CryptoBot itself is the trusted-execution agent the protocol runs on: intent → policy → approval → timelock → validator →
+CryptoBot — the first real case that proves the protocol — is a trusted-execution agent: intent → policy → approval → timelock → validator →
 signer → finalized → reconciled → proof. Its full reference: [`docs/TRUSTED-AGENT-EXECUTION.md`](docs/TRUSTED-AGENT-EXECUTION.md).
 
 ## What is real today
 
 States: `MERGED → BUILT → DEPLOYED → RUNNING → ACCEPTED`. **ACCEPTED** here means: running on the devnet demo stack built from
 `main`, with the transactions below finalized. V1–V4 and V6 were also measured 7/7 by release truth in the UAT (Kubernetes)
-environment; V5, V7 and V8 on the devnet demo stack.
+environment; V5, V7, V8 and V9 on the devnet demo stack. **V1–V9 are ACCEPTED.**
 
 | V | Capability | State | Devnet evidence |
 |---|---|---|---|
@@ -58,10 +61,12 @@ environment; V5, V7 and V8 on the devnet demo stack.
 | V6 | Contribution Units ledger by identity / asset / project | **ACCEPTED** | ledger totals = events × 100 (same anchors) |
 | V7 | Revenue Event — revenue from a real CryptoBot proposal shared by historical units | **ACCEPTED** (amount is a *simulated economic result*, labelled) | [revenue anchor](https://explorer.solana.com/tx/gAu96iBK2WfANagw9t67uYhutaog9ej7k1nq2fjK58yeBkYQNHJ2X4Azu6aKiQVinuEMgDCQUBGXJtyui3bqefW?cluster=devnet) · [payout](https://explorer.solana.com/tx/2D6LUcAAbbadJ1W2hqGTGcDcrwVPam4YCtH481KycmNERgieaTjKfrsvvvezSgtwz9Jq3cWMVo7RsiLcgUHzfLjY?cluster=devnet) |
 | V8 | Autonomous CryptoBot Economy — treasury read model of `cryptobot-001` | **ACCEPTED** (read model; every spend is a payout with policy, cap and receipt) | `GET /treasury/cryptobot-001`: income 0.05 SOL, payouts 0.03 SOL, fee 0.0025, retained 0.0375 |
-| V9 | End-to-end: one command, nine steps, one report | **MERGED**, run live on devnet with the CryptoBot operation skipped (`--skip-op`); the full run with the operation is recorded in the rehearsal | [ValueEvent anchor](https://explorer.solana.com/tx/7uzgohohVz6ozKT6keXRrs2dcgTxbnNJYdBHwMGek8GQk239PR2Sq1RqShZKe23JfRFirBAaanMUtKvaT6x99AG?cluster=devnet) · [revenue anchor](https://explorer.solana.com/tx/2ZpTPFy7PLjqyUiUcRxoBh2zLNpGfccBKEwuqxisM56E82hLHN6eGTypwi6fr7nyfjF2k8qRDFYtwiVrkavSR9D1?cluster=devnet) |
+| V9 | End-to-end: one command, nine steps, one report — **including a real CryptoBot operation** | **ACCEPTED** (9/9 steps, 2026-09-30; the revenue amount is a *simulated economic result*, `simulated=true`, on top of a real operation) | [ValueEvent anchor](https://explorer.solana.com/tx/51nco1gL2wxNPT2Mi8T4PMSMwgxpPjSbae7djBrGZoYjyyWuRY4uc33aknjD514ixBhgXEwB1f2224PnoWjQCmKY?cluster=devnet) · [CryptoBot operation](https://explorer.solana.com/tx/xYpJkKrPa96jLbpJHEe5kBtNUVSKeiBdrDPThg4J8UfW9uTE4w5sE846tR5umc7qK3vM2AMcJ5FkUHvP73pBARF?cluster=devnet) · [RevenueEvent anchor](https://explorer.solana.com/tx/Bcq8cqYbUndGkzi74DtrmuZXGpLV1KQPd98k6SDXSjzjbVDBbFcx5XdbYiXp5gkLj7RVVe3NL2ofqdDqHNDJpT3?cluster=devnet) — all finalized on devnet |
 | V10 | Hackathon product: this README, diagram, video, landing | **in progress** | — |
 
-A row moves to ACCEPTED only with a finalized transaction produced by the image that is actually deployed. Verify any of them
+A row moves to ACCEPTED only with a finalized transaction produced by the image that is actually deployed. Known gap: the
+OCI build label (`life-engine.commit`) of the image running in the UAT pod is still stale — the fix is an open pull request,
+scheduled after the submission; the image itself is identified by digest. Verify any of them
 yourself: [`docs/PROOF-OF-VALUE.md` → *Verifying a hash on-chain by hand*](docs/PROOF-OF-VALUE.md#verifying-a-hash-on-chain-by-hand).
 
 ## Quickstart — the demo on devnet
@@ -70,14 +75,17 @@ Requirements: Linux or macOS with Docker (Compose v2), bash, curl, python3 and g
 Engine services are needed: the demo stack brings its own Postgres, validator, signer, service and UI.
 
 ```bash
-git clone https://github.com/sebdev89/life-engine-cryptobot-service && cd life-engine-cryptobot-service
+git clone https://github.com/sebdev89/life-engine-cryptobot-service
+git clone https://github.com/sebdev89/life-engine-cryptobot-ui cryptobot-ui   # the UI is built from ../cryptobot-ui
+cd life-engine-cryptobot-service
 scripts/demo/wallet-devnet.sh      # devnet keys under ~/.cryptobot-demo + .env.demo (both never committed), airdrop
 scripts/demo/run.sh --keep         # stack up + the trusted-execution demo in 4 acts; the stack stays up
 docker compose -f docker-compose.demo.yml --env-file .env.demo --profile ui up -d --build   # the UI
 scripts/demo/pov-e2e.sh --task "Improve CryptoBot opportunity detection" --task-id TASK-042 --assume-accepted --skip-op
 ```
 
-Then `scripts/demo/ui-url.sh --path /value` prints a signed-in URL (1 h demo token). `pov-e2e.sh` prints one block per step
+The UI image is built from the sibling checkout `../cryptobot-ui` (cloned above under that name); to build it from another
+path set `CRYPTOBOT_UI_CONTEXT=<absolute path of the UI checkout>`. Then `scripts/demo/ui-url.sh --path /value` prints a signed-in URL (1 h demo token). `pov-e2e.sh` prints one block per step
 and a final **VALUE GENERATED / ATTRIBUTION** screen, and writes `out/pov-e2e-<ts>.md` with every id, hash, tx and explorer
 link; the report and the log are scanned for every secret of `.env.demo` before it exits (exit 3 on a hit).
 
@@ -90,6 +98,20 @@ link; the report and the log are scanned for every secret of `.env.demo` before 
 
 Details: [`scripts/demo/README.md`](scripts/demo/README.md) · video cuts: [`docs/DEMO-PATH-90S.md`](docs/DEMO-PATH-90S.md),
 [`docs/DEMO-PATH-3MIN.md`](docs/DEMO-PATH-3MIN.md) · API and policies: [`docs/PROOF-OF-VALUE.md`](docs/PROOF-OF-VALUE.md).
+
+## Distribution policy — public and fixed
+
+**20% contributor pool · 5% protocol fee · 75% retained treasury.** The policy is predictable and auditable, not a black box:
+
+- Every accepted outcome (ValueEvent) carries **100 Contribution Units**, split **equally per contribution**
+  (`pov/equal-split/v1`; the remainder goes to the first contribution: 3 contributions → 34/33/33). No AI decides the shares.
+- `KNOWLEDGE_PROVIDER` is derived: for every knowledge asset used (by content hash), its **creator** is added as a
+  `KNOWLEDGE_PROVIDER` contribution automatically, so the units go to whoever created the asset.
+- Rewards and revenue are paid **pro rata by Contribution Units**: the immediate reward pool by the units of that event, a
+  RevenueEvent's 20% contributor pool by the historical units of the ValueEvents it is linked to.
+- The 5% protocol fee is recorded, not transferred; the retained 75% also absorbs rounding dust, so
+  `contributor pool + fee + retained = amount` always holds.
+- The policy name is inside every anchored event, so anyone can recompute each payout from the public record.
 
 ## Data model
 
@@ -112,6 +134,8 @@ Payouts (V5, V7) are one `SystemProgram.transfer` per contributor on devnet, eac
 CryptoBot execution, and summarized in an anchored `VALUE_DISTRIBUTION` or `REVENUE_EVENT` receipt.
 
 ## Security notes
+
+Security policy, how to report a vulnerability and the repository history audit: [`SECURITY.md`](SECURITY.md).
 
 - The agent never holds a key: an isolated signer, gated by an independent validator, signs only memos and transfers to
   allow-listed wallets, capped per transaction. Mainnet is refused at three independent layers, each off by default.
@@ -151,4 +175,5 @@ Proof of Value (V1–V10) was built during the hackathon.
 
 ## License
 
-No license file yet: **pending the owner's decision**. Until one is added, all rights are reserved.
+Copyright (c) 2026 Sebastian H. De Vito. Licensed under the Apache License 2.0 — see [`LICENSE`](LICENSE) and
+[`NOTICE`](NOTICE).

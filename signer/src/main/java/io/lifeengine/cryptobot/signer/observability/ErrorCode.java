@@ -4,7 +4,7 @@ import net.logstash.logback.argument.StructuredArgument;
 import net.logstash.logback.argument.StructuredArguments;
 
 /**
- * Catálogo de errores del signerNAME (KAN-426 / KAN-573). Corto a propósito: un código por causa que
+ * Catálogo de errores del signerNAME. Corto a propósito: un código por causa que
  * alguien va a buscar en Loki durante el demo. Formato {@code CB-SIGNER-<NNN>}; los de borde
  * ({@code HTTP}, {@code INTERNAL}) son los mismos de la plataforma.
  *
@@ -18,7 +18,7 @@ public enum ErrorCode {
     ATTESTATION_REFUSED("CB-SIGNER-002", "atestación del validador rechazada"),
     /** {@code X-Signer-Token} ausente o incorrecto. */
     BAD_TOKEN("CB-SIGNER-003", "token de servicio rechazado"),
-    /** El memo de anclaje no coincide con root/count o no es devnet (KAN-394). */
+    /** El memo de anclaje no coincide con root/count o no es devnet. */
     ANCHOR_REFUSED("CB-SIGNER-004", "firma de anclaje rechazada"),
 
     /** Pedido inválido (validación, cuerpo malformado). */

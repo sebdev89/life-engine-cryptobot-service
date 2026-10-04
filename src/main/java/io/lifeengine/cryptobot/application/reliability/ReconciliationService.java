@@ -29,7 +29,7 @@ import org.springframework.stereotype.Service;
 import reactor.core.publisher.Mono;
 
 /**
- * Resolves in-flight trades against the chain (KAN-403 §31 "trade incierto → reconciliación").
+ * Resolves in-flight trades against the chain (internal ticket §31 "trade incierto → reconciliación").
  * Runs at startup and periodically ({@link ReconciliationJob}); {@link #reconcile} is also
  * callable directly.
  *
@@ -39,7 +39,7 @@ import reactor.core.publisher.Mono;
  *       its answer): nothing was ever broadcast ⇒ {@code FAILED}, no retry;
  *   <li>signature on the chain with an error ⇒ {@code FAILED}; confirmed/finalized ⇒ {@code EXECUTED};
  *   <li>signature not found and the current block height is past {@code lastValidBlockHeight} ⇒ the
- *       chain can never include it. <b>KAN-571:</b> the operation is retried <em>idempotently</em>
+ *       chain can never include it. <b>an internal ticket:</b> the operation is retried <em>idempotently</em>
  *       — same {@code operationId}, fresh blockhash, new signature, through the full pipeline
  *       (re-simulation, validator, signer) — up to {@code maxRetries} times; past that ⇒ dead
  *       letter {@code retries_exhausted}. A {@code SUBMITTED} row here is a mismatch (we believed
@@ -50,7 +50,7 @@ import reactor.core.publisher.Mono;
  * Every write is a guarded {@link ProposalTransition}: if a live request moved the row first, the
  * reconciler's commit fails with {@code StaleProposal} and it simply moves on.
  *
- * <p>{@link #settle} is the human's version of the same verdict (KAN-501 resolve): the chain is
+ * <p>{@link #settle} is the human's version of the same verdict (internal ticket resolve): the chain is
  * asked once, ignoring the attempt ceiling; a never-seen expired signature is closed as
  * {@code FAILED} instead of retried; and "no verdict" leaves the row untouched.
  */
@@ -61,7 +61,7 @@ public class ReconciliationService {
     public static final String ACTOR = "reconciliation";
     public static final String EV_RECONCILED = "RECONCILED";
     public static final String EV_AMBIGUOUS = "RECONCILIATION_AMBIGUOUS";
-    /** KAN-571: the idempotent retries of an operation ran out; a human owns it now. */
+    /** the idempotent retries of an operation ran out; a human owns it now. */
     public static final String EV_RETRIES_EXHAUSTED = "RECONCILIATION_RETRIES_EXHAUSTED";
 
     /** Bounded {@code reason} label of {@code cryptobot_dead_letter_total} and {@code payload.kind} of the letter. */
@@ -74,7 +74,7 @@ public class ReconciliationService {
         MATCHED,
         /** Row moved to the terminal state the chain proves. */
         CORRECTED,
-        /** KAN-571: blockhash expired unseen ⇒ re-executed under the same operationId (new signature). */
+        /** blockhash expired unseen ⇒ re-executed under the same operationId (new signature). */
         RETRIED,
         /** Sent to the dead-letter queue; a human decides. */
         DEAD_LETTERED,
@@ -136,8 +136,8 @@ public class ReconciliationService {
     }
 
     public Mono<Result> reconcile(ActionProposal p) {
-        // KAN-573: el barrido corre sin request; proposalId/operationId entran al MDC por fila (LogContext).
-        // KAN-582: una fila = una muestra del histograma de la etapa reconcile (cryptobot_stage_latency_seconds{stage="reconcile"}).
+        // el barrido corre sin request; proposalId/operationId entran al MDC por fila (LogContext).
+        // una fila = una muestra del histograma de la etapa reconcile (cryptobot_stage_latency_seconds{stage="reconcile"}).
         return Mono.defer(() -> {
                     io.micrometer.core.instrument.Timer.Sample sample = metrics.stageStart();
                     return reconcile(p, false).doOnNext(r -> metrics.reconciliation(r.name()))
@@ -147,7 +147,7 @@ public class ReconciliationService {
     }
 
     /**
-     * KAN-501 resolve: the human's verdict. The chain is asked once regardless of the attempt
+     * resolve: the human's verdict. The chain is asked once regardless of the attempt
      * ceiling; the row is closed to what the chain proves — {@code EXECUTED}, {@code FAILED}, or
      * {@code FAILED} when the signature was never seen and can no longer land — and is left
      * untouched ({@link Result#SKIPPED}) when there is no verdict yet (inside the blockhash window,
@@ -248,7 +248,7 @@ public class ReconciliationService {
         record Pending(String why) implements Verdict {}
     }
 
-    /** KAN-571 rule 3: the previous bytes can never be included ⇒ retry under the same operationId, or give up. */
+    /** rule 3: the previous bytes can never be included ⇒ retry under the same operationId, or give up. */
     private Mono<Result> expired(ActionProposal p, ExecutionRecord exec, Verdict.Expired e) {
         if (e.mismatch()) {
             metrics.reconciliationMismatch();
@@ -293,7 +293,7 @@ public class ReconciliationService {
                                         ProposalService.payload("signature", prev.signature(), "explorerUrl", prev.explorerUrl(), "confirmation", confirmation)))
                         .publish(ProposalService.tradeEvent(next, TradeEvents.CONFIRMED, now,
                                 ProposalService.payload("signature", prev.signature(), "explorerUrl", prev.explorerUrl(), "confirmation", confirmation, "reconciled", true))))
-                // KAN-391: the same EXECUTION receipt the synchronous path would have left.
+                // the same EXECUTION receipt the synchronous path would have left.
                 .flatMap(terminal -> executionReceipts.receiptFor(terminal, prev.submittedAt()))
                 .thenReturn(Result.CORRECTED);
     }

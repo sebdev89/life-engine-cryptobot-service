@@ -26,7 +26,7 @@ cryptobot:
 lifeengine:
   security:
     jwt:
-      # Must match life-engine-auth + life-engine-runtime. No default (KAN-350): the historical
+      # Must match life-engine-auth + life-engine-runtime. No default: the historical
       # dev value sat in a public repo and is treated as compromised. Set JWT_SECRET in .env.local
       # (see .env.template) or AUTH_JWKS_URI; with neither, the service refuses to start.
       secret: ${JWT_SECRET:}

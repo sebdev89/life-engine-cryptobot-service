@@ -61,8 +61,8 @@ import org.springframework.stereotype.Component;
  *   <li>{@code portfolio-snapshot/1} — the valued positions (amounts, prices, weights as decimal strings).
  *   <li>{@code risk-decision/1} — the discrete verdict of the deterministic risk engine (action, buckets, reasons, signals
  *       in integer units). No text, no timestamp. L1: the canonical input ({@code risk-input/1}) is declared as a
- *       {@code RISK_INPUT} and stored next to the receipt, so {@code verify} re-executes the engine (KAN-392).
- *   <li>{@code policy-verdict/1} — the Decision Receipt (KAN-572): the policy layer's verdict over the simulated
+ *       {@code RISK_INPUT} and stored next to the receipt, so {@code verify} re-executes the engine.
+ *   <li>{@code policy-verdict/1} — the Decision Receipt: the policy layer's verdict over the simulated
  *       proposal, ALLOW / ESCALATE / DENY with the failed predicates under {@code R_v} ({@code H_R}). L1: the canonical
  *       {@code (I, S)} is declared as a {@code POLICY_INPUT} and stored next to the receipt, so {@code verify} re-runs
  *       the policy engine. The hard rules that fired (allowlist, limits, cooldown, price integrity, signer caps) travel
@@ -178,7 +178,7 @@ public class Receipts {
         return report.decision();
     }
 
-    // ---- 2b. RISK_DECISION — the policy layer's Decision Receipt (KAN-572) -----------------------
+    // ---- 2b. RISK_DECISION — the policy layer's Decision Receipt -----------------------
 
     static final String ENGINE_POLICY = DeterministicPolicyEngine.ID;
     public static final String POLICY_VERDICT_SCHEMA = "policy-verdict/1";
@@ -193,7 +193,7 @@ public class Receipts {
      * on live state (cooldown clock, signer identity, quotes) that the receipt names by hash
      * ({@code ORACLE_READING}) rather than re-fetches.
      *
-     * @return empty when the decision has no recorded {@code (I, S)} or verdict (rows persisted before KAN-438)
+     * @return empty when the decision has no recorded {@code (I, S)} or verdict (rows persisted before a later change)
      */
     public java.util.Optional<ReceiptDraft> policyDecision(Wallet wallet, ActionProposal proposal, String strategyReceipt, String simulationReceipt) {
         PolicyDecision d = proposal.policy();
@@ -348,7 +348,7 @@ public class Receipts {
 
     /**
      * Issued once per execution attempt, at its terminal state ({@code EXECUTED} or {@code FAILED}).
-     * Nonce = the operation id: the idempotency key of KAN-403 is also the replay guard of the receipt.
+     * Nonce = the operation id: the idempotency key of an internal ticket is also the replay guard of the receipt.
      */
     public ReceiptDraft execution(ActionProposal proposal, String simulationReceipt, String strategyReceipt, Instant startedAt) {
         ExecutionRecord exec = proposal.execution();
@@ -360,7 +360,7 @@ public class Receipts {
             inputs.add(new ReceiptInput(ReceiptInput.POLICY_VERDICT, proposal.policy().authorization().hash()));
         }
         if (proposal.policy() != null && proposal.policy().oracle() != null) {
-            // KAN-439: the state reference — the quotes the decision was priced with, under the committed limits.
+            // the state reference — the quotes the decision was priced with, under the committed limits.
             inputs.add(new ReceiptInput(ReceiptInput.ORACLE_READING, proposal.policy().oracle().quotesHash()));
         }
         if (proposal.approval() != null) {
@@ -389,7 +389,7 @@ public class Receipts {
         }
         Long wallMs = startedAt == null ? null : Math.max(0, clock.instant().toEpochMilli() - startedAt.toEpochMilli());
         String nonce = "exec:" + (proposal.operationId() == null ? proposal.id() : proposal.operationId());
-        // KAN-500: the run that advised this trade (when the proposal came out of the advisor) travels to the EXECUTION receipt too.
+        // the run that advised this trade (when the proposal came out of the advisor) travels to the EXECUTION receipt too.
         ReceiptBody body = new ReceiptBody(null, ReceiptKind.EXECUTION, tenantOf(proposal.ownerUserId()), proposal.ownerUserId().toString(), AGENT_EXECUTION,
                 parents, inputs, null, null, null, runtimeRef(proposal.runtimeRunId()), Map.of("cluster", proposal.cluster()),
                 new ReceiptBody.Output(hash(out), "execution/1", "action_proposal:" + proposal.id() + "#execution"),

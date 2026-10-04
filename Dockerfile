@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1
 # cryptobot-service — multi-stage build (Maven 3.9 + JRE 21 alpine). Build context: this repo.
 #
-# Misma forma que life-engine-runtime: es la imagen que publica CI (docker-publish, KAN-352) y
+# Misma forma que life-engine-runtime: es la imagen que publica CI (docker-publish) y
 # la que consume uat-compose por digest. El módulo `signer/` tiene su propio pom y su propia
 # imagen; no entra acá.
 
@@ -18,7 +18,7 @@ RUN mvn -B -q -ntp -DskipTests package
 # otros seis servicios) y `eclipse-temurin:21-jre` (ubuntu) no trae wget ni curl.
 FROM eclipse-temurin:21-jre-alpine AS runtime
 
-# Identidad de build para /actuator/info (KAN-195/KAN-199). El contexto copia sólo src/
+# Identidad de build para /actuator/info. El contexto copia sólo src/
 # (sin .git), así que git-commit-id no genera git.properties: CI pasa los datos reales como
 # build-args y BuildIdentityResolver los prefiere (identity.git.* en application.yml).
 # Son hechos de git, nunca secretos.

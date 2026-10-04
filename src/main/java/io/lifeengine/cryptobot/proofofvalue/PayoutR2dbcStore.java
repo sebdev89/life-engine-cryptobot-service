@@ -9,7 +9,7 @@ import org.springframework.transaction.reactive.TransactionalOperator;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
-/** KAN-822 (V14): {@code pov_distribution} + {@code pov_payout}. */
+/** (V14): {@code pov_distribution} + {@code pov_payout}. */
 @Profile("!test")
 @Component
 public class PayoutR2dbcStore implements PayoutRepository {

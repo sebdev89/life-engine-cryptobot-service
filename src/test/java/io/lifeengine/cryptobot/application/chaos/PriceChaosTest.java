@@ -15,7 +15,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 /**
- * KAN-572: the demo's adversarial price is injected into what the sources said, and the real
+ * the demo's adversarial price is injected into what the sources said, and the real
  * {@link PriceOracle} refuses for the real reason. Nothing here bypasses the oracle: the
  * injection is one more observation, the limits are the limits.
  */

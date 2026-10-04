@@ -59,7 +59,7 @@ import org.junit.jupiter.api.Test;
 import reactor.core.publisher.Mono;
 
 /**
- * KAN-822 (Proof of Value V5, immediate reward) without the network: the split, the 409s, idempotency, UNFUNDED, a signer
+ * (Proof of Value V5, immediate reward) without the network: the split, the 409s, idempotency, UNFUNDED, a signer
  * refusal that does not stop the other payouts, the policy's DENY, the signer's cap, the VALUE_DISTRIBUTION receipt and the
  * reconciliation of a SUBMITTED payout. Real in-memory stores and receipts; the transfer pipeline itself
  * ({@link ExecutionService#submitTransfer}) is a mock here and runs for real in {@code ProofOfValueRewardApiTest}.
@@ -99,7 +99,7 @@ class PovRewardServiceTest {
                 List.of(), List.of(), null, null, null, null, Map.of(), new ReceiptBody.Output(Digests.sha256("event"), "s", null),
                 new ReceiptBody.Compute(null, null, 1, null), null, ReproducibilityLevel.L0_SIGNED, NOW, NOW, "pov:event", null))).block();
         // sebas has two roles (35 units in all): one payout, one transaction to one destination.
-        event = new ValueEventRecord(UUID.randomUUID(), TENANT, OWNER, eventReceipt.receiptHash(), Digests.sha256("event"), "cryptobot", "KAN-822", "t",
+        event = new ValueEventRecord(UUID.randomUUID(), TENANT, OWNER, eventReceipt.receiptHash(), Digests.sha256("event"), "cryptobot", "TASK-822", "t",
                 Digests.sha256("a"), Digests.sha256("b"), NOW, DistributionPolicy.EQUAL_SPLIT_V1, 100, "{}", NOW, List.of(
                         contribution(0, "sebas", ContributionRole.SPECIFIER, 25),
                         contribution(1, "dev-agent-17", ContributionRole.IMPLEMENTER, 25),

@@ -24,7 +24,7 @@ import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
 /**
- * KAN-571 / KAN-501 (CB-11): the way out of the dead-letter queue. Until now a letter was written
+ * (CB-11): the way out of the dead-letter queue. Until now a letter was written
  * and counted ({@code dlq_size}) but nothing ever resolved it. Two human actions, both audited,
  * both at most once per letter:
  *

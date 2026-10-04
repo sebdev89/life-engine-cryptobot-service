@@ -14,12 +14,12 @@ import java.util.TreeMap;
  * a {@code null}, a float or an unknown type is a programming error, not something to "repair"
  * (paper §17: ambiguity ⇒ deny).
  *
- * <p>Same rules as the intent canonicalizer (KAN-435): keys sorted by UTF-16 code units, no
+ * <p>Same rules as the intent canonicalizer: keys sorted by UTF-16 code units, no
  * whitespace, integers as plain digits, strings escaped only where JSON requires it, with the
  * two-character forms for backspace, tab, newline, form feed, carriage return, quote and
  * backslash, and the lowercase-hex six-character form for the rest of the control range.
  * Package-private on purpose: when the generic canonicalizer lands in {@code domain.intent}
- * this class delegates to it (see the KAN-436 handoff).
+ * this class delegates to it (see an internal ticket handoff).
  */
 public final class CanonicalJson {
 

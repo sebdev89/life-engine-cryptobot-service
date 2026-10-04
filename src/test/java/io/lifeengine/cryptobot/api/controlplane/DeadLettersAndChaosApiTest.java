@@ -32,7 +32,7 @@ import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.reactive.server.WebTestClient;
 
 /**
- * KAN-571 / KAN-501 over HTTP: the global DLQ is an admin's ({@code RUNTIME_ADMIN}); resolve and
+ * over HTTP: the global DLQ is an admin's ({@code RUNTIME_ADMIN}); resolve and
  * requeue persist who/when/why and are one-shot; the chaos endpoint exists only when
  * {@code cryptobot.chaos.enabled=true} (here it is, as in the demo stack) and the injected RPC is
  * the {@code @Primary} {@link SolanaRpcClient}.

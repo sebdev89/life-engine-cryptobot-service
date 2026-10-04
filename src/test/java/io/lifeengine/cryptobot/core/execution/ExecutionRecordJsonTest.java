@@ -8,7 +8,7 @@ import java.time.Instant;
 import org.junit.jupiter.api.Test;
 
 /**
- * KAN-571: {@code retries} / {@code previousSignature} were added to the execution record that
+ * {@code retries} / {@code previousSignature} were added to the execution record that
  * lives inside the proposal's JSONB document. Documents written before the change must still read
  * (retries 0, no previous signature), and the new fields must round-trip.
  */

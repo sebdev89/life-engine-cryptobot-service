@@ -3,7 +3,7 @@ package io.lifeengine.cryptobot.core;
 import java.util.Locale;
 
 /**
- * The networks the trusted execution core knows about, independent of Solana. KAN-595 (TAE phase
+ * The networks the trusted execution core knows about, independent of Solana. an internal ticket (TAE phase
  * 1, audit §20/§21): the core must not import an adapter type to know which network a wallet or a
  * proposal is on. {@code io.lifeengine.cryptobot.solana.rpc.SolanaCluster} is the Solana adapter's
  * own representation and converts to/from this one at the boundary

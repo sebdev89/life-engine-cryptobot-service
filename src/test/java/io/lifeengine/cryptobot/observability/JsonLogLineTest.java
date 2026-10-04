@@ -27,7 +27,7 @@ import org.springframework.test.web.reactive.server.WebTestClient;
 
 /**
  * Lo que de verdad sale por stdout tiene que ser JSON con los campos comunes de la plataforma
- * (KAN-426 / KAN-573, el 7/7). Este test no mira el MDC ni la configuración: hace pedidos reales,
+ * (el 7/7). Este test no mira el MDC ni la configuración: hace pedidos reales,
  * captura la consola y parsea las líneas. Si alguien vuelve a un patrón de texto, o saca un campo,
  * falla acá. Las líneas del demo path (proposalId/operationId/errorCode CB-POLICY-*) se prueban en
  * {@code DemoPathJsonLogTest}, que necesita el RPC y el Runtime falsos.

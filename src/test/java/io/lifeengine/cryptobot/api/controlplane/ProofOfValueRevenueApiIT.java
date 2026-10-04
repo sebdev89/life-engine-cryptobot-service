@@ -24,7 +24,7 @@ import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.utility.DockerImageName;
 
 /**
- * KAN-824 / KAN-825: {@link ProofOfValueRevenueApiTest}'s scenario on the REAL stores — R2DBC + Flyway V1..V15 against Postgres
+ * {@link ProofOfValueRevenueApiTest}'s scenario on the REAL stores — R2DBC + Flyway V1..V15 against Postgres
  * in Testcontainers (profile {@code e2e}). Devnet, the signer and the validator are HTTP fakes; the SOL price is a mock. Checks
  * what only Postgres enforces: the REVENUE_EVENT kind passes the receipt CHECK, the revenue payouts live in pov_payout with
  * revenue_event_id (and no distribution/value event: the one-source CHECK), the split CHECK, the unique source, the links.

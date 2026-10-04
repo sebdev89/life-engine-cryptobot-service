@@ -16,7 +16,7 @@ import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
 /**
- * The lineage API of Endgame §15 (KAN-393):
+ * The lineage API of Endgame §15:
  *
  * <pre>
  *   GET /api/cryptobot/receipts/{hash}/lineage?direction=ancestors|descendants|both&amp;depth=N

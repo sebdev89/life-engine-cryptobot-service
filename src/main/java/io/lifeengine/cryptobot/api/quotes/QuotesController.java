@@ -19,7 +19,7 @@ import reactor.core.publisher.Mono;
 
 /**
  * {@code GET /api/cryptobot/quotes/{asset}} — ARS quotes across exchanges and the "recibís X"
- * ranking (KAN-355).
+ * ranking.
  *
  * <pre>
  * GET /api/cryptobot/quotes/BTC                       board ranked by lowest ask

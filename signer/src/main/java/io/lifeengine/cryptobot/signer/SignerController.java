@@ -31,8 +31,8 @@ public class SignerController {
     public static final String TOKEN_HEADER = "X-Signer-Token";
 
     /**
-     * {@code cluster} (KAN-493): the cluster the bytes are for; mainnet is refused unless {@code signer.allow-mainnet=true}.
-     * {@code attestation} (KAN-438): the validator's signed payload; required unless {@code signer.require-attestation=false}.
+     * {@code cluster}: the cluster the bytes are for; mainnet is refused unless {@code signer.allow-mainnet=true}.
+     * {@code attestation}: the validator's signed payload; required unless {@code signer.require-attestation=false}.
      */
     public record SignRequest(String proposalId, String unsignedTransactionBase64, String expectedFeePayer, String cluster,
             AttestationVerifier.Attestation attestation) {}
@@ -67,7 +67,7 @@ public class SignerController {
 
     @PostMapping(path = "/sign", consumes = "application/json")
     public Mono<ResponseEntity<?>> sign(@RequestHeader(value = TOKEN_HEADER, required = false) String token, @RequestBody SignRequest req) {
-        // KAN-573: el trabajo corre dentro de la cadena reactiva para que proposalId esté en el MDC de
+        // el trabajo corre dentro de la cadena reactiva para que proposalId esté en el MDC de
         // cada línea (LogContext); con Mono.just(...) el log saldría antes de que exista el Context.
         return Mono.<ResponseEntity<?>>fromCallable(() -> doSign(token, req))
                 .contextWrite(ctx -> LogContext.write(ctx, LogContext.PROPOSAL_ID, req == null ? null : req.proposalId()));
@@ -77,7 +77,7 @@ public class SignerController {
         if (!authorized(token)) {
             return badToken("sign");
         }
-        // KAN-582: the signer's own series — signed vs refused-by-rule — and the time it took, so the
+        // the signer's own series — signed vs refused-by-rule — and the time it took, so the
         // dashboard's "firmados" reads a real counter instead of a derived value.
         Timer.Sample sample = metrics.start();
         try {
@@ -119,8 +119,8 @@ public class SignerController {
     }
 
     /**
-     * A receipt-batch anchor (KAN-394): the memo transaction must carry exactly {@code root} and {@code receiptCount}; devnet only.
-     * No validator attestation: there is no proposal behind it and the memo moves no funds (KAN-438 keeps the gate on {@code /sign}).
+     * A receipt-batch anchor: the memo transaction must carry exactly {@code root} and {@code receiptCount}; devnet only.
+     * No validator attestation: there is no proposal behind it and the memo moves no funds (internal ticket keeps the gate on {@code /sign}).
      */
     public record AnchorSignRequest(String root, int receiptCount, String unsignedTransactionBase64, String expectedFeePayer) {}
 
