@@ -293,7 +293,23 @@ CryptoBot execution, and summarized in an anchored `VALUE_DISTRIBUTION` or `REVE
 5. Configurable, still published and hashed, distribution policies; sybil-resistant reputation.
 6. An independent mainnet readiness gate — until then mainnet stays closed.
 
-### Pre-existing work
+### Use cases (roadmap — not built yet)
+
+None of these exist today. Each one is a direction the primitives already built (ValueEvents, Contribution Units, published
+policies, guardian + timelock, identity counts) could support. Each ships only with its own proof.
+
+1. **Agent bounties.** Pay an agent only for a result that was accepted, not for effort or attempts.
+2. **Open-source revenue share.** An accepted PR earns Contribution Units that draw from a sponsor's pool.
+3. **AI development agencies.** Charge only for accepted deliveries, with the ValueEvent as the invoice's proof.
+4. **Compute attribution.** Credit compute providers for accepted outcomes they took part in, not for hours.
+5. **Knowledge and dataset royalties.** Credit the creator of knowledge or data each time it is used in an accepted outcome.
+6. **Agent-run DAO treasury.** An agent operates funds behind the guardian, a timelock and human approval, leaving auditable receipts.
+7. **AI action audit and compliance.** Give regulators and enterprises a verifiable record of what an agent did and under which policy.
+8. **Portable agent reputation.** A track record of accepted outcomes that follows an agent across platforms.
+9. **Agent operations underwriting.** Price risk from the declared policy plus the history of receipts.
+10. **Proof of Value as an API.** The 5 % protocol fee already modelled in the revenue policy, plus a hosted service.
+
+## Pre-existing work
 
 Proof of Value is built on CryptoBot's Trusted Agent Execution layer and on Life Engine (auth, runtime, release tooling),
 which existed before the hackathon. What existed before and what was built during it:
