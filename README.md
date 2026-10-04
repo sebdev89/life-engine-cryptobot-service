@@ -55,9 +55,12 @@ Docker (Compose v2), bash, curl, python3 and git. No Life Engine service is need
 Postgres, validator, signer, service and UI.
 
 ```bash
+# 1. both repositories, side by side (the UI is built from ../cryptobot-ui)
 git clone https://github.com/sebdev89/life-engine-cryptobot-service && git clone https://github.com/sebdev89/life-engine-cryptobot-ui cryptobot-ui
-cd life-engine-cryptobot-service && scripts/demo/hackathon.sh --setup   # devnet keys + airdrop, demo stack + UI (first build: a few minutes)
-scripts/demo/hackathon.sh                                               # preflight → the 9 steps on devnet → every tx checked on-chain
+# 2. devnet keys + airdrop, the demo stack + UI (first build: a few minutes)
+cd life-engine-cryptobot-service && scripts/demo/hackathon.sh --setup
+# 3. preflight → the 9 steps on devnet → every transaction checked on-chain
+scripts/demo/hackathon.sh
 ```
 
 `hackathon.sh` aborts **before any SOL moves** if something is missing — the network is not devnet (genesis hash), the
