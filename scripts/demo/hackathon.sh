@@ -111,7 +111,7 @@ else pf_fail "no ${ENV_FILE} → scripts/demo/hackathon.sh --setup"; fi
 
 # network: the genesis hash of the RPC the stack uses, not its name
 RPC_URL="$(pov_rpc_url "$ENV_FILE")"
-genesis="$(rpc "$RPC_URL" getGenesisHash '[]' 2>/dev/null | jget "['result']")"
+genesis="$(rpc "$RPC_URL" getGenesisHash '[]' 2>/dev/null | jget "['result']" || true)"
 if [[ "$genesis" == "$DEVNET_GENESIS" ]]; then pf_ok "network: devnet (genesis ${genesis:0:8}… from ${RPC_URL})"
 elif [[ -z "$genesis" ]]; then pf_fail "network: ${RPC_URL} does not answer getGenesisHash → check the RPC (CRYPTOBOT_SOLANA_DEVNET_RPC) or try later"
 else pf_fail "network: ${RPC_URL} is NOT devnet (genesis ${genesis:0:8}…) → this path proves on devnet only; fix CRYPTOBOT_SOLANA_DEVNET_RPC"; fi
@@ -148,7 +148,7 @@ else pf_fail "UI: ${UI_BASE} answers ${ui_code:-nothing} → scripts/demo/hackat
 # what is running: commit from /actuator/info, image id from docker — against what is declared
 if (( SERVICE_UP )); then
   want="${EXPECT_COMMIT:-$(git -C "$PROJECT" rev-parse --short=7 HEAD 2>/dev/null || true)}"
-  running="$(curl -fsS -m 5 "${BASE}/actuator/info" 2>/dev/null | jget "['git']['commit']['id']")"
+  running="$(curl -fsS -m 5 "${BASE}/actuator/info" 2>/dev/null | jget "['git']['commit']['id']" || true)"
   if [[ -z "$running" ]]; then pf_fail "build: the service does not report its commit (built without it) → scripts/demo/hackathon.sh --setup rebuilds it with the commit"
   elif [[ -n "$want" && ( "$want" == "$running"* || "$running" == "$want"* ) ]]; then pf_ok "build: service runs commit ${running} (expected ${want:0:7})"
   else pf_fail "build: service runs commit ${running}, expected ${want:0:7} → rebuild (scripts/demo/hackathon.sh --setup) or pass --expect-commit ${running} if that is deliberate"; fi
@@ -213,7 +213,19 @@ if [[ "$MODE" == check ]]; then log "preflight passed — run: scripts/demo/hack
 
 # ---- the story (pov-e2e.sh, unchanged) ---------------------------------------------------------------
 args=(--task "$TASK" --task-id "$TASK_ID" --env-file "$ENV_FILE" --out "$OUT_DIR")
-if [[ "$ACC_MODE" == measured ]]; then args+=(--acceptance-json "$ACCEPTANCE_JSON"); else args+=(--assume-accepted); fi
+if [[ "$ACC_MODE" == measured ]]; then args+=(--acceptance-json "$ACCEPTANCE_JSON")
+else
+  # Declared acceptance: the artifact is what THIS stack runs — the commit /actuator/info reports and the local image id —
+  # resolved without credentials (the published images are private; a fresh clone has no access to them).
+  slug="$(git -C "$PROJECT" remote get-url origin 2>/dev/null | sed -E 's#^(https://[^/]+/|git@[^:]+:)##; s#\.git$##' || true)"
+  [[ "$slug" =~ ^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$ ]] || slug="sebdev89/life-engine-cryptobot-service"
+  commit="$(git -C "$PROJECT" rev-parse --verify -q "${running}^{commit}" 2>/dev/null || echo "$running")"
+  pr="$(curl -fsS -m 10 -H 'Accept: application/vnd.github+json' "https://api.github.com/repos/${slug}/commits/${commit}/pulls" 2>/dev/null \
+        | jget "[0]['html_url']" || true)"
+  [[ "$pr" =~ ^https:// ]] || pr="https://github.com/${slug}/commit/${commit}"
+  args+=(--assume-accepted --commit "$commit" --pr "$pr")
+  [[ "$image" =~ ^sha256:[0-9a-f]{64}$ ]] && args+=(--image-digest "$image")
+fi
 (( OPERATION )) || args+=(--skip-op)
 [[ "$MODE" == dry-run ]] && args+=(--dry-run)
 mkdir -p "$OUT_DIR"; MARK="$(mktemp)"

@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
-# offline checks of scripts/demo/run.sh, e2e-devnet.sh, pov-v1.sh and pov-e2e.sh: argument validation, --dry-run
+# offline checks of scripts/demo/run.sh, e2e-devnet.sh, pov-v1.sh, pov-e2e.sh and hackathon.sh: argument validation, --dry-run
 # plan, help text, gitignore of the secret files. No docker call is made (the dry run stops before
-# `compose up`); docker, curl, python3 and git must exist because the plan checks the tools.
+# `compose up`; hackathon.sh's preflight only reads: `docker inspect` of absent containers, closed local ports); docker, curl,
+# python3 and git must exist because the plan checks the tools.
 set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DEMO="$(cd "${HERE}/.." && pwd)"
@@ -128,6 +129,28 @@ check "e2e dry run with --compute-json" 0 "${DEMO}/pov-e2e.sh" --dry-run --env-f
 printf '%s' "$OUT" | grep -q -F '"inputTokens":1000' && ok "measured compute is used" || bad "measured compute is ignored"
 printf '%s' "$OUT" | grep -q -F '(estimated)' && bad "measured compute is labelled estimated" || ok "measured compute is not labelled estimated"
 
+echo "hackathon.sh — arguments and a preflight that aborts before anything is sent"
+check "--help exits 0" 0 "${DEMO}/hackathon.sh" --help
+for want in '--check' '--setup' '--no-operation' '--min-sol' '--fresh' '--expect-commit' 'genesis' 'getSignatureStatuses'; do
+  printf '%s' "$OUT" | grep -q -F -- "$want" && ok "hackathon help mentions '${want}'" || bad "hackathon help lacks '${want}'"
+done
+printf '%s' "$OUT" | grep -q 'KAN-' && bad "hackathon help shows a tracker id" || ok "hackathon help shows no tracker id"
+check "unknown argument" 1 "${DEMO}/hackathon.sh" --bogus
+check "bad --min-sol" 1 "${DEMO}/hackathon.sh" --check --min-sol lots
+check "bad --expect-commit" 1 "${DEMO}/hackathon.sh" --check --expect-commit xyz
+check "bad --expect-image" 1 "${DEMO}/hackathon.sh" --check --expect-image sha256:xyz
+check "a KAN task id is refused" 1 "${DEMO}/hackathon.sh" --check --task-id KAN-819
+check "missing --acceptance-json file" 1 "${DEMO}/hackathon.sh" --check --acceptance-json "${TMP}/missing.json"
+# nothing up, no env file, an RPC that does not answer: every check fails, the story never starts.
+for mode in --check ""; do
+  check "preflight fails closed (${mode:-run})" 1 env CRYPTOBOT_DEMO_PROJECT=hackathon-test-none CRYPTOBOT_DEMO_PORT=1 UI_PORT=1 \
+    CRYPTOBOT_SOLANA_DEVNET_RPC=http://127.0.0.1:1 "${DEMO}/hackathon.sh" ${mode:+"$mode"} --env-file "${TMP}/missing.env" --out "${TMP}/out"
+  for want in 'HACKATHON DEMO — FAIL at preflight' 'nothing was sent' 'does not answer getGenesisHash' 'service: not reachable' 'signer:' 'validator:' 'hackathon.sh --setup'; do
+    printf '%s' "$OUT" | grep -q -F -- "$want" && ok "preflight says '${want}'" || bad "preflight lacks '${want}'"
+  done
+  printf '%s' "$OUT" | grep -q 'STEP 1/9' && bad "the story started after a failed preflight" || ok "the story never started"
+done
+
 echo "secrets_scan (lib.sh) — only secret-named values, never public ones"
 cat > "${TMP}/secrets.env" <<'EOF'
 JWT_SECRET=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
@@ -157,7 +180,7 @@ fi
 
 echo "lint"
 if command -v shellcheck >/dev/null 2>&1; then
-  shellcheck -S warning "${DEMO}"/run.sh "${DEMO}"/e2e-devnet.sh "${DEMO}"/wallet-devnet.sh "${DEMO}"/pov-v1.sh "${DEMO}"/pov-e2e.sh "${DEMO}"/lib.sh "${HERE}"/test-run.sh && ok "shellcheck -S warning" || bad "shellcheck"
+  shellcheck -S warning "${DEMO}"/run.sh "${DEMO}"/e2e-devnet.sh "${DEMO}"/wallet-devnet.sh "${DEMO}"/pov-v1.sh "${DEMO}"/pov-e2e.sh "${DEMO}"/hackathon.sh "${DEMO}"/lib.sh "${HERE}"/test-run.sh && ok "shellcheck -S warning" || bad "shellcheck"
 else
   echo "  (shellcheck not installed: skipped)"
 fi
