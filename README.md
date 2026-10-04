@@ -56,7 +56,8 @@ Postgres, validator, signer, service and UI.
 
 ```bash
 # 1. both repositories, side by side (the UI is built from ../cryptobot-ui)
-git clone https://github.com/sebdev89/life-engine-cryptobot-service && git clone https://github.com/sebdev89/life-engine-cryptobot-ui cryptobot-ui
+git clone https://github.com/sebdev89/life-engine-cryptobot-service
+git clone https://github.com/sebdev89/life-engine-cryptobot-ui cryptobot-ui
 # 2. devnet keys + airdrop, the demo stack + UI (first build: a few minutes)
 cd life-engine-cryptobot-service && scripts/demo/hackathon.sh --setup
 # 3. preflight → the 9 steps on devnet → every transaction checked on-chain
