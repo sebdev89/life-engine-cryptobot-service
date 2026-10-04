@@ -18,8 +18,16 @@ devnet transaction.
 ## How it works
 
 ```
-Intent → Strategist → Guardian → Operator → Solana → AcceptanceProof → ValueEvent → Contribution Units → Reward / Reputation
+Intent → Strategist → Guardian → Operator → Solana
+       → AcceptanceProof → ValueEvent → Contribution Units → Reward / Reputation
 ```
+
+CryptoBot plans a devnet operation, deterministic risk controls and an independent validator check it, an isolated
+signer executes it, and the software behind it counts only once it is measured as accepted. That outcome becomes a
+ValueEvent anchored on Solana, its contributors get Contribution Units, and each one is paid on-chain.
+
+<details>
+<summary><b>Each step — what happens and what proves it</b></summary>
 
 | Step | What happens | Proven by |
 |---|---|---|
@@ -32,6 +40,8 @@ Intent → Strategist → Guardian → Operator → Solana → AcceptanceProof �
 | **ValueEvent** | The accepted outcome becomes a signed receipt (canonical JSON, RFC 8785) whose Merkle root is written to Solana in a memo. | [anchor memo](https://explorer.solana.com/tx/njcczLuW6AsKsCq8zRge5chWKiQ3RiVo5oivm6i8AGmkG336h2FYyXraPoDuZBiEWu3M6aJWsuT4iyAWJGs4Zu3?cluster=devnet) · `GET /value-events/{id}/proof` → `verified: true` |
 | **Contribution Units** | 100 units per accepted outcome, split equally per contribution: specifier, implementer agent, reviewer, compute node, and the creator of every knowledge asset used. | units ledger (always adds up) |
 | **Reward / Reputation** | Each contributor is paid on Solana, one transfer per wallet; revenue (simulated in the demo, labelled) is shared 20 % contributors · 5 % fee · 75 % retained. Reputation is plain counts. | [payout](https://explorer.solana.com/tx/2pvNWzk6oraxjHUAPiJVyzLZQUJZW4DGx3nKJjTAc9tAmUtbZ8VfhwTFCRUVr8NqUHM4diBgA97WjCSTaE5AudEV?cluster=devnet) · [revenue anchor](https://explorer.solana.com/tx/4tPj6faSSgCpkJFkGtvgtNy6QmkcAGfVhdxRyCLyk9dEYYDxuhcFFjVtJHcSBJyBSdPg4BxzMZrJMR9oTU31YyQL?cluster=devnet) |
+
+</details>
 
 *Strategist, Guardian and Operator are the names of pipeline roles, not separate AI agents: the planner
 (`RebalancePlanner`), the policy engine plus the independent validator, and the approval plus the isolated signer. In
