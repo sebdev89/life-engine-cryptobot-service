@@ -86,7 +86,7 @@ services:
     networks: [cryptobot-demo]
 
   cryptobot-service:
-    # KAN-833: el contexto no tiene .git, así que la identidad del build entra por build-args
+    # el contexto no tiene .git, así que la identidad del build entra por build-args
     # (run.sh los exporta desde git); sin ellos /actuator/info queda con git.commit vacío.
     build:
       context: .

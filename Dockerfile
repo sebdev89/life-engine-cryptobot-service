@@ -29,7 +29,7 @@ ENV GIT_COMMIT=${GIT_COMMIT} \
     GIT_BRANCH=${GIT_BRANCH} \
     GIT_COMMIT_TIME=${GIT_COMMIT_TIME}
 
-# KAN-833: la imagen lleva su propio commit como label (life-engine.commit / life-engine.version,
+# la imagen lleva su propio commit como label (life-engine.commit / life-engine.version,
 # el mismo par que Compose y los manifiestos), para que "qué commit es esto" se lea de la imagen y
 # no de un valor copiado a mano. En CI los estampa metadata-action (sha corto); en un build local
 # (docker compose --build) salen de GIT_COMMIT (sin .git en el contexto). Vacío si no hay dato.

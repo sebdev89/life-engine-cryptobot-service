@@ -285,7 +285,7 @@ jobs:
           echo "semver=${semver}" >> "$GITHUB_OUTPUT"
           echo "versión: ${semver}"
 
-      # KAN-833: label life-engine.commit/version = commit REAL de la build (7 chars, como los tags sha-).
+      # label life-engine.commit/version = commit REAL de la build (7 chars, como los tags sha-).
       - name: Commit corto
         id: short
         run: echo "sha7=${GITHUB_SHA:0:7}" >> "$GITHUB_OUTPUT"
