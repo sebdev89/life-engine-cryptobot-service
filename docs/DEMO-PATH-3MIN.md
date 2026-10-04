@@ -1,30 +1,53 @@
-# Demo path — 3 minutes
+# Demo path — the video (2:38)
 
-**CryptoBot — Proof of Value for Autonomous Agents.** The full demo, told as one story:
-**real operation → accepted software → contribution attribution → value created → revenue → contributors paid on Solana**,
-and only then: open `/value` and show the verifiable receipts.
+**CryptoBot — Proof of Value for Autonomous Agents.** The full demo, told as one chain:
+**Intent → Strategist → Guardian / Risk → Operator → Solana execution → AcceptanceProof → ValueEvent → Contribution Units →
+Value Distribution → Reputation.**
 
-Every id, hash and tx comes from **one** run of `scripts/demo/pov-e2e.sh` (report `out/pov-e2e-<ts>.md`); screens are
-cryptobot-ui routes opened signed in with `scripts/demo/ui-url.sh --path <route>`. The story order is not the script's step
-order — the cut rearranges shots of the same run. A step the run skipped is cut from the video, never faked.
+Every id, hash and tx comes from **one** run of `scripts/demo/hackathon.sh` (it drives `pov-e2e.sh`; report
+`out/pov-e2e-<ts>.md`) **with** the real operation, on a fresh stack with a clean database; screens are cryptobot-ui routes
+opened signed in with `scripts/demo/ui-url.sh --path <route>`. The cut follows the chain, not the script's `STEP n/9`
+order: it rearranges shots of the same run. A step the run skipped is cut from the video, never faked.
 
-| t | Beat | Shot (from the run) | Screen | What the viewer sees | Voice-over cue |
+| # | Link | t | Shot (from the run) | Screen | Voice-over |
 |---|---|---|---|---|---|
-| 0:00 | — | — | title card / commit graph | "who actually created this value?" | "AI can create value. Who created it?" |
-| 0:10 | **Real operation** | STEP 6/9 | `/live/:proposalId` · `/tower` · explorer | CryptoBot proposes an operation: intent → policy → human approval → timelock → independent validator → isolated signer → finalized devnet tx → reconciled | "CryptoBot is the first real case. It acts on Solana, and it never holds a key." |
-| 0:35 | **Accepted software** | STEP 1/9 | terminal · `/value/identities/sebas` | task `TASK-042` "Improve CryptoBot opportunity detection", specified by a human (SPECIFIER + ARCHITECT) | "A human specifies the work…" |
-| 0:45 | | STEP 2/9 | terminal · `/value/identities/dev-agent-17` | an agent implements it: commit, PR, image digest; knowledge used; compute receipt | "…an agent implements it. Nothing counts yet." |
-| 0:55 | | STEP 3/9 | terminal · `/value/:id` | five stages from a measured release verdict: MERGED · BUILT · DEPLOYED · RUNNING · ACCEPTED; a missing stage is a `422` | "It counts only when it is merged, built, deployed, running and accepted." |
-| 1:15 | **Contribution attribution** | STEP 4/9 | `/value/:id` drill-down | contributors with roles and Contribution Units (100 per event, equal split); knowledge assets by content hash with their creators credited; compute cost shown next to value, never as value | "Every contributor is named: humans, agents, knowledge, compute." |
-| 1:35 | **Value created** | STEP 4/9 anchor | explorer · `/proof/:root` | the ValueEvent is a signed receipt; its Merkle root is in the memo `ir/1 root=…`; the inclusion proof folds to it; `verified: true` | "The value is recorded on Solana. Anyone can verify it." |
-| 1:55 | **Revenue** | STEP 7/9 | `/value/revenue/:id` | revenue linked to the operation, labelled *simulated economic result*; split 20% contributor pool · 5% protocol fee · 75% retained treasury; REVENUE_EVENT anchored | "When the agent's work earns revenue, a fixed public policy shares it — predictable and auditable, not a black box." |
-| 2:15 | **Contributors paid on Solana** | STEP 5/9 + 8/9 | `/value/:id` payouts · `/value/revenue/:id` payouts · `/value/treasury` | one finalized devnet transfer per contributor wallet: the immediate reward, then the revenue pool pro rata by historical units; the agent's treasury | "…and the contributors are paid on Solana, by the units they earned." |
-| 2:35 | **The receipts** | STEP 9/9 · final screen | `/value` · `/value/ledger` · explorer | open `/value`: every event, anchor and payout links to a finalized devnet tx; the units ledger adds up; **VALUE GENERATED (simulated: yes) · ATTRIBUTION** | "Software should remember who created its value." |
-| 2:55 | — | — | end card | repo, license (Apache-2.0), devnet only | "Contribution Units are attribution, not equity." |
+| 1 | Problem | 0:00–0:10 | — | title card over a commit graph: "who created this value?" | "AI agents now act on Solana and ship software. Who created that value? Proof of Value proves it, and pays for it." |
+| 2 | **Intent** | 0:10–0:21 | STEP 6/9 | `/live/:proposalId` — the proposal header and *Intent → plan* | "This is CryptoBot, an agent on Solana devnet. Its intent: a rebalance, moving part of its SOL to its own vault." |
+| 3 | **Strategist** | 0:21–0:33 | STEP 6/9 | `/live/:proposalId` — *Intent → plan* (exact lamports) and *Simulation (exact bytes)* | "A deterministic planner turns the intent into exact amounts, and the exact transaction bytes are simulated first." |
+| 4 | **Guardian / Risk** | 0:33–0:47 | STEP 6/9 | `/live/:proposalId` — *Risk + policy* (13 rules · `R_v` · `H_R`), verdict and *Timelock* | "Then the guardian: thirteen policy rules under a versioned policy hash. Above the autonomous limit, the verdict escalates and adds a timelock." |
+| 5 | **Operator** | 0:47–1:01 | STEP 6/9 | `/live/:proposalId` — approval → independent validator → isolated signer | "The operator approves. An independent validator re-derives the verdict, and an isolated signer signs only those bytes. The agent never holds a key." |
+| 6 | **Solana execution** | 1:01–1:13 | STEP 6/9 | `/tower` (the operation as VERIFIED) → explorer of the operation (`SystemProgram` transfer, finalized) | "Finalized on devnet. In the explorer, the SOL leaves the agent's wallet for its vault." |
+| 7 | **AcceptanceProof** | 1:13–1:31 | STEP 1–3/9 | terminal (task `TASK-042`, commit / PR / image, the five stages) → `/value/:id` stage chips | "That agent runs on software another agent shipped. It only counts once it is merged, built, deployed, running and accepted. Five stages, measured, not declared. Miss one, and nothing is recorded." |
+| 8 | **ValueEvent** | 1:31–1:45 | STEP 4/9 | `/value/:id` — signed receipt, Merkle proof, `verified: true` → explorer of the anchor memo `ir/1 root=…` | "The accepted outcome becomes a ValueEvent: a signed receipt whose Merkle root is written to Solana. Anyone can verify it." |
+| 9 | **Contribution Units** | 1:45–2:02 | STEP 4/9 + 9/9 | `/value/:id` contributors with roles, assets by hash, compute "cost is not value" → `/value/ledger` | "Who created it? A human specified it, an agent built it, a reviewer and a compute node took part, and the knowledge it used credits its creator. One hundred Contribution Units, split equally per contribution." |
+| 10 | **Value Distribution** | 2:02–2:24 | STEP 5/9 + 7/9 + 8/9 | `/value/:id` payouts CONFIRMED → explorer of one payout → `/value/revenue/:id` (*simulated*, 20 / 5 / 75) → `/value/treasury` | "Each contributor is paid on Solana, one transfer per wallet, by units. When the operation earns revenue, here a simulated economic result, a fixed public policy shares it: twenty percent to contributors, five to the protocol, seventy-five retained." |
+| 11 | **Reputation** | 2:24–2:32 | STEP 9/9 | `/value/identities/dev-agent-17` — *Reputation* (outcomes, units) | "Every identity builds a reputation: plain counts of accepted outcomes and units. No hidden score." |
+| 12 | Close | 2:32–2:38 | — | end card: "CryptoBot — Proof of Value for Autonomous Agents" · repo · Apache-2.0 · devnet | "Units are attribution, not equity. CryptoBot: Proof of Value for Autonomous Agents." |
+
+271 words of voice ≈ 108 s at 150 words per minute; the rest is air to read the screen. If the verdict of the take is
+not ESCALATE (the tier depends on the USD value at the time of the take), shot 4 says: "Within the autonomous limit, it
+passes all thirteen rules without a timelock."
+
+## What the voice must not say
+
+| Topic | True today | Do not say |
+|---|---|---|
+| Strategist / Guardian / Operator | Names of **pipeline roles**, not separate AI agents: the deterministic planner; the policy engine plus the independent validator; the approval plus the isolated signer (in the demo the script gives the approval with the operator role) | "an AI strategist decides", "a second agent reviewed it" |
+| `ESCALATE · SECOND_AGENT` | The tier exists; its effect today is a **timelock plus the approval** | "a second agent approved" |
+| The operation | A `SystemProgram.transfer` of SOL from the agent's wallet to **its own vault** — a rebalance, not a swap | "sell to USDC", "trade" |
+| Revenue | 0.05 SOL, a **simulated** economic result (`simulated=true`) on top of a real operation; the payouts are real devnet transfers | "earned", "profit" |
+| Payouts | Paid from the demo's **operating wallet**; the treasury is an accounting read model | "paid from the agent's treasury" |
+| Contributions | **Declared** by the task record; economic causality is not proven | "we prove who caused the revenue" |
+| Compute | Without `--compute-json` the compute receipt is **estimated** | compute costs as measured |
+| Contribution Units | An attribution primitive — **not equity, not a token, not a promise of return** | "shares", "token", "yield" |
+| Network | **Devnet** only | "mainnet", "live in production" |
 
 ## Before recording
 
-- Wallet: the real operation moves ≥ 21 % of the demo wallet's SOL to the vault (a wallet of the demo), and the rest of a run
-  spends ≈ 0.02 SOL (measured 2026-09-30): fund the wallet before the take.
+- Stack: a **new** compose project with a clean database (`CRYPTOBOT_DEMO_PROJECT=<new name>`), never one that already
+  recorded other tasks — `hackathon.sh --check --fresh` refuses a database that holds any ValueEvent.
+- Wallet: the real operation moves 21–40 % of the demo wallet's SOL to the vault (a wallet of the demo), and the rest of a
+  run spends ≈ 0.02 SOL (measured): fund the wallet before the take (`--min-sol` sets the floor the preflight enforces).
 - Acceptance: the release-truth verdict must pass (JSON, exit 0); the run binds the artifact to the image it measured.
-- Hygiene: neutral task ids only (the script refuses tracker ids); no lab hostnames, tokens or key paths on screen.
+- Hygiene: neutral task ids only (the scripts refuse tracker ids); no lab hostnames, tokens, key paths or `?token=` URLs on
+  screen.

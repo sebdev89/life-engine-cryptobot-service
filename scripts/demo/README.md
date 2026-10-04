@@ -1,5 +1,26 @@
 # CryptoBot demo — the real pipeline on Solana devnet
 
+## The golden path: `hackathon.sh`
+
+The Proof of Value story — the one the video shows — is one command. It wraps the scripts below without changing them:
+
+```bash
+scripts/demo/hackathon.sh --setup     # once: devnet keys + .env.demo (if missing), the demo stack + UI, built with its commit
+scripts/demo/hackathon.sh --check     # preflight only, spends nothing
+scripts/demo/hackathon.sh             # preflight → the 9 steps (pov-e2e.sh) with a real operation → every tx asked to devnet
+scripts/demo/hackathon.sh --no-operation   # the same without step 6 (≈ 0.02 SOL)
+```
+
+The preflight runs before a single lamport moves and aborts with the fix on any failure: the RPC is devnet (genesis hash),
+the wallet holds `--min-sol`, signer, validator, Postgres, service and UI are healthy, the service runs the expected
+commit (`--expect-commit`, default HEAD; `--expect-image` to pin the image), every endpoint the story calls answers, and
+the database is clean (no tracker ids, the task id not used before; `--fresh` requires no ValueEvent at all — use it
+before recording). The run ends with `HACKATHON DEMO — PASS 9/9` and the explorer links of the operation, the
+ValueEvent anchor (AcceptanceProof) and the RevenueEvent anchor, `Proof: verified=true` and the report path; on a failure,
+the step that failed and why. Without a release-truth report (`--acceptance-json`, or `RELEASE_TRUTH=<release-truth.sh>`)
+the five stages are declared for the demo task, printed in red, and the artifact is what the stack runs (its commit and
+local image id).
+
 ## One command, from zero, with a report (HK-7)
 
 ```bash
@@ -18,7 +39,7 @@ each step printed with its evidence as it happens, each act timed:
 |---|---|---|
 | 1 execute | request → plan → simulation → 13 rules + `R_v` + validator → 409 before approval → approval → timelock → execute (`Idempotency-Key`) → validator attests → signer signs → Solana → `SUBMITTED` → confirmed on chain → `EXECUTED` → replay = same tx → outbox → `EXECUTION` receipt verified → a mainnet intent → 409 | `e2e-devnet.sh` |
 | 2 risk | an adversarial intent (dump 95 % of the position) → `BLOCKED_BY_POLICY` with the rules that failed (`MAX_TRADE_PCT_OF_PORTFOLIO`, `MAX_TRADE_USD`, `COOLDOWN`…), approve → 409, execute → 409, `RISK_DECISION` receipt verified; then the 60 s cooldown the wallet is under, waited out visibly; then (HK-4) a **second adversarial intent, wrong only in its price**: one oracle source is made to say −90 % (`PUT /api/cryptobot/demo/price {"asset":"SOL","source":"pyth-hermes","factor":0.1}`) → `BLOCKED_BY_POLICY` by **`PRICE_DEVIATION`** with the sources, the median and the limit in the message; then every source is made 15 min old (`{"source":"*","ageSeconds":900}`) → **`PRICE_STALE`**. Each block leaves the policy's **Decision Receipt** (`RISK_DECISION` by `policy-engine@R_v`, params `blockedBy`, `rule.<NAME>`, `oracle.SOL`) that is verified live — hash, signature and the engine re-run on the stored `(I, S)` (`reproduced=true`) — and appears in the proposal's lineage under the `STRATEGY` it validates; approve → 409; the injection is disarmed (`DELETE`) before act 3 | `run.sh` |
-| 3 recovery | the RPC dies at broadcast → no verdict → dead letter → RPC back → `POST /dead-letters/{id}/requeue` (replay = 409) → idempotent retry (same `operationId`, new signature) → `EXECUTED`; the chain, asked directly: signature #1 never seen, #2 confirmed, vault +1 | `e2e-devnet.sh --chaos rpc-down` |
+| 3 recovery | the RPC dies at broadcast → no verdict → dead letter → RPC back → `POST /dead-letters/{id}/requeue` (replay = 409) → idempotent retry (same `operationId`, new signature) → `EXECUTED`; the chain, asked directly: the first signature never seen, the second confirmed, vault +1 | `e2e-devnet.sh --chaos rpc-down` |
 | 4 evidence | receipt DAG (parents of the `EXECUTION` receipt) → Merkle anchor of the receipts on Solana (`POST /anchors?wait=true`: memo tx signed by the signer, **finalized**) → inclusion proof of the `EXECUTION` receipt (`proofValid`) → batch verify (root recomputed, memo read back from the chain) → metrics | `run.sh` |
 
 The report `out/demo-report-<ts>.md` has the act table (result, time, key facts), the evidence
@@ -83,8 +104,8 @@ The compose also builds and serves the operator UI (`cryptobot-ui`, the sibling 
 ```bash
 # from the service checkout; the UI repo must sit next to it as ../cryptobot-ui:
 #   git clone https://github.com/sebdev89/life-engine-cryptobot-ui ../cryptobot-ui
-export CRYPTOBOT_DEMO_PROJECT=cryptobot-demo-main     # keep ONE project name: every new name creates a new Docker network
-docker compose -p cryptobot-demo-main -f docker-compose.demo.yml --env-file .env.demo --profile ui up -d --build
+export CRYPTOBOT_DEMO_PROJECT=cryptobot-demo          # every new name creates a new Docker network and an empty database
+docker compose -p "$CRYPTOBOT_DEMO_PROJECT" -f docker-compose.demo.yml --env-file .env.demo --profile ui up -d --build
 scripts/demo/ui-url.sh                                # → http://127.0.0.1:4204/live?token=<1 h demo JWT>
 ```
 
@@ -106,7 +127,7 @@ Notes:
   `jwt_hs256` the scripts use) for a fixed demo operator; it never prints the secret. Re-run it after 1 h.
 - Port 4204 busy (`address already in use`)? Something else listens there (`ss -ltnp | grep 4204`):
   stop it, or use `UI_PORT=4214` on **both** the `up` and `ui-url.sh`.
-- To leave the demo, `docker compose -p cryptobot-demo-main … --profile ui stop` (not `down`: `down`
+- To leave the demo, `docker compose -p "$CRYPTOBOT_DEMO_PROJECT" … --profile ui stop` (not `down`: `down`
   recreates the network on the next `up`).
 - `run.sh` with `--keep` plus a later `--profile ui up -d cryptobot-ui` puts the UI on top of a
   rehearsal that is still running.
@@ -125,7 +146,7 @@ CRYPTOBOT_RECONCILIATION_GRACE=10s      # default 20s
 # CRYPTOBOT_RECONCILIATION_MAX_ATTEMPTS stays 3 ("three attempts, no verdict: dead letter")
 ```
 
-Measured 2026-09-29, `run.sh --rpc local --target local`, project `cryptobot-demo-main`:
+Measured 2026-09-29, `run.sh --rpc local --target local`, on a long-lived demo project:
 
 | act | defaults | video values |
 |---|---|---|
@@ -137,8 +158,13 @@ Measured 2026-09-29, `run.sh --rpc local --target local`, project `cryptobot-dem
 | total | 3m21s | 2m08s |
 
 On the local validator act 1 is `ALLOW` (no timelock); a larger devnet position can be `ESCALATE`,
-which adds `CRYPTOBOT_TIMELOCK_ESCALATED` to scene A. Always the project `cryptobot-demo-main`, and
-one run at a time: two sessions on the same project recreate each other's service mid-run.
+which adds `CRYPTOBOT_TIMELOCK_ESCALATED` to scene A.
+
+These acts (scene A: execution, scene B: recovery) are complementary evidence; the video is the 9-step Proof of Value
+story of [`docs/DEMO-PATH-3MIN.md`](../../docs/DEMO-PATH-3MIN.md). **Record it on a new compose project with a clean
+database, never on a long-lived one**: a used database shows earlier events in `/value`, and a task id it already
+recorded reuses the old ValueEvent and payouts instead of producing new transactions. `hackathon.sh --check --fresh`
+refuses such a database. One run at a time: two sessions on the same project recreate each other's service mid-run.
 
 ## Values for the video
 
@@ -181,7 +207,7 @@ scripts/demo/e2e-devnet.sh --local-validator --it                      # E2EDevn
 |---|---|---|
 | `uncertain` | `sendTransaction` is performed, the RPC answer is lost | `EXECUTION_BROADCAST_UNCERTAIN`, row `EXECUTING`+`SIGNED` with the signature persisted **before** the broadcast → the reconciler finds it confirmed → `RECONCILED` → `EXECUTED`, same signature, no retry |
 | `confirm-timeout` | broadcast ok, the confirmation poll fails | `SUBMITTED` → reconciler → `EXECUTED` |
-| `rpc-down` | nothing is sent; status/height calls fail until disarmed | uncertain row → no verdict × 3 attempts → **dead letter** `ambiguous` (`GET /api/cryptobot/dead-letters`, `cryptobot_dead_letter_open=1`) → RPC back → `POST /dead-letters/{id}/requeue` (one-shot: replay = 409) → blockhash expired unseen → **idempotent retry**: `EXECUTION_RETRIED`, same `operationId`, **new signature** → `EXECUTED`. Then the chain is asked directly: signature #1 `never-seen`, signature #2 `confirmed`, vault transfers **+1** |
+| `rpc-down` | nothing is sent; status/height calls fail until disarmed | uncertain row → no verdict × 3 attempts → **dead letter** `ambiguous` (`GET /api/cryptobot/dead-letters`, `cryptobot_dead_letter_open=1`) → RPC back → `POST /dead-letters/{id}/requeue` (one-shot: replay = 409) → blockhash expired unseen → **idempotent retry**: `EXECUTION_RETRIED`, same `operationId`, **new signature** → `EXECUTED`. Then the chain is asked directly: the first signature `never-seen`, the second `confirmed`, vault transfers **+1** |
 
 Every line lands in `out/evidence-<ts>.md`. Knobs (demo only): `CRYPTOBOT_RECONCILIATION_INTERVAL`
 (10s), `_GRACE` (20s), `_MAX_ATTEMPTS` (3), `_MAX_RETRIES` (2). The chaos endpoint:
