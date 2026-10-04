@@ -246,6 +246,13 @@ setup_local() {
   log "compose project ${CRYPTOBOT_DEMO_PROJECT:-cryptobot-demo} · service ${BASE} · RPC ${RPC_LABEL}"
   if [[ "$DRY_RUN" -eq 1 ]]; then return 0; fi
   log "docker compose up -d --build (the first build on a clean machine takes a few minutes; later runs reuse the images)"
+  # identidad de build para la imagen (labels life-engine.commit y /actuator/info); sólo si el
+  # usuario no la fijó y esto es un checkout git. Son hechos de git, nunca secretos.
+  if [[ -z "${GIT_COMMIT:-}" ]] && git -C "$PROJECT" rev-parse --git-dir >/dev/null 2>&1; then
+    GIT_COMMIT="$(git -C "$PROJECT" rev-parse HEAD)"; GIT_COMMIT_SHORT="$(git -C "$PROJECT" rev-parse --short=7 HEAD)"
+    GIT_BRANCH="$(git -C "$PROJECT" rev-parse --abbrev-ref HEAD)"; GIT_COMMIT_TIME="$(git -C "$PROJECT" log -1 --format=%cI)"
+    export GIT_COMMIT GIT_COMMIT_SHORT GIT_BRANCH GIT_COMMIT_TIME
+  fi
   "${COMPOSE[@]}" up -d --build
   wait_health
   TOKEN="$(jwt_hs256 "${JWT_SECRET:?}" "$(python3 -c 'import uuid; print(uuid.uuid4())')" "demo@cryptobot.local")"

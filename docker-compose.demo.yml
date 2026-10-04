@@ -86,7 +86,15 @@ services:
     networks: [cryptobot-demo]
 
   cryptobot-service:
-    build: .
+    # el contexto no tiene .git, así que la identidad del build entra por build-args
+    # (run.sh los exporta desde git); sin ellos /actuator/info queda con git.commit vacío.
+    build:
+      context: .
+      args:
+        GIT_COMMIT: ${GIT_COMMIT:-}
+        GIT_COMMIT_SHORT: ${GIT_COMMIT_SHORT:-}
+        GIT_BRANCH: ${GIT_BRANCH:-}
+        GIT_COMMIT_TIME: ${GIT_COMMIT_TIME:-}
     container_name: ${CRYPTOBOT_DEMO_PROJECT:-cryptobot-demo}-service
     depends_on:
       demo-postgres:
