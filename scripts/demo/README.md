@@ -1,5 +1,26 @@
 # CryptoBot demo — the real pipeline on Solana devnet
 
+## The golden path: `hackathon.sh`
+
+The Proof of Value story — the one the video shows — is one command. It wraps the scripts below without changing them:
+
+```bash
+scripts/demo/hackathon.sh --setup     # once: devnet keys + .env.demo (if missing), the demo stack + UI, built with its commit
+scripts/demo/hackathon.sh --check     # preflight only, spends nothing
+scripts/demo/hackathon.sh             # preflight → the 9 steps (pov-e2e.sh) with a real operation → every tx asked to devnet
+scripts/demo/hackathon.sh --no-operation   # the same without step 6 (≈ 0.02 SOL)
+```
+
+The preflight runs before a single lamport moves and aborts with the fix on any failure: the RPC is devnet (genesis hash),
+the wallet holds `--min-sol`, signer, validator, Postgres, service and UI are healthy, the service runs the expected
+commit (`--expect-commit`, default HEAD; `--expect-image` to pin the image), every endpoint the story calls answers, and
+the database is clean (no tracker ids, the task id not used before; `--fresh` requires no ValueEvent at all — use it
+before recording). The run ends with `HACKATHON DEMO — PASS 9/9` and the explorer links of the operation, the
+ValueEvent anchor (AcceptanceProof) and the RevenueEvent anchor, `Proof: verified=true` and the report path; on a failure,
+the step that failed and why. Without a release-truth report (`--acceptance-json`, or `RELEASE_TRUTH=<release-truth.sh>`)
+the five stages are declared for the demo task, printed in red, and the artifact is what the stack runs (its commit and
+local image id).
+
 ## One command, from zero, with a report (HK-7)
 
 ```bash
@@ -83,8 +104,8 @@ The compose also builds and serves the operator UI (`cryptobot-ui`, the sibling 
 ```bash
 # from the service checkout; the UI repo must sit next to it as ../cryptobot-ui:
 #   git clone https://github.com/sebdev89/life-engine-cryptobot-ui ../cryptobot-ui
-export CRYPTOBOT_DEMO_PROJECT=cryptobot-demo-main     # keep ONE project name: every new name creates a new Docker network
-docker compose -p cryptobot-demo-main -f docker-compose.demo.yml --env-file .env.demo --profile ui up -d --build
+export CRYPTOBOT_DEMO_PROJECT=cryptobot-demo          # every new name creates a new Docker network and an empty database
+docker compose -p "$CRYPTOBOT_DEMO_PROJECT" -f docker-compose.demo.yml --env-file .env.demo --profile ui up -d --build
 scripts/demo/ui-url.sh                                # → http://127.0.0.1:4204/live?token=<1 h demo JWT>
 ```
 
@@ -106,7 +127,7 @@ Notes:
   `jwt_hs256` the scripts use) for a fixed demo operator; it never prints the secret. Re-run it after 1 h.
 - Port 4204 busy (`address already in use`)? Something else listens there (`ss -ltnp | grep 4204`):
   stop it, or use `UI_PORT=4214` on **both** the `up` and `ui-url.sh`.
-- To leave the demo, `docker compose -p cryptobot-demo-main … --profile ui stop` (not `down`: `down`
+- To leave the demo, `docker compose -p "$CRYPTOBOT_DEMO_PROJECT" … --profile ui stop` (not `down`: `down`
   recreates the network on the next `up`).
 - `run.sh` with `--keep` plus a later `--profile ui up -d cryptobot-ui` puts the UI on top of a
   rehearsal that is still running.
@@ -125,7 +146,7 @@ CRYPTOBOT_RECONCILIATION_GRACE=10s      # default 20s
 # CRYPTOBOT_RECONCILIATION_MAX_ATTEMPTS stays 3 ("three attempts, no verdict: dead letter")
 ```
 
-Measured 2026-09-29, `run.sh --rpc local --target local`, project `cryptobot-demo-main`:
+Measured 2026-09-29, `run.sh --rpc local --target local`, on a long-lived demo project:
 
 | act | defaults | video values |
 |---|---|---|
@@ -137,8 +158,13 @@ Measured 2026-09-29, `run.sh --rpc local --target local`, project `cryptobot-dem
 | total | 3m21s | 2m08s |
 
 On the local validator act 1 is `ALLOW` (no timelock); a larger devnet position can be `ESCALATE`,
-which adds `CRYPTOBOT_TIMELOCK_ESCALATED` to scene A. Always the project `cryptobot-demo-main`, and
-one run at a time: two sessions on the same project recreate each other's service mid-run.
+which adds `CRYPTOBOT_TIMELOCK_ESCALATED` to scene A.
+
+These acts (scene A: execution, scene B: recovery) are complementary evidence; the video is the 9-step Proof of Value
+story of [`docs/DEMO-PATH-3MIN.md`](../../docs/DEMO-PATH-3MIN.md). **Record it on a new compose project with a clean
+database, never on a long-lived one**: a used database shows earlier events in `/value`, and a task id it already
+recorded reuses the old ValueEvent and payouts instead of producing new transactions. `hackathon.sh --check --fresh`
+refuses such a database. One run at a time: two sessions on the same project recreate each other's service mid-run.
 
 ## Values for the video
 

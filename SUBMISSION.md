@@ -36,7 +36,7 @@ Contribution Units. No AI decides the shares.
 ## What is verified today (Solana devnet)
 
 V1–V9 are **ACCEPTED**: running on the devnet demo stack built from `main`, with finalized devnet transactions as evidence
-(V8, the treasury, is a read model over those payouts; full table and links in [`README.md`](README.md#what-is-real-today)). V9 — the end-to-end run — completed **9/9 steps with a
+(V8, the treasury, is a read model over those payouts; full table and links in [`README.md`](README.md#whats-real)). V9 — the end-to-end run — completed **9/9 steps with a
 real CryptoBot operation** on 2026-09-30, all finalized on devnet:
 
 - [ValueEvent anchor](https://explorer.solana.com/tx/51nco1gL2wxNPT2Mi8T4PMSMwgxpPjSbae7djBrGZoYjyyWuRY4uc33aknjD514ixBhgXEwB1f2224PnoWjQCmKY?cluster=devnet)
@@ -46,8 +46,9 @@ real CryptoBot operation** on 2026-09-30, all finalized on devnet:
 The operation is real; the **revenue amount is a simulated economic result** (`simulated=true`), labelled as such
 everywhere it appears.
 
-Known gap: the OCI build label (`life-engine.commit`) of the image running in the UAT pod is still stale; the fix is an
-open pull request, scheduled after the submission. The image itself is identified by digest.
+Known gap: the OCI build label (`life-engine.commit`) of the image running in the UAT pod is still stale; the fix (labels
+stamped at build time) is pull request #54 and reaches the pod with its next deploy, after the submission. The image
+itself is identified by digest.
 
 ## What it is not yet
 
@@ -66,7 +67,7 @@ processes · Angular UI.
 - Repo access: **public (Apache-2.0)**
 - Service: https://github.com/sebdev89/life-engine-cryptobot-service
 - UI: https://github.com/sebdev89/life-engine-cryptobot-ui
-- Demo: [`scripts/demo/README.md`](scripts/demo/README.md) · video cuts: [`docs/DEMO-PATH-90S.md`](docs/DEMO-PATH-90S.md),
+- Demo, one command: `scripts/demo/hackathon.sh` ([`README.md` → Try it](README.md#try-it)) · details: [`scripts/demo/README.md`](scripts/demo/README.md) · video cuts: [`docs/DEMO-PATH-90S.md`](docs/DEMO-PATH-90S.md),
   [`docs/DEMO-PATH-3MIN.md`](docs/DEMO-PATH-3MIN.md) · video: *[TBD]*
 - Protocol and API: [`docs/PROOF-OF-VALUE.md`](docs/PROOF-OF-VALUE.md) · trusted execution (CryptoBot):
   [`docs/TRUSTED-AGENT-EXECUTION.md`](docs/TRUSTED-AGENT-EXECUTION.md)

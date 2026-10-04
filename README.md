@@ -37,6 +37,8 @@ Intent → Strategist → Guardian → Operator → Solana → AcceptanceProof �
 (`RebalancePlanner`), the policy engine plus the independent validator, and the approval plus the isolated signer. In
 the demo the approval is given by the script with the operator role.*
 
+<a id="quickstart--the-demo-on-devnet"></a>
+
 ## Try it
 
 Docker (Compose v2), bash, curl, python3 and git. No Life Engine service is needed: the demo stack brings its own
@@ -85,6 +87,8 @@ printf '00f337905444c051b1f7f6cfea68022ef8fcd4a0bbe5865ffb20cdeb585046bdaf' | xx
 ```
 
 Larger batches and every other hash: [`docs/PROOF-OF-VALUE.md` → *Verifying a hash on-chain by hand*](docs/PROOF-OF-VALUE.md#verifying-a-hash-on-chain-by-hand).
+
+<a id="what-is-real-today"></a>
 
 ## What's real
 
