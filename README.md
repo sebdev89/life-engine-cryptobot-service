@@ -3,8 +3,8 @@
 
 <p align="center"><img src="docs/brand/png/cryptobot-wordmark-dark.png" alt="CryptoBot — Proof of Value for Autonomous Agents" width="360"></p>
 
-**An autonomous agent plans, passes independent risk controls, executes on Solana, proves the accepted outcome,
-attributes contributors and distributes value.**
+**CryptoBot is the first Treasury Agent on Life Engine: it takes an economic goal, proposes a strategy, passes
+independent risk controls, executes on Solana without ever holding the key, and proves the result.**
 
 <p align="center">
   <img alt="Watch demo — video coming soon" src="https://img.shields.io/badge/%E2%96%B6%20Watch%20demo-video%20coming%20soon-lightgrey?style=for-the-badge">
@@ -22,8 +22,11 @@ Intent → Strategist → Guardian → Operator → Solana
        → AcceptanceProof → ValueEvent → Contribution Units → Reward / Reputation
 ```
 
-CryptoBot plans a devnet operation, deterministic risk controls and an independent validator check it, an isolated
-signer executes it, and the software behind it counts only once it is measured as accepted. That outcome becomes a
+CryptoBot is the first Treasury Agent on Life Engine. It receives an economic objective (for example, keeping a reserve
+in its own vault) and proposes a strategy (`RebalancePlanner`). Independent controls check it (the Guardian: a versioned
+policy, a timelock, and human approval when it escalates). It executes on Solana without ever holding the key (an
+isolated signer), and proves the result (receipt → AcceptanceProof → ValueEvent → Contribution Units). The real
+operation today is a devnet rebalance of SOL to its own vault; the software behind it counts only once it is measured as accepted. That outcome becomes a
 ValueEvent anchored on Solana, its contributors get Contribution Units, and each one is paid on-chain.
 
 <details>
@@ -286,12 +289,13 @@ CryptoBot execution, and summarized in an anchored `VALUE_DISTRIBUTION` or `REVE
 
 ### Roadmap (after the hackathon)
 
-1. Stablecoin settlement (SPL/USDC) behind the same validator + signer gates.
-2. Multisig or HSM-backed signer; per-agent treasury wallets instead of an accounting view.
-3. Deploy the on-chain `intent-authority` program (written and tested, not deployed) and anchor through it.
-4. Third-party acceptance sources beyond our release tooling; public verification page per ValueEvent.
-5. Configurable, still published and hashed, distribution policies; sybil-resistant reputation.
-6. An independent mainnet readiness gate — until then mainnet stays closed.
+1. DeFi protocol adapters (e.g. Aave) behind the same Guardian and isolated signer — post-hackathon, not built yet.
+2. Stablecoin settlement (SPL/USDC) behind the same validator + signer gates.
+3. Multisig or HSM-backed signer; per-agent treasury wallets instead of an accounting view.
+4. Deploy the on-chain `intent-authority` program (written and tested, not deployed) and anchor through it.
+5. Third-party acceptance sources beyond our release tooling; public verification page per ValueEvent.
+6. Configurable, still published and hashed, distribution policies; sybil-resistant reputation.
+7. An independent mainnet readiness gate — until then mainnet stays closed.
 
 ### Use cases (roadmap — not built yet)
 
