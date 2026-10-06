@@ -72,9 +72,11 @@ processes · Angular UI.
 
 - Repo access: **public (Apache-2.0)**
 - Live public demo: https://life-engine.app/cryptobot/
+- Pitch video (1:58): https://youtu.be/oTdfoSNzt0E
+- Demo video (1:58): https://youtu.be/vH6BnT3QpiA
 - Service: https://github.com/sebdev89/life-engine-cryptobot-service
 - UI: https://github.com/sebdev89/life-engine-cryptobot-ui
 - Demo, one command: `scripts/demo/hackathon.sh` ([`README.md` → Try it](README.md#try-it)) · details: [`scripts/demo/README.md`](scripts/demo/README.md) · video cuts: [`docs/DEMO-PATH-90S.md`](docs/DEMO-PATH-90S.md),
-  [`docs/DEMO-PATH-3MIN.md`](docs/DEMO-PATH-3MIN.md) · video: *[TBD]*
+  [`docs/DEMO-PATH-3MIN.md`](docs/DEMO-PATH-3MIN.md)
 - Protocol and API: [`docs/PROOF-OF-VALUE.md`](docs/PROOF-OF-VALUE.md) · trusted execution (CryptoBot):
   [`docs/TRUSTED-AGENT-EXECUTION.md`](docs/TRUSTED-AGENT-EXECUTION.md)
