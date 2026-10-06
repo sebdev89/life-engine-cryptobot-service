@@ -1,8 +1,14 @@
 # CryptoBot — Proof of Value for Autonomous Agents
 
+CryptoBot is the first Treasury Agent on Life Engine: it receives an economic objective (e.g. keeping a reserve in
+its own vault), proposes a strategy (`RebalancePlanner`), passes independent risk and policy controls (Guardian: versioned
+policy, timelock, human approval when it escalates), executes on Solana without ever holding the key (isolated signer),
+and proves the result (receipt → AcceptanceProof → ValueEvent → Contribution Units). The real operation today is a devnet
+rebalance of SOL to its own vault.
+
 Proof of Value records who created an accepted software outcome, anchors that record on Solana, and pays the
-contributors — humans, agents, knowledge and compute — from the value it creates. CryptoBot, a trusted-execution
-agent on Solana, is the first real case that proves the protocol.
+contributors — humans, agents, knowledge and compute — from the value it creates. CryptoBot, the Treasury Agent,
+is the first real case that proves the protocol.
 
 > **AI can create value. Proof of Value makes sure we remember who created it.**
 
@@ -35,7 +41,7 @@ Contribution Units. No AI decides the shares.
 
 ## What is verified today (Solana devnet)
 
-V1–V9 are **ACCEPTED**: running on the devnet demo stack built from `main`, with finalized devnet transactions as evidence
+The end-to-end flow is **accepted on devnet (V1–V9)**; this submission (V10) is the hackathon product. V1–V9 are **ACCEPTED**: running on the devnet demo stack built from `main`, with finalized devnet transactions as evidence
 (V8, the treasury, is a read model over those payouts; full table and links in [`README.md`](README.md#whats-real)). V9 — the end-to-end run — completed **9/9 steps with a
 real CryptoBot operation** on 2026-09-30, all finalized on devnet:
 
@@ -65,6 +71,7 @@ processes · Angular UI.
 ## Links
 
 - Repo access: **public (Apache-2.0)**
+- Live public demo: https://life-engine.app/cryptobot/
 - Service: https://github.com/sebdev89/life-engine-cryptobot-service
 - UI: https://github.com/sebdev89/life-engine-cryptobot-ui
 - Demo, one command: `scripts/demo/hackathon.sh` ([`README.md` → Try it](README.md#try-it)) · details: [`scripts/demo/README.md`](scripts/demo/README.md) · video cuts: [`docs/DEMO-PATH-90S.md`](docs/DEMO-PATH-90S.md),
