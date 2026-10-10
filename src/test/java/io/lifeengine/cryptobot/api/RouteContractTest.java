@@ -119,7 +119,14 @@ class RouteContractTest {
             "GET /api/cryptobot/knowledge-assets",
             "GET /api/cryptobot/knowledge-assets/{id}",
             "GET /api/cryptobot/units/ledger",
-            "GET /api/cryptobot/health");
+            "GET /api/cryptobot/health",
+            // (TAE fase 2, mandato §28): additive only — every route above is unchanged.
+            "POST /api/cryptobot/intents",
+            "POST /api/cryptobot/intents/{id}/approve",
+            "POST /api/cryptobot/intents/{id}/execute",
+            "GET /api/cryptobot/executions/{id}",
+            "GET /api/cryptobot/executions/{id}/receipt",
+            "POST /api/cryptobot/receipts/verify");
 
     @Test
     @DisplayName("todas las rutas /api/cryptobot/** siguen siendo exactamente las mismas (método + patrón)")
