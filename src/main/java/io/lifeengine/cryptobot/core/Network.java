@@ -5,7 +5,7 @@ import java.util.Locale;
 /**
  * The networks the trusted execution core knows about, independent of Solana. an internal ticket (TAE phase
  * 1, audit §20/§21): the core must not import an adapter type to know which network a wallet or a
- * proposal is on. {@code io.lifeengine.cryptobot.solana.rpc.SolanaCluster} is the Solana adapter's
+ * proposal is on. {@code SolanaCluster} (Solana adapter, rpc package) is the adapter's
  * own representation and converts to/from this one at the boundary
  * ({@code SolanaCluster.from(Network)} / {@code SolanaCluster#toNetwork()}); mainnet stays refused
  * by default in every layer regardless of which of the two types a check reads (audit §6).

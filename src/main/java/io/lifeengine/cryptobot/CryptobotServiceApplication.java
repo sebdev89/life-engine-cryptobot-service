@@ -44,7 +44,8 @@ import org.springframework.boot.context.properties.EnableConfigurationProperties
     io.lifeengine.cryptobot.application.receipt.ReceiptProperties.class,
     io.lifeengine.cryptobot.application.receipt.AnchorProperties.class,
     io.lifeengine.cryptobot.proofofvalue.PovRewardProperties.class,
-    io.lifeengine.cryptobot.proofofvalue.PovRevenueProperties.class
+    io.lifeengine.cryptobot.proofofvalue.PovRevenueProperties.class,
+    io.lifeengine.cryptobot.core.execution.NetworkPolicy.class
 })
 public class CryptobotServiceApplication {
 
