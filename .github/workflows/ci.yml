@@ -3,6 +3,7 @@ name: ci
 on:
   push:
     branches: [main]
+  # NUNCA pull_request_target: el CI de PRs (incl. forks) corre sin secretos y con token de solo lectura.
   pull_request:
     branches: [main]
 
@@ -16,7 +17,7 @@ concurrency:
 jobs:
   build-and-test:
     name: build + test (java 21, ubuntu)
-    runs-on: [self-hosted, le-ci]
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
 
     steps:
@@ -41,24 +42,12 @@ jobs:
       - name: Run tests (surefire)
         run: ./mvnw -B -ntp test
 
-      # Testcontainers Postgres for ActionProposalR2dbcStore (optimistic lock, unique
-      # operation_id, atomic commit), OutboxEventR2dbcStore (SKIP LOCKED) and DeadLetterR2dbcStore
-      # (single resolution), and an internal ticket Proof of Value (PovR2dbcStoreIT, ProofOfValueApiIT): *IT classes Surefire's default patterns do not pick up, run here
-      # explicitly. le-ci has Docker; an internal ticket — several Testcontainers jobs in parallel can produce
-      # a false red ("bind: address already in use") from port contention between runners, not a
-      # code regression, so one retry absorbs that before failing the build for real.
+      # Testcontainers Postgres para ActionProposalR2dbcStore (optimistic lock, operation_id unico,
+      # commit atomico), OutboxEventR2dbcStore (SKIP LOCKED), DeadLetterR2dbcStore y el Proof of
+      # Value (PovR2dbcStoreIT, ProofOfValueApiIT): clases *IT que Surefire no toma por defecto.
+      # El runner hosteado de GitHub trae Docker nativo (un job = una VM efimera): sin reintento.
       - name: Run Postgres integration tests (Testcontainers)
-        run: |
-          for attempt in 1 2; do
-            if ./mvnw -B -ntp -Dtest=ActionProposalR2dbcStoreIT,OutboxEventR2dbcStoreIT,DeadLetterR2dbcStoreIT,PovR2dbcStoreIT,ProofOfValueApiIT,ProofOfValueRewardApiIT,ProofOfValueRevenueApiIT test; then
-              exit 0
-            fi
-            if [ "$attempt" -eq 1 ] && grep -q "bind: address already in use" target/surefire-reports/*.txt 2>/dev/null; then
-              echo "port contention between parallel Testcontainers jobs — retrying once."
-              continue
-            fi
-            exit 1
-          done
+        run: ./mvnw -B -ntp -Dtest=ActionProposalR2dbcStoreIT,OutboxEventR2dbcStoreIT,DeadLetterR2dbcStoreIT,PovR2dbcStoreIT,ProofOfValueApiIT,ProofOfValueRewardApiIT,ProofOfValueRevenueApiIT test
 
       - name: Run signer tests (isolated module, own pom)
         run: ./mvnw -B -ntp -f signer/pom.xml test
@@ -88,12 +77,13 @@ jobs:
   # sendTransaction; attestation corrupta ⇒ el signer la rechaza. Sin este job verde no se
   # publica imagen (docker-publish depende de él).
   #
-  # Testcontainers en le-ci: el único daemon accesible es el rootless del runner (DOCKER_HOST lo
-  # inyecta su unidad systemd); se verifica antes de levantar nada, como en life-engine-auth.
+  # Corre en runner hosteado de GitHub (ubuntu-24.04, Docker nativo para Testcontainers). KAN-1140:
+  # el repo es PUBLICO y un runner self-hosted con pull_request es una superficie de ejecucion
+  # remota (FND-071); por eso ya no se usa le-ci.
   # ---------------------------------------------------------------------------
   e2e-chain:
     name: e2e chain (service + signer + validator, failsafe)
-    runs-on: [self-hosted, le-ci]
+    runs-on: ubuntu-24.04
     needs: build-and-test
     timeout-minutes: 25
 
@@ -108,15 +98,6 @@ jobs:
           java-version: 21
           cache: maven
 
-      - name: Verificar que el daemon disponible es el rootless
-        run: |
-          echo "DOCKER_HOST=${DOCKER_HOST:-<no seteado>}"
-          docker info --format 'root dir: {{.DockerRootDir}} · {{.SecurityOptions}}'
-          docker info --format '{{.SecurityOptions}}' | grep -q 'name=rootless' || {
-            echo "::error::el daemon visible no es rootless — Testcontainers no debe correr acá"
-            exit 1
-          }
-
       - name: Empaquetar validator y signer (los procesos del E2E)
         run: |
           ./mvnw -B -ntp -f validator/pom.xml -DskipTests package
@@ -124,8 +105,6 @@ jobs:
 
       - name: E2E de la cadena (failsafe, perfil e2e-chain)
         run: ./mvnw -B -ntp -Pe2e-chain verify
-        env:
-          TESTCONTAINERS_RYUK_DISABLED: "false"
 
       - name: Evidencia del E2E
         if: always()
@@ -151,12 +130,12 @@ jobs:
   # ---------------------------------------------------------------------------
   # el programa Solana (programs/intent-authority) se testea en el host, sin
   # toolchain SBF: `solana-program-test` corre el processor nativo contra un banco real.
-  # Rust se instala en el runner por acción (no está en la imagen de le-ci); la cache de
+  # Rust se instala en el runner por acción; la cache de
   # cargo evita recompilar los ~560 crates de solana-program-test en cada run.
   # ---------------------------------------------------------------------------
   program-test:
     name: solana program (cargo test, host)
-    runs-on: [self-hosted, le-ci]
+    runs-on: ubuntu-24.04
     timeout-minutes: 40
     defaults:
       run:
@@ -198,11 +177,10 @@ jobs:
   # que ya esperan ops.d/lib/services.sh, resolve-artifact.sh y platform-catalog.yml en
   # deploy: cambiarlos acá obliga a cambiarlos allá.
   #
-  # El repo es PRIVADO: los paquetes ghcr.io/sebdev89/life-engine-cryptobot-{service,signer,
-  # validator} heredan esa visibilidad en su primera publicación (GITHUB_TOKEN, mismo owner).
-  # Verificarlo después del primer run: gh api /user/packages/container/<paquete>
-  # -q .visibility → private. El host que despliega necesita `docker login ghcr.io`
-  # con un PAT read:packages (ya lo tiene para runtime, privado desde un cambio anterior).
+  # Los paquetes ghcr.io/sebdev89/life-engine-cryptobot-{service,signer,validator} ya existen
+  # (GITHUB_TOKEN, mismo owner); su visibilidad es la del paquete, no la del repo. El host que
+  # despliega necesita `docker login ghcr.io` con un PAT read:packages. Este job solo corre en
+  # push a main (nunca en pull_request); es el unico con packages: write.
   #
   # Sin `outputs:` a nivel job: con una matrix, un output lo escribe el último leg que
   # termina y no dice de qué módulo es. La identidad del artefacto (repository/tag/digest/
@@ -212,7 +190,7 @@ jobs:
   # ---------------------------------------------------------------------------
   docker-publish:
     name: docker build + push (${{ matrix.module }})
-    runs-on: [self-hosted, le-ci]
+    runs-on: ubuntu-24.04
     # sin la cadena completa verde no hay imagen.
     needs: [build-and-test, e2e-chain]
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
@@ -239,22 +217,6 @@ jobs:
             package: life-engine-cryptobot-validator
 
     steps:
-      # config de Docker aislada por job. Los runners de la VM le-ci comparten el
-      # ~/.docker/config.json del usuario del runner, y el post-step de docker/login-action
-      # hace `docker logout` global: si el job de otro repo termina primero, el push de este
-      # falla con `denied: permission_denied: read_package`. Con DOCKER_CONFIG en $RUNNER_TEMP
-      # cada job tiene su propio config.json; login, buildx y logout lo leen del env.
-      # Cada leg de la matrix es un job con su propio $RUNNER_TEMP, así que no se pisan.
-      #
-      # Va como step y no como `jobs.<id>.env`: el contexto `runner` no existe a nivel job
-      # (sólo github/needs/strategy/matrix/vars/secrets/inputs) y el workflow entero fallaba
-      # con 0 jobs ("workflow file issue"). GITHUB_ENV propaga la variable a los steps
-      # siguientes y a sus post-steps, incluido el logout de docker/login-action.
-      - name: Docker config aislada por job
-        run: |
-          mkdir -p "$RUNNER_TEMP/.docker"
-          echo "DOCKER_CONFIG=$RUNNER_TEMP/.docker" >> "$GITHUB_ENV"
-
       - name: Checkout
         uses: actions/checkout@v4
         with:
