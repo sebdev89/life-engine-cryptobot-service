@@ -3,6 +3,7 @@ package io.lifeengine.cryptobot.trading.backtest;
 import java.math.BigDecimal;
 import java.math.MathContext;
 import java.math.RoundingMode;
+import java.util.Locale;
 
 /**
  * The strategies v2 backtests, and the two benchmarks every one of them must beat net of costs: holding SOL
@@ -40,6 +41,36 @@ public final class Strategies {
      */
     public static BacktestStrategy dca(BigDecimal amountUsd, int everyBars) {
         return new Dca(amountUsd, everyBars);
+    }
+
+    /**
+     * Builds a strategy by id with defaults for what is not given (band 50 % ± 5 %); the single place both the backtest
+     * API and paper trading turn a name and its knobs into a strategy.
+     */
+    public static BacktestStrategy named(String id, BigDecimal targetSolWeight, Integer bandBps, BigDecimal dcaAmountUsd, Integer dcaEveryBars) {
+        String key = id == null ? "" : id.trim().toLowerCase(Locale.ROOT);
+        return switch (key) {
+            case "hold-sol" -> holdSol();
+            case "hold-usdc" -> holdUsdc();
+            case "band-rebalance" -> bandRebalance(
+                    targetSolWeight == null ? new BigDecimal("0.5") : targetSolWeight, bandBps == null ? 500 : bandBps);
+            case "dca" -> {
+                if (dcaAmountUsd == null || dcaEveryBars == null) {
+                    throw new IllegalArgumentException("dca needs dcaAmountUsd and dcaEveryBars");
+                }
+                yield dca(dcaAmountUsd, dcaEveryBars);
+            }
+            default -> throw new IllegalArgumentException("unknown strategy '" + id + "' (hold-sol, hold-usdc, band-rebalance, dca)");
+        };
+    }
+
+    /** The knobs of a strategy as a canonical string ({@code targetSolWeight=0.5;bandBps=500}); paper trading freezes it. */
+    public static String params(BacktestStrategy s) {
+        return switch (s) {
+            case BandRebalance b -> "targetSolWeight=" + b.targetSolWeight().stripTrailingZeros().toPlainString() + ";bandBps=" + b.bandBps();
+            case Dca d -> "dcaAmountUsd=" + d.amountUsd().stripTrailingZeros().toPlainString() + ";dcaEveryBars=" + d.everyBars();
+            default -> "";
+        };
     }
 
     private record Hold(String id, BigDecimal initialSolWeight) implements BacktestStrategy {
