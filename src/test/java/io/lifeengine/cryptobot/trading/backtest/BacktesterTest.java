@@ -114,6 +114,50 @@ class BacktesterTest {
     }
 
     @Test
+    @DisplayName("worst month: SOL 100 → 150 at the end of September, → 120 at the end of October → October is −20 %")
+    void worstCalendarMonth() {
+        List<PriceBar> bars = List.of(
+                new PriceBar(Instant.parse("2026-09-29T00:00:00Z"), new BigDecimal("100")),
+                new PriceBar(Instant.parse("2026-09-30T23:00:00Z"), new BigDecimal("150")),
+                new PriceBar(Instant.parse("2026-10-15T00:00:00Z"), new BigDecimal("160")),
+                new PriceBar(Instant.parse("2026-10-31T23:00:00Z"), new BigDecimal("120")));
+
+        BacktestResult r = Backtester.run(bars, Strategies.holdSol(), K, FREE);
+
+        assertThat(r.worstMonthPct()).isEqualByComparingTo("-20");
+    }
+
+    @Test
+    @DisplayName("exposure: hold SOL 100 %, hold USDC 0 %, a 50/50 band 50 %; return per unit of exposure equalizes them")
+    void exposureAndReturnOnExposure() {
+        List<PriceBar> bars = hourly("100", "100", "110");
+
+        BacktestResult sol = Backtester.run(bars, Strategies.holdSol(), K, FREE);
+        BacktestResult usdc = Backtester.run(bars, Strategies.holdUsdc(), K, FREE);
+        BacktestResult band = Backtester.run(bars, Strategies.bandRebalance(new BigDecimal("0.5"), 1_000), K, FREE);
+
+        assertThat(sol.avgSolExposurePct()).isEqualByComparingTo("100");
+        assertThat(usdc.avgSolExposurePct()).isEqualByComparingTo("0");
+        assertThat(usdc.returnOnExposurePct()).isEqualByComparingTo("0");
+        assertThat(sol.returnPct()).isEqualByComparingTo("10");
+        assertThat(sol.returnOnExposurePct()).isEqualByComparingTo("10");
+        assertThat(band.returnPct()).isEqualByComparingTo("5");
+        // weights: 50 %, 50 %, 550/1050 = 52.38 % → mean 50.7937 %; 5 / 0.507937 = 9.8437 %
+        assertThat(band.avgSolExposurePct()).isEqualByComparingTo("50.7937");
+        assertThat(band.returnOnExposurePct()).isEqualByComparingTo("9.8437");
+    }
+
+    @Test
+    @DisplayName("Sortino ignores upside volatility: a curve that never loses has no downside risk → 0, a falling one negative")
+    void sortinoCountsOnlyLosses() {
+        BacktestResult up = Backtester.run(hourly("100", "101", "110", "111"), Strategies.holdSol(), K, FREE);
+        BacktestResult mixed = Backtester.run(hourly("100", "104", "102", "108", "107"), Strategies.holdSol(), K, FREE);
+
+        assertThat(up.sortino()).isEqualByComparingTo("0");
+        assertThat(mixed.sortino()).isGreaterThan(mixed.sharpe());
+    }
+
+    @Test
     @DisplayName("report: in a market that only rises, holding SOL wins and the strategy does not beat doing nothing")
     void reportComparesAgainstBothBenchmarks() {
         BacktestReport rep = BacktestReport.of(hourly("100", "120", "140", "160"),

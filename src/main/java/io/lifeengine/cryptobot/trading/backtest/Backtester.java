@@ -5,6 +5,8 @@ import java.math.BigDecimal;
 import java.math.MathContext;
 import java.math.RoundingMode;
 import java.time.Duration;
+import java.time.YearMonth;
+import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Objects;
 
@@ -58,6 +60,7 @@ public final class Backtester {
 
         BigDecimal[] equity = new BigDecimal[bars.size() + 1];
         equity[0] = capital;
+        BigDecimal exposureSum = BigDecimal.ZERO;
         for (int i = 0; i < bars.size(); i++) {
             PriceBar bar = bars.get(i);
             BigDecimal close = bar.close();
@@ -85,12 +88,22 @@ public final class Backtester {
                 }
             }
             equity[i + 1] = sol.multiply(close).add(usdc).setScale(USD_SCALE, RoundingMode.DOWN);
+            if (equity[i + 1].signum() > 0) {
+                exposureSum = exposureSum.add(sol.multiply(close).divide(equity[i + 1], MC));
+            }
         }
 
         BigDecimal finalUsd = equity[bars.size()];
         BigDecimal pnl = finalUsd.subtract(capital);
         Duration span = Duration.between(bars.get(0).time(), bars.get(bars.size() - 1).time());
         long barSeconds = Math.max(1, span.toSeconds() / (bars.size() - 1));
+        long barsPerYear = SECONDS_PER_YEAR / barSeconds;
+        BigDecimal[] returns = returns(equity);
+        BigDecimal returnPct = pnl.multiply(HUNDRED).divide(capital, 4, RoundingMode.HALF_EVEN);
+        BigDecimal exposurePct = exposureSum.multiply(HUNDRED).divide(BigDecimal.valueOf(bars.size()), 4, RoundingMode.HALF_EVEN);
+        BigDecimal returnOnExposurePct = exposurePct.signum() == 0
+                ? BigDecimal.ZERO.setScale(4)
+                : returnPct.multiply(HUNDRED).divide(exposurePct, 4, RoundingMode.HALF_EVEN);
 
         return new BacktestResult(
                 strategy.id(),
@@ -100,9 +113,13 @@ public final class Backtester {
                 capital,
                 finalUsd,
                 pnl,
-                pnl.multiply(HUNDRED).divide(capital, 4, RoundingMode.HALF_EVEN),
+                returnPct,
                 maxDrawdownPct(equity),
-                sharpe(equity, SECONDS_PER_YEAR / barSeconds),
+                sharpe(returns, barsPerYear),
+                sortino(returns, barsPerYear),
+                worstMonthPct(bars, equity),
+                exposurePct,
+                returnOnExposurePct,
                 trades,
                 costs.setScale(USD_SCALE, RoundingMode.UP),
                 sol,
@@ -126,28 +143,75 @@ public final class Backtester {
         return worst.multiply(HUNDRED).setScale(4, RoundingMode.HALF_EVEN);
     }
 
-    /** Annualized Sharpe of the per-bar returns (sample standard deviation, risk-free 0); 0 when flat. */
-    static BigDecimal sharpe(BigDecimal[] equity, long barsPerYear) {
-        int n = equity.length - 1;
-        if (n < 2) {
+    /** Per-bar returns of the equity curve (equity[0] is the capital before the first close). */
+    static BigDecimal[] returns(BigDecimal[] equity) {
+        BigDecimal[] r = new BigDecimal[equity.length - 1];
+        for (int i = 1; i < equity.length; i++) {
+            r[i - 1] = equity[i - 1].signum() == 0 ? BigDecimal.ZERO : equity[i].divide(equity[i - 1], MC).subtract(BigDecimal.ONE);
+        }
+        return r;
+    }
+
+    private static BigDecimal mean(BigDecimal[] r) {
+        BigDecimal sum = BigDecimal.ZERO;
+        for (BigDecimal x : r) {
+            sum = sum.add(x);
+        }
+        return sum.divide(BigDecimal.valueOf(r.length), MC);
+    }
+
+    private static BigDecimal annualized(BigDecimal mean, BigDecimal deviation, long barsPerYear) {
+        if (deviation.signum() == 0) {
             return BigDecimal.ZERO.setScale(4);
         }
-        BigDecimal[] r = new BigDecimal[n];
-        BigDecimal sum = BigDecimal.ZERO;
-        for (int i = 1; i <= n; i++) {
-            r[i - 1] = equity[i - 1].signum() == 0 ? BigDecimal.ZERO : equity[i].divide(equity[i - 1], MC).subtract(BigDecimal.ONE);
-            sum = sum.add(r[i - 1]);
+        return mean.divide(deviation, MC).multiply(BigDecimal.valueOf(barsPerYear).sqrt(MC), MC).setScale(4, RoundingMode.HALF_EVEN);
+    }
+
+    /** Annualized Sharpe of the per-bar returns (sample standard deviation, risk-free 0); 0 when flat. */
+    static BigDecimal sharpe(BigDecimal[] r, long barsPerYear) {
+        if (r.length < 2) {
+            return BigDecimal.ZERO.setScale(4);
         }
-        BigDecimal mean = sum.divide(BigDecimal.valueOf(n), MC);
+        BigDecimal mean = mean(r);
         BigDecimal sq = BigDecimal.ZERO;
         for (BigDecimal x : r) {
             BigDecimal d = x.subtract(mean);
             sq = sq.add(d.multiply(d, MC));
         }
-        BigDecimal std = sq.divide(BigDecimal.valueOf(n - 1), MC).sqrt(MC);
-        if (std.signum() == 0) {
+        return annualized(mean, sq.divide(BigDecimal.valueOf(r.length - 1), MC).sqrt(MC), barsPerYear);
+    }
+
+    /** Annualized Sortino: like Sharpe, but only the bars that lost count as risk (downside deviation, target 0). */
+    static BigDecimal sortino(BigDecimal[] r, long barsPerYear) {
+        if (r.length < 2) {
             return BigDecimal.ZERO.setScale(4);
         }
-        return mean.divide(std, MC).multiply(BigDecimal.valueOf(barsPerYear).sqrt(MC), MC).setScale(4, RoundingMode.HALF_EVEN);
+        BigDecimal sq = BigDecimal.ZERO;
+        for (BigDecimal x : r) {
+            if (x.signum() < 0) {
+                sq = sq.add(x.multiply(x, MC));
+            }
+        }
+        return annualized(mean(r), sq.divide(BigDecimal.valueOf(r.length), MC).sqrt(MC), barsPerYear);
+    }
+
+    /**
+     * Worst calendar month (UTC) in percent: equity at the month's last close over equity at the previous
+     * month's last close (the capital for the first month). The first and last months may be partial.
+     */
+    static BigDecimal worstMonthPct(List<PriceBar> bars, BigDecimal[] equity) {
+        BigDecimal start = equity[0];
+        BigDecimal worst = null;
+        for (int i = 0; i < bars.size(); i++) {
+            boolean lastOfMonth = i == bars.size() - 1
+                    || !YearMonth.from(bars.get(i).time().atOffset(ZoneOffset.UTC))
+                            .equals(YearMonth.from(bars.get(i + 1).time().atOffset(ZoneOffset.UTC)));
+            if (lastOfMonth) {
+                BigDecimal month = start.signum() == 0 ? BigDecimal.ZERO : equity[i + 1].divide(start, MC).subtract(BigDecimal.ONE);
+                worst = worst == null || month.compareTo(worst) < 0 ? month : worst;
+                start = equity[i + 1];
+            }
+        }
+        return worst.multiply(HUNDRED).setScale(4, RoundingMode.HALF_EVEN);
     }
 }
