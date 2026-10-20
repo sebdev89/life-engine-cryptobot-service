@@ -100,6 +100,17 @@ cryptobot:
     product: ${CRYPTOBOT_BACKTEST_PRODUCT:SOL-USD}
     timeout: ${CRYPTOBOT_BACKTEST_TIMEOUT:10s}
     max-bars: ${CRYPTOBOT_BACKTEST_MAX_BARS:5000}
+  # ---- Paper trading (KAN-1217, v3): strategies forward on live closed candles, simulated fills, no money.
+  # Off by default; on only in k8s-uat, where the 2–4 week window is measured. The portfolios default to the two
+  # benchmarks + band 50 % ± 5 % + DCA 50 USD/day (see PaperProperties); their knobs freeze at the first tick.
+  paper:
+    enabled: ${CRYPTOBOT_PAPER_ENABLED:false}
+    interval: ${CRYPTOBOT_PAPER_INTERVAL:5m}
+    granularity: ${CRYPTOBOT_PAPER_GRANULARITY:1h}
+    max-catch-up-bars: ${CRYPTOBOT_PAPER_MAX_CATCH_UP_BARS:168}
+    initial-usd: ${CRYPTOBOT_PAPER_INITIAL_USD:1000}
+    fee-bps: ${CRYPTOBOT_PAPER_FEE_BPS:30}
+    slippage-bps: ${CRYPTOBOT_PAPER_SLIPPAGE_BPS:20}
   # ---- Price oracle (paper §22): ≥2 independent keyless sources, median, freshness, deviation
   # bound, circuit breaker. No consensus ⇒ the portfolio view falls back to the static prices below
   # (labelled "fallback-static") and the policy DENIES every proposal: CorrectRules + CorruptState ⇏ SafeExecution.

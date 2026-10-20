@@ -52,6 +52,7 @@ class RouteContractTest {
             "POST /api/cryptobot/glossary/events",
             "GET /api/cryptobot/indicators",
             "POST /api/cryptobot/backtests",
+            "GET /api/cryptobot/paper",
             "POST /api/cryptobot/wallets",
             "GET /api/cryptobot/wallets",
             "GET /api/cryptobot/wallets/{walletId}/portfolio",

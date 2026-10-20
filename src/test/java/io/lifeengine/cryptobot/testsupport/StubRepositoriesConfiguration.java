@@ -148,4 +148,10 @@ public class StubRepositoriesConfiguration {
     io.lifeengine.cryptobot.infrastructure.persistence.controlplane.LineageRepository lineageRepository() {
         return new InMemoryLineageRepository();
     }
+
+    /** KAN-1217: paper portfolios, ticks and price checks. */
+    @Bean
+    io.lifeengine.cryptobot.application.paper.PaperRepository paperRepository() {
+        return new InMemoryPaperRepository();
+    }
 }

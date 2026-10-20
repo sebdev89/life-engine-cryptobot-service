@@ -8,7 +8,6 @@ import io.lifeengine.cryptobot.trading.backtest.Strategies;
 import java.math.BigDecimal;
 import java.time.Duration;
 import java.time.Instant;
-import java.util.Locale;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -62,22 +61,7 @@ public class BacktestService {
     }
 
     static BacktestStrategy strategyOf(Request r) {
-        String id = r.strategy() == null ? "" : r.strategy().trim().toLowerCase(Locale.ROOT);
-        return switch (id) {
-            case "hold-sol" -> Strategies.holdSol();
-            case "hold-usdc" -> Strategies.holdUsdc();
-            case "band-rebalance" -> Strategies.bandRebalance(
-                    r.targetSolWeight() == null ? new BigDecimal("0.5") : r.targetSolWeight(),
-                    r.bandBps() == null ? 500 : r.bandBps());
-            case "dca" -> {
-                if (r.dcaAmountUsd() == null || r.dcaEveryBars() == null) {
-                    throw new IllegalArgumentException("dca needs dcaAmountUsd and dcaEveryBars");
-                }
-                yield Strategies.dca(r.dcaAmountUsd(), r.dcaEveryBars());
-            }
-            default -> throw new IllegalArgumentException(
-                    "unknown strategy '" + r.strategy() + "' (hold-sol, hold-usdc, band-rebalance, dca)");
-        };
+        return Strategies.named(r.strategy(), r.targetSolWeight(), r.bandBps(), r.dcaAmountUsd(), r.dcaEveryBars());
     }
 
     /** Optional fields default to: 1000 USD, 1 h bars, Jupiter-like costs (30 + 20 bps), band 50 % ± 5 %. */
