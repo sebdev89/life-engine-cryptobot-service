@@ -59,6 +59,8 @@ jobs:
       # gitignore of the secret files, shellcheck when the runner has it. Offline: no compose is started.
       - name: Demo scripts (scripts/demo/tests/test-run.sh)
         run: scripts/demo/tests/test-run.sh
+      - name: Paper report script (scripts/paper/tests/test-paper-report.sh)
+        run: scripts/paper/tests/test-paper-report.sh
 
       - name: Upload Surefire reports (on failure)
         if: failure()
