@@ -1,0 +1,66 @@
+{
+ "environment": "uat",
+ "workload": "personal-ops",
+ "type": "k8s-pod",
+ "fields": {
+  "commit_sha": {
+   "section": "SOURCE",
+   "verdict": "PASS",
+   "note": "el pod publica life-engine.commit=abf50d1 y existe"
+  },
+  "repository": {
+   "section": "SOURCE",
+   "verdict": "PASS",
+   "note": "paquete de GHCR del repo declarado vs. imagen del pod"
+  },
+  "build_id": {
+   "section": "BUILD",
+   "verdict": "N/A",
+   "note": "no aplica a pod de k8s"
+  },
+  "artifact_hash": {
+   "section": "BUILD",
+   "verdict": "N/A",
+   "note": "no aplica a pod de k8s"
+  },
+  "image_digest": {
+   "section": "DEPLOYMENT",
+   "verdict": "PASS",
+   "note": "imagen del pod: ghcr.io/x/personal-ops@sha256:1111111111111111111111111111111111111111111111111111111111111111"
+  },
+  "deployment_revision": {
+   "section": "DEPLOYMENT",
+   "verdict": "PASS",
+   "note": "el pod publica life-engine.version=sha-a330d4b (lo pone base/<svc>/deployment.yaml y lo aplica Argo desde git)"
+  },
+  "effective_config_hash": {
+   "section": "RUNTIME",
+   "verdict": "PASS",
+   "note": "Argo (cryptobot) compara lo vivo contra git: Synced en 164444d"
+  },
+  "runtime_instance": {
+   "section": "RUNTIME",
+   "verdict": "N/A",
+   "note": "no aplica a este tipo de workload"
+  },
+  "health": {
+   "section": "RUNTIME",
+   "verdict": "PASS",
+   "note": "phase=Running, ready=true"
+  },
+  "functional_acceptance": {
+   "section": "ACCEPTANCE",
+   "verdict": "PASS",
+   "note": "HTTP 200, cuerpo json vía proxy de servicio cryptobot:8091/api/cryptobot/health"
+  }
+ },
+ "evidence": {
+  "observed_at": "2026-10-21T12:33:14Z",
+  "evidence_refs": [
+   "kubectl --kubeconfig /home/user/Workspace/k8s-lab/plataforma-v1/vm/kubeconfig --context k8s-uat -n uat get pod -l app=cryptobot -o json",
+   "git -C /home/user/Workspace/active/cryptobot/cryptobot-service cat-file -e a330d4b^{commit}",
+   "kubectl --kubeconfig /home/user/Workspace/k8s-lab/plataforma-v1/vm/kubeconfig --context k8s-uat -n argocd get application cryptobot -o json",
+   "kubectl --kubeconfig /home/user/Workspace/k8s-lab/plataforma-v1/vm/kubeconfig --context k8s-uat get --raw /api/v1/namespaces/uat/services/cryptobot:8091/proxy/api/cryptobot/health"
+  ]
+ }
+}
