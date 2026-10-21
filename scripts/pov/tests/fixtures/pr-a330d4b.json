@@ -1,0 +1,15 @@
+{
+ "number": 72,
+ "url": "https://github.com/sebdev89/life-engine-cryptobot-service/pull/72",
+ "title": "paper trading",
+ "commits": [
+  {
+   "messageHeadline": "v3",
+   "messageBody": "body\n\nCo-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
+  },
+  {
+   "messageHeadline": "fix",
+   "messageBody": "x\n\nAgent: cryptobot\nCo-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
+  }
+ ]
+}

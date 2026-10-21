@@ -61,6 +61,8 @@ jobs:
         run: scripts/demo/tests/test-run.sh
       - name: Paper report script (scripts/paper/tests/test-paper-report.sh)
         run: scripts/paper/tests/test-paper-report.sh
+      - name: Proof of Value collector (scripts/pov/tests/test-pov-collector.sh)
+        run: scripts/pov/tests/test-pov-collector.sh
 
       - name: Upload Surefire reports (on failure)
         if: failure()
