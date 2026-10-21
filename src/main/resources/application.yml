@@ -440,3 +440,13 @@ logging:
   level:
     root: INFO
     io.lifeengine.cryptobot: INFO
+
+# KAN-597: the OpenAPI map (/v3/api-docs, /swagger-ui.html) is OFF by default. The same image goes to every
+# environment, PROD included, so publishing the API map is an explicit per-environment decision:
+# CRYPTOBOT_OPENAPI_ENABLED=true (only overlays/uat today). Off = springdoc registers no route and the JWT filter
+# does not skip them (no token → 401). On = GET-only and public, see CryptobotJwtAuthenticationWebFilter.
+springdoc:
+  api-docs:
+    enabled: ${CRYPTOBOT_OPENAPI_ENABLED:false}
+  swagger-ui:
+    enabled: ${CRYPTOBOT_OPENAPI_ENABLED:false}

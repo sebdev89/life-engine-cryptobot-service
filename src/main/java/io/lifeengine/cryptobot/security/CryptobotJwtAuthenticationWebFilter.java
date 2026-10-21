@@ -9,7 +9,9 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.core.Ordered;
 import org.springframework.core.annotation.Order;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
@@ -33,19 +35,23 @@ public class CryptobotJwtAuthenticationWebFilter implements WebFilter {
     private final CryptobotJwtService jwtService;
     private final CryptobotSecurityProperties securityProperties;
     private final ObjectMapper objectMapper;
+    /** springdoc.api-docs.enabled (CRYPTOBOT_OPENAPI_ENABLED), default false: the API map is public only where it is turned on. */
+    private final boolean openApiPublic;
 
     public CryptobotJwtAuthenticationWebFilter(
             CryptobotJwtService jwtService,
             CryptobotSecurityProperties securityProperties,
-            ObjectMapper objectMapper) {
+            ObjectMapper objectMapper,
+            @Value("${springdoc.api-docs.enabled:false}") boolean openApiPublic) {
         this.jwtService = jwtService;
         this.securityProperties = securityProperties;
         this.objectMapper = objectMapper;
+        this.openApiPublic = openApiPublic;
     }
 
     @Override
     public Mono<Void> filter(ServerWebExchange exchange, WebFilterChain chain) {
-        if (!securityProperties.enabled() || shouldSkip(exchange)) {
+        if (!securityProperties.enabled() || shouldSkip(exchange, openApiPublic)) {
             return chain.filter(exchange);
         }
         String auth = exchange.getRequest().getHeaders().getFirst(HttpHeaders.AUTHORIZATION);
@@ -88,7 +94,7 @@ public class CryptobotJwtAuthenticationWebFilter implements WebFilter {
                 .contextWrite(ReactiveSecurityContextHolder.withAuthentication(authentication));
     }
 
-    static boolean shouldSkip(ServerWebExchange exchange) {
+    static boolean shouldSkip(ServerWebExchange exchange, boolean openApiPublic) {
         if (CorsUtils.isPreFlightRequest(exchange.getRequest())) {
             return true;
         }
@@ -99,7 +105,13 @@ public class CryptobotJwtAuthenticationWebFilter implements WebFilter {
                 // build identity, scraped from inside the Docker network with no Authorization
                 // header (nginx blocks it externally). SecurityConfig lists it permitAll, but that governs
                 // authorization only — this pre-Security filter must skip it too, like the other reads.
-                || path.startsWith("/actuator/info");
+                || path.startsWith("/actuator/info")
+                // OpenAPI docs (KAN-597): SecurityConfig lists GET /v3/api-docs/** and /swagger-ui/** as permitAll,
+                // and that only governs authorization, so this filter must skip them too, or they answer 401 with
+                // no token (measured in k8s-uat on 2026-10-21). Only when springdoc is turned on for this
+                // environment (default off: the same image goes to PROD) and only GET; nothing else opens.
+                || (openApiPublic && HttpMethod.GET.equals(exchange.getRequest().getMethod())
+                        && (path.startsWith("/v3/api-docs") || path.equals("/swagger-ui.html") || path.startsWith("/swagger-ui/")));
     }
 
     private Mono<Void> writeJson(ServerWebExchange exchange, HttpStatus status, String code, String message) {
