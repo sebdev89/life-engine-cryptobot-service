@@ -100,6 +100,11 @@ cryptobot:
     product: ${CRYPTOBOT_BACKTEST_PRODUCT:SOL-USD}
     timeout: ${CRYPTOBOT_BACKTEST_TIMEOUT:10s}
     max-bars: ${CRYPTOBOT_BACKTEST_MAX_BARS:5000}
+    # KAN-1226: stock backtests (market=stock) from Yahoo's chart API — keyless, NOT official, may stop working.
+    stocks:
+      base-url: ${CRYPTOBOT_BACKTEST_STOCKS_BASE_URL:https://query1.finance.yahoo.com}
+      user-agent: ${CRYPTOBOT_BACKTEST_STOCKS_USER_AGENT:life-engine-cryptobot/1.0}
+      default-benchmark: ${CRYPTOBOT_BACKTEST_STOCKS_BENCHMARK:QQQ}
   # ---- Paper trading (KAN-1217, v3): strategies forward on live closed candles, simulated fills, no money.
   # Off by default; on only in k8s-uat, where the 2–4 week window is measured. The portfolios default to the two
   # benchmarks + band 50 % ± 5 % + DCA 50 USD/day (see PaperProperties); their knobs freeze at the first tick.
