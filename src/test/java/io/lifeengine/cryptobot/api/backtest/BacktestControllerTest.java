@@ -39,6 +39,7 @@ import org.springframework.test.web.reactive.server.WebTestClient;
 class BacktestControllerTest {
 
     private static final Instant FROM = Instant.parse("2026-09-01T00:00:00Z");
+    private static final Instant STOCK_DAY = Instant.parse("2026-06-15T13:30:00Z");
     private static MockWebServer coinbase;
 
     @Autowired private WebTestClient webTestClient;
@@ -55,6 +56,15 @@ class BacktestControllerTest {
                             + (t + 3600) + ",1,2,3,120,9],[" + t + ",1,2,3,100,9]]";
                     return new MockResponse().setHeader("Content-Type", "application/json").setBody(body);
                 }
+                // KAN-1226: Yahoo chart, four daily sessions. SPCX 100 → 110 (+10 %), QQQ 100 → 103 (+3 %)
+                String path = request.getPath() == null ? "" : request.getPath();
+                if (path.startsWith("/v8/finance/chart/SPCX") || path.startsWith("/v8/finance/chart/QQQ")) {
+                    long d = STOCK_DAY.getEpochSecond();
+                    String closes = path.contains("SPCX") ? "100,80,90,110" : "100,101,102,103";
+                    String body = "{\"chart\":{\"result\":[{\"timestamp\":[" + d + "," + (d + 86400) + "," + (d + 2 * 86400) + ","
+                            + (d + 3 * 86400) + "],\"indicators\":{\"quote\":[{\"close\":[" + closes + "]}]}}],\"error\":null}}";
+                    return new MockResponse().setHeader("Content-Type", "application/json").setBody(body);
+                }
                 return new MockResponse().setResponseCode(404);
             }
         });
@@ -69,6 +79,7 @@ class BacktestControllerTest {
     @DynamicPropertySource
     static void historyBaseUrl(DynamicPropertyRegistry registry) {
         registry.add("cryptobot.backtest.history-base-url", () -> "http://localhost:" + coinbase.getPort());
+        registry.add("cryptobot.backtest.stocks.base-url", () -> "http://localhost:" + coinbase.getPort());
     }
 
     private WebTestClient.ResponseSpec post(Map<String, Object> body, String token) {
@@ -96,6 +107,37 @@ class BacktestControllerTest {
                 .jsonPath("$.report.beatsHoldSol").isEqualTo(false)
                 .jsonPath("$.report.beatsHoldUsdc").isEqualTo(true)
                 .jsonPath("$.report.beatsDoingNothing").isEqualTo(false);
+    }
+
+    @Test
+    void aStockIsComparedWithCashAndWithTheIndexOverTheSameSessions() {
+        post(Map.of("market", "stock", "symbol", "spcx", "strategy", "hold-sol",
+                        "from", STOCK_DAY.minusSeconds(3600).toString(), "to", STOCK_DAY.plusSeconds(4 * 86400).toString()),
+                signJwt(List.of("RUNTIME_OPERATOR")))
+                .expectStatus().isOk()
+                .expectBody()
+                .jsonPath("$.market").isEqualTo("stock")
+                .jsonPath("$.source").isEqualTo("yahoo-chart")
+                .jsonPath("$.product").isEqualTo("SPCX")
+                .jsonPath("$.granularitySeconds").isEqualTo(86400)
+                .jsonPath("$.missingBars").doesNotExist()
+                .jsonPath("$.report.strategy.bars").isEqualTo(4)
+                // holding the stock: 100 → 110; cash: flat; the index (QQQ by default): 100 → 103
+                .jsonPath("$.report.holdSol.finalUsd").isEqualTo(1100.0)
+                .jsonPath("$.report.holdUsdc.finalUsd").isEqualTo(1000.0)
+                .jsonPath("$.report.fees.feeBps").isEqualTo(5)
+                .jsonPath("$.benchmark").isEqualTo("QQQ")
+                .jsonPath("$.benchmarkResult.finalUsd").isEqualTo(1030.0)
+                .jsonPath("$.beatsBenchmark").isEqualTo(true);
+    }
+
+    @Test
+    void aStockWithoutASymbolIs400() {
+        post(Map.of("market", "stock", "strategy", "hold-sol", "from", STOCK_DAY.toString(), "to", STOCK_DAY.plusSeconds(86400).toString()),
+                signJwt(List.of("RUNTIME_OPERATOR")))
+                .expectStatus().isBadRequest()
+                .expectBody()
+                .jsonPath("$.message").isEqualTo("market=stock needs a symbol (e.g. SPCX)");
     }
 
     @Test
