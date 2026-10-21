@@ -1,0 +1,8 @@
+{
+ "uat": {
+  "cryptobot": "cryptobot/cryptobot-service",
+  "cryptobot-signer": "cryptobot/cryptobot-service",
+  "command": "command/command-service",
+  "personal-ops": "../personal-ops"
+ }
+}

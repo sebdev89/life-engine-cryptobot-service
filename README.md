@@ -7,7 +7,7 @@
 independent risk controls, executes on Solana without ever holding the key, and proves the result.**
 
 <p align="center">
-  <img alt="Watch demo — video coming soon" src="https://img.shields.io/badge/%E2%96%B6%20Watch%20demo-video%20coming%20soon-lightgrey?style=for-the-badge">
+  <a href="https://youtu.be/vH6BnT3QpiA"><img alt="Watch demo (1:58)" src="https://img.shields.io/badge/%E2%96%B6%20Watch%20demo-1%3A58-FF0000?style=for-the-badge"></a>
   <a href="https://life-engine.app/landing/cryptobot/"><img alt="Live demo" src="https://img.shields.io/badge/Live%20demo-life--engine.app-0b7285?style=for-the-badge"></a>
   <a href="#verify-it"><img alt="Verify on Solana" src="https://img.shields.io/badge/Verify%20on%20Solana-devnet-9945FF?style=for-the-badge"></a>
 </p>
@@ -131,7 +131,8 @@ from `main`, with the transactions below finalized. V1–V4 and V6 were also mea
 
 - [ ] **Landing** — `https://life-engine.app/landing/cryptobot/` answers 200 `text/html` to a client without cookies, and its
       claims match this README.
-- [ ] **Video** — the demo video is published, ≤ 3 min, and linked from the *Watch demo* button above (today a placeholder).
+- [x] **Video** — the demo video is published, ≤ 3 min, and linked from the *Watch demo* button above:
+      [demo 1:58](https://youtu.be/vH6BnT3QpiA) · [pitch 1:58](https://youtu.be/oTdfoSNzt0E) (unlisted; oEmbed 200 on 2026-10-20).
 - [ ] **Submission** — sent on Colosseum before the deadline, with a capture of the confirmation.
 - [ ] **Links** — every public link of this README, the landing and the submission checked without cookies on the day of
       the submission, and every explorer transaction `finalized` without error by `getSignatureStatuses`.

@@ -236,38 +236,66 @@
             </plugin>
 
             <!--
-              git-commit-id generates classpath:git.properties (commit id, commit time, branch). Spring
-              auto-configures a GitProperties bean from it → /actuator/info git block. failOnNoGitDirectory
-              is false on purpose so a build without a .git directory does not fail. offline=true keeps it
-              off the network. (T7 — mirrors life-engine-auth an internal ticket.)
+              Generates classpath:git.properties (commit id, commit time, branch). Spring auto-configures a
+              GitProperties bean from it → /actuator/info git block and the commitSha of every log line.
+              KAN-1215: this used to be git-commit-id-maven-plugin, but from a linked worktree
+              (.worktrees/KAN-N-…) it resolves the main checkout's .git and stamps ITS commit/branch (measured:
+              worktree at 09ea580 → git.properties 0b7624d/main), with JGit or native git, up to 10.0.1. Plain
+              `git` run in the project dir resolves worktrees correctly. Never fails the build: without git or
+              without .git (Docker build context) no file is written and BuildIdentityResolver uses the
+              GIT_COMMIT/GIT_BRANCH/GIT_COMMIT_TIME build-args. Detached HEAD in CI → GITHUB_REF_NAME.
             -->
             <plugin>
-                <groupId>io.github.git-commit-id</groupId>
-                <artifactId>git-commit-id-maven-plugin</artifactId>
-                <version>9.0.1</version>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-antrun-plugin</artifactId>
+                <version>3.1.0</version>
                 <executions>
                     <execution>
-                        <id>get-the-git-infos</id>
-                        <goals>
-                            <goal>revision</goal>
-                        </goals>
+                        <id>git-properties</id>
                         <phase>initialize</phase>
+                        <goals>
+                            <goal>run</goal>
+                        </goals>
+                        <configuration>
+                            <target xmlns:if="ant:if">
+                                <property environment="env"/>
+                                <available file="${project.basedir}/.git" property="gp.has.git"/>
+                                <exec if:set="gp.has.git" executable="git" dir="${project.basedir}" outputproperty="gp.full"
+                                      errorproperty="gp.err.full" failonerror="false" failifexecutionfails="false">
+                                    <arg line="rev-parse HEAD"/>
+                                </exec>
+                                <exec if:set="gp.has.git" executable="git" dir="${project.basedir}" outputproperty="gp.abbrev"
+                                      errorproperty="gp.err.abbrev" failonerror="false" failifexecutionfails="false">
+                                    <arg line="rev-parse --short=7 HEAD"/>
+                                </exec>
+                                <exec if:set="gp.has.git" executable="git" dir="${project.basedir}" outputproperty="gp.time"
+                                      errorproperty="gp.err.time" failonerror="false" failifexecutionfails="false">
+                                    <env key="TZ" value="UTC"/>
+                                    <arg line="show -s --format=%cd --date=format-local:%Y-%m-%dT%H:%M:%SZ HEAD"/>
+                                </exec>
+                                <exec if:set="gp.has.git" executable="git" dir="${project.basedir}" outputproperty="gp.ref"
+                                      errorproperty="gp.err.ref" failonerror="false" failifexecutionfails="false">
+                                    <arg line="rev-parse --abbrev-ref HEAD"/>
+                                </exec>
+                                <condition property="gp.branch" value="${env.GITHUB_REF_NAME}" else="${gp.ref}">
+                                    <and>
+                                        <equals arg1="${gp.ref}" arg2="HEAD"/>
+                                        <isset property="env.GITHUB_REF_NAME"/>
+                                    </and>
+                                </condition>
+                                <condition property="gp.ok">
+                                    <matches string="${gp.full}" pattern="^[0-9a-f]{40}$"/>
+                                </condition>
+                                <echo if:set="gp.ok" file="${project.build.outputDirectory}/git.properties"
+                                      encoding="UTF-8">git.branch=${gp.branch}
+git.commit.id=${gp.full}
+git.commit.id.abbrev=${gp.abbrev}
+git.commit.time=${gp.time}
+</echo>
+                            </target>
+                        </configuration>
                     </execution>
                 </executions>
-                <configuration>
-                    <generateGitPropertiesFile>true</generateGitPropertiesFile>
-                    <failOnNoGitDirectory>false</failOnNoGitDirectory>
-                    <failOnUnableToExtractRepoInfo>false</failOnUnableToExtractRepoInfo>
-                    <offline>true</offline>
-                    <dateFormat>yyyy-MM-dd'T'HH:mm:ss'Z'</dateFormat>
-                    <dateFormatTimeZone>UTC</dateFormatTimeZone>
-                    <includeOnlyProperties>
-                        <property>^git.commit.id.abbrev$</property>
-                        <property>^git.commit.id.full$</property>
-                        <property>^git.commit.time$</property>
-                        <property>^git.branch$</property>
-                    </includeOnlyProperties>
-                </configuration>
             </plugin>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
