@@ -13,10 +13,12 @@ import org.springframework.boot.test.autoconfigure.web.reactive.AutoConfigureWeb
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
 import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.web.reactive.server.WebTestClient;
 
 /**
- * KAN-597: the OpenAPI docs are public (SecurityConfig: GET permitAll), with security ENABLED as in every
+ * KAN-597: with the API map turned ON for an environment (CRYPTOBOT_OPENAPI_ENABLED=true, as in overlays/uat), the
+ * OpenAPI docs are public (SecurityConfig: GET permitAll), with security ENABLED as in every
  * environment (the {@code test} profile sets {@code cryptobot.security.enabled=true}). Before this, the JWT filter
  * that runs ahead of Spring Security did not skip them, so they answered 401 without a token in k8s-uat, and the
  * new routes could not be checked as deployed without a credential. Only GET opens; the API itself still requires
@@ -27,6 +29,7 @@ import org.springframework.test.web.reactive.server.WebTestClient;
         webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @AutoConfigureWebTestClient
 @ActiveProfiles("test")
+@TestPropertySource(properties = {"springdoc.api-docs.enabled=true", "springdoc.swagger-ui.enabled=true"})
 class OpenApiDocsPublicTest {
 
     @Autowired private WebTestClient webTestClient;
