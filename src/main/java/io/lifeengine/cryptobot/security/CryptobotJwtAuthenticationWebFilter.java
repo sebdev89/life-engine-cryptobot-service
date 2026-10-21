@@ -10,6 +10,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.core.Ordered;
 import org.springframework.core.annotation.Order;
 import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
@@ -99,7 +100,12 @@ public class CryptobotJwtAuthenticationWebFilter implements WebFilter {
                 // build identity, scraped from inside the Docker network with no Authorization
                 // header (nginx blocks it externally). SecurityConfig lists it permitAll, but that governs
                 // authorization only — this pre-Security filter must skip it too, like the other reads.
-                || path.startsWith("/actuator/info");
+                || path.startsWith("/actuator/info")
+                // OpenAPI docs (KAN-597): SecurityConfig lists GET /v3/api-docs/** and /swagger-ui/** as permitAll,
+                // and that only governs authorization, so this filter must skip them too, or they answer 401 with
+                // no token (measured in k8s-uat on 2026-10-21). GET only, like the permitAll; nothing else opens.
+                || (HttpMethod.GET.equals(exchange.getRequest().getMethod())
+                        && (path.startsWith("/v3/api-docs") || path.equals("/swagger-ui.html") || path.startsWith("/swagger-ui/")));
     }
 
     private Mono<Void> writeJson(ServerWebExchange exchange, HttpStatus status, String code, String message) {
