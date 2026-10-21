@@ -6,8 +6,10 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import io.lifeengine.cryptobot.application.backtest.BacktestProperties;
 import io.lifeengine.cryptobot.trading.backtest.PriceBar;
 import java.math.BigDecimal;
+import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
+import java.time.ZoneOffset;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
 import okhttp3.mockwebserver.Dispatcher;
@@ -41,9 +43,78 @@ class YahooChartHistoryTest {
     }
 
     private YahooChartHistory history() {
+        return history(Clock.fixed(Instant.parse("2026-10-21T15:00:00Z"), ZoneOffset.UTC));
+    }
+
+    private YahooChartHistory history(Clock clock) {
         BacktestProperties props = new BacktestProperties(null, null, Duration.ofSeconds(2), 5_000,
                 new BacktestProperties.Stocks("http://localhost:" + server.getPort(), "life-engine-cryptobot/test", null));
-        return new YahooChartHistory(WebClient.builder(), props, new ObjectMapper());
+        return new YahooChartHistory(WebClient.builder(), props, new ObjectMapper(), clock);
+    }
+
+    /** A clock the test moves. */
+    private static final class MovingClock extends Clock {
+        Instant now;
+
+        MovingClock(Instant now) {
+            this.now = now;
+        }
+
+        @Override
+        public java.time.ZoneId getZone() {
+            return ZoneOffset.UTC;
+        }
+
+        @Override
+        public Clock withZone(java.time.ZoneId zone) {
+            return this;
+        }
+
+        @Override
+        public Instant instant() {
+            return now;
+        }
+    }
+
+    private static final String ONE_BAR = "{\"chart\":{\"result\":[{\"timestamp\":[" + D1.getEpochSecond() + "],"
+            + "\"indicators\":{\"quote\":[{\"close\":[160.95]}]}}],\"error\":null}}";
+
+    @Test
+    void theSameBacktestAskedAgainTheSameDayDoesNotCallYahooAgain() {
+        serve(ONE_BAR);
+        MovingClock clock = new MovingClock(Instant.parse("2026-10-21T15:00:00Z"));
+        YahooChartHistory h = history(clock);
+
+        StepVerifier.create(h.closes("SPCX", Duration.ofDays(1), FROM, TO)).expectNextCount(1).verifyComplete();
+        StepVerifier.create(h.closes("SPCX", Duration.ofDays(1), FROM, TO)).expectNextCount(1).verifyComplete();
+        assertThat(requests).hasSize(1);
+
+        // another symbol or another window is another request
+        StepVerifier.create(h.closes("QQQ", Duration.ofDays(1), FROM, TO)).expectNextCount(1).verifyComplete();
+        assertThat(requests).hasSize(2);
+
+        // the next UTC day starts over
+        clock.now = Instant.parse("2026-10-22T00:01:00Z");
+        StepVerifier.create(h.closes("SPCX", Duration.ofDays(1), FROM, TO)).expectNextCount(1).verifyComplete();
+        assertThat(requests).hasSize(3);
+    }
+
+    @Test
+    void aFailureIsNotCachedTheNextAskRetries() {
+        java.util.concurrent.atomic.AtomicInteger calls = new java.util.concurrent.atomic.AtomicInteger();
+        server.setDispatcher(new Dispatcher() {
+            @Override
+            public MockResponse dispatch(RecordedRequest request) {
+                return calls.incrementAndGet() == 1
+                        ? new MockResponse().setResponseCode(429)
+                        : new MockResponse().setHeader("Content-Type", "application/json").setBody(ONE_BAR);
+            }
+        });
+        YahooChartHistory h = history();
+
+        StepVerifier.create(h.closes("SPCX", Duration.ofDays(1), FROM, TO)).expectError().verify();
+        StepVerifier.create(h.closes("SPCX", Duration.ofDays(1), FROM, TO)).expectNextCount(1).verifyComplete();
+        assertThat(calls).hasValue(2);
     }
 
     private void serve(String body) {
