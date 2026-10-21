@@ -23,7 +23,8 @@ check "unknown argument" 1 "$SCRIPT" --bogus
 echo "report from fixtures (now = 2026-10-21 18:05Z, last candle 17:00Z)"
 export PAPER_REPORT_FIXTURES="${HERE}/fixtures"
 check "dry run exits 0" 0 env PAPER_REPORT_NOW=2026-10-21T18:05:00Z "$SCRIPT" --dry-run
-has "última vela 2026-10-21 17:00Z (día 1 de 14–28) · edad de la última vela 65 min"
+# the 17:00 candle closes at 18:00: at 18:05 it closed 5 min ago
+has "última vela 2026-10-21 17:00Z (día 1 de 14–28) · cerró hace 5 min"
 # band: 1000 → 1050 → 1000: max DD (1050−1000)/1050 = 4.76 %, worst day 2026-10-21 = 1000/1050 − 1
 has "band-50-500 | 1000.00 | +0.00 | +0.00% | 4.76% | -4.76% (2026-10-21) | 0 | 0.00 | sí | no"
 # hold-sol: 1000 → 1100 → 990: −1 %, DD 10 %, worst day 990/1100 − 1 = −10 %
@@ -32,11 +33,14 @@ has "hold-sol | 990.00 | -10.00 | -1.00% | 10.00% | -10.00% (2026-10-21) | 0 | 0
 has "hold-usdc | 1000.00 | +0.00 | +0.00% | 0.00% | +0.00% (2026-10-20) | 0 | 0.00 | sí | —"
 has "dca-50-24 | 999.75 | -0.25 | -0.02% | 0.50% | -0.50% (2026-10-21) | 1 | 0.25 | sí | no"
 has "Coinbase vs Jupiter: 3 chequeos, 2 con ambos precios, desvío medio |2.50| bps, máximo |4| bps."
-printf '%s' "$OUT" | grep -q 'NO avanza' && bad "fresh candle flagged as stale" || ok "a 65 min old candle is not flagged"
+printf '%s' "$OUT" | grep -q 'NO avanza' && bad "fresh candle flagged as stale" || ok "a candle closed 5 min ago is not flagged"
 
 echo "stale candle and end of window"
-check "3 h later" 0 env PAPER_REPORT_NOW=2026-10-21T21:00:00Z "$SCRIPT" --dry-run
-has "⚠ el job NO avanza"
+# the alarm is > 2 h since the last applied candle closed: one late candle (an Exchange hiccup) is tolerated
+check "1 h 59 after the close" 0 env PAPER_REPORT_NOW=2026-10-21T19:59:00Z "$SCRIPT" --dry-run
+printf '%s' "$OUT" | grep -q 'NO avanza' && bad "flagged at 119 min" || ok "119 min after the close is not flagged"
+check "3 h after the close" 0 env PAPER_REPORT_NOW=2026-10-21T21:00:00Z "$SCRIPT" --dry-run
+has "cerró hace 180 min ⚠ el job NO avanza"
 cat > "${TMP}/jira" <<'EOF'
 import os, sys
 open(os.environ["FAKE_JIRA_OUT"], "w").write(" ".join(sys.argv[1:]))

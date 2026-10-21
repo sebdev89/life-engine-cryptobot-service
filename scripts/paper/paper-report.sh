@@ -10,7 +10,8 @@
 #
 # Per portfolio: equity, P&L, return, max drawdown, worst UTC day (that day's last close against the
 # previous day's), trades, costs, and whether it beats hold-sol / hold-usdc over the SAME window (same
-# started_at, same last candle). Plus: age of the last candle (> 2 h = the job is not advancing) and the
+# started_at, same last candle). Plus: how long ago the last applied candle CLOSED (> 2 h = the job is not
+# advancing; the job applies a candle within one interval, 5 min, of its close) and the
 # Coinbase-vs-Jupiter gap. Window: day 0 2026-10-20; minimum end 2026-11-03, maximum 2026-11-17.
 #
 # TODO(KAN-1214): it reads as `life`, the cluster's Postgres superuser, even if only to SELECT. Switch
@@ -54,7 +55,7 @@ GAP="$(q gap "select count(*), count(deviation_bps), round(avg(abs(deviation_bps
 REPORT="$(PORTFOLIOS="$PORTFOLIOS" TICKS="$TICKS" GAP="$GAP" NOW="$NOW" python3 - <<'PY'
 import os
 from collections import defaultdict, OrderedDict
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 
 def ts(s):
@@ -120,12 +121,13 @@ def beats(pid, bench):
     return "sí" if p["final"] > b["final"] else "no"
 
 first = next(iter(ports.values()))
-age_min = int((now - first["last"]).total_seconds() // 60)
+# bar_time is when the hourly candle OPENS; it closes an hour later, and only then can the job apply it
+age_min = int((now - (first["last"] + timedelta(hours=1))).total_seconds() // 60)
 stale = " ⚠ el job NO avanza" if age_min > 120 else ""
 lines = [
     f"REPORTE PAPER TRADING (KAN-1217) — {now:%Y-%m-%d %H:%M}Z · ventana desde {first['started']:%Y-%m-%d %H:%M}Z, "
     f"última vela {first['last']:%Y-%m-%d %H:%M}Z (día {(first['last'] - first['started']).days} de 14–28) · "
-    f"edad de la última vela {age_min} min{stale}",
+    f"cerró hace {age_min} min{stale}",
     "Fuente: tablas paper_* de life_engine_cryptobot en k8s-uat (solo lectura). 1000 USD c/u, 30+20 bps de costos.",
     "",
     "portfolio | equity USD | P&L USD | retorno | max DD | peor día (UTC) | trades | costos | > hold-sol | > hold-usdc",
