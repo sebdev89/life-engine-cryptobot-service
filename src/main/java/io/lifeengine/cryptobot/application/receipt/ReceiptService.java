@@ -116,6 +116,28 @@ public class ReceiptService {
                 new IntelligenceReceipt.Signature("ed25519", key.keyId(), Base64.getEncoder().encodeToString(signature)), null, clock.instant());
     }
 
+    /**
+     * (TAE fase 2, mandato §28 gap G15): rebuilds the {@link IntelligenceReceipt} a caller
+     * presents from its parts, for the body-based {@code POST /receipts/verify} — no stored row.
+     * {@code receiptHash} is always the hash {@code body} alone canonicalises to (never taken from
+     * the caller); {@code canonical}, when supplied, only substitutes what gets compared against
+     * that hash and against a fresh re-canonicalisation of {@code body} — exactly the role a
+     * tampered {@code canonicalJson} column plays for the stored-row {@code POST /receipts/{hash}
+     * /verify}, so a caller-supplied tamper fails {@code hashMatchesCanonical}/{@code
+     * bodyMatchesCanonical} the same way, while a signature computed over the real (body-derived)
+     * hash still verifies. There is no separate {@code parents} override: {@code body.parents()} is
+     * already what the hash covers and what gets checked against the tenant's store; accepting a
+     * second, divergent list would let a caller's claimed parents outrun what the hash actually
+     * covers — exactly the kind of check-weakening the mandate forbids.
+     */
+    public IntelligenceReceipt reconstruct(ReceiptBody body, String canonical, String signatureBase64, String keyId, IntelligenceReceipt.Anchor anchor) {
+        byte[] realCanonical = ReceiptCanonicalizer.canonicalBytes(body);
+        String hash = ReceiptCanonicalizer.receiptHash(realCanonical);
+        String canonicalJson = canonical != null ? canonical : new String(realCanonical, StandardCharsets.UTF_8);
+        IntelligenceReceipt.Signature signature = new IntelligenceReceipt.Signature("ed25519", keyId, signatureBase64);
+        return new IntelligenceReceipt(hash, ReceiptCanonicalizer.HASH_DOMAIN, body, canonicalJson, signature, anchor, clock.instant());
+    }
+
     public Mono<IntelligenceReceipt> issue(ReceiptDraft draft) {
         ReceiptBody body = draft.body();
         DeterministicInference inference = draft.inference();

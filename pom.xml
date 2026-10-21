@@ -148,6 +148,15 @@
             <scope>test</scope>
         </dependency>
         <!--
+          (TAE phase 2, mandato §28): OpenAPI publicado para la API aditiva. WebFlux-native
+          (starter-webflux-ui, no el starter MVC) — expone /v3/api-docs y /swagger-ui.html.
+        -->
+        <dependency>
+            <groupId>org.springdoc</groupId>
+            <artifactId>springdoc-openapi-starter-webflux-ui</artifactId>
+            <version>2.8.14</version>
+        </dependency>
+        <!--
           (TAE phase 1, audit §21) — ArchUnit enforces the core/solana/trading package
           boundaries mechanically, so a future PR that reintroduces a forbidden dependency fails
           CI instead of relying on review.
