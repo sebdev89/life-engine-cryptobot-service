@@ -26,12 +26,19 @@ final class Attestations {
     /** {@code checks == null} ⇒ no {@code checks} key, as a validator before KAN-600 signed it. */
     static String payload(String proposalId, String messageHash, String decision, String validator, long issuedAt, long expiresAt, String cluster,
             List<String> checks) {
+        return payload(proposalId, messageHash, decision, validator, issuedAt, expiresAt, cluster, checks, null);
+    }
+
+    /** {@code swapJson}: the {@code swap} object as the validator signs it (pilot), or {@code null} for none. */
+    static String payload(String proposalId, String messageHash, String decision, String validator, long issuedAt, long expiresAt, String cluster,
+            List<String> checks, String swapJson) {
         String checksJson = checks == null ? "" : "\"checks\":[" + String.join(",", checks.stream().map(c -> "\"" + c + "\"").toList()) + "],";
         return "{" + checksJson + (cluster == null ? "" : "\"cluster\":\"" + cluster + "\",")
                 + "\"decision\":\"" + decision + "\",\"escalation\":\"NONE\",\"expires_at\":" + expiresAt
                 + ",\"input_hash\":\"sha256:" + "1".repeat(64) + "\",\"issued_at\":" + issuedAt
                 + ",\"message_hash\":\"" + messageHash + "\",\"policy_hash\":\"sha256:" + "2".repeat(64) + "\""
-                + ",\"proposal_id\":\"" + proposalId + "\",\"schema_version\":\"1\",\"validator\":\"" + validator + "\""
+                + ",\"proposal_id\":\"" + proposalId + "\",\"schema_version\":\"1\"" + (swapJson == null ? "" : ",\"swap\":" + swapJson)
+                + ",\"validator\":\"" + validator + "\""
                 + ",\"verdict_hash\":\"sha256:" + "3".repeat(64) + "\"}";
     }
 

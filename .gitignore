@@ -30,3 +30,6 @@ out/
 
 # demo keypairs live under ~/.cryptobot-demo; never versioned even if CRYPTOBOT_DEMO_HOME points inside the repo
 .cryptobot-demo/
+
+# PIT: a mutant of UsdcSpendLedger writes its ledger to ./.usdc when it ignores an empty path (killed by a test)
+signer/.usdc

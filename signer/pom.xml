@@ -93,9 +93,21 @@
                     <targetClasses>
                         <param>io.lifeengine.cryptobot.signer.SwapSigningPolicy*</param>
                         <param>io.lifeengine.cryptobot.signer.LegacyMessageDecoder*</param>
+                        <param>io.lifeengine.cryptobot.signer.SignerController*</param>
+                        <param>io.lifeengine.cryptobot.signer.SwapGuard</param>
+                        <param>io.lifeengine.cryptobot.signer.UsdcSpendLedger</param>
                     </targetClasses>
+                    <!-- SignerController: only the swap path; the transfer and anchor paths predate the pilot -->
+                    <excludedMethods>
+                        <param>identity</param>
+                        <param>doSign</param>
+                        <param>signTransfer</param>
+                        <param>signAnchor</param>
+                        <param>reserveDaily</param>
+                    </excludedMethods>
                     <targetTests>
                         <param>io.lifeengine.cryptobot.signer.SwapSigningPolicyTest</param>
+                        <param>io.lifeengine.cryptobot.signer.SignerSwap*Test</param>
                     </targetTests>
                     <mutators>
                         <mutator>STRONGER</mutator>

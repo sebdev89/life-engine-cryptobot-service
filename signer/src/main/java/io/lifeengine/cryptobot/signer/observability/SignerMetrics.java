@@ -21,7 +21,7 @@ import org.springframework.stereotype.Component;
  *       rule    = none (signed) | the refusal reason of SigningPolicy / AttestationVerifier
  *                 (signer_disabled, mainnet_disabled, destination_not_allowed, amount_over_cap,
  *                 attestation_missing, attestation_expired, …) | other (anything not in KNOWN_RULES)
- *       kind    = transfer (/sign, the demo path) | anchor (/sign-anchor, receipt batches)
+ *       kind    = transfer (/sign, the demo path) | anchor (/sign-anchor, receipt batches) | swap (/sign-swap, pilot)
  *   signer.sign.latency   → signer_sign_latency_seconds{kind}   histogram: policy + attestation check + Ed25519
  * </pre>
  *
@@ -40,6 +40,7 @@ public class SignerMetrics {
     public static final String OUTCOME_REFUSED = "refused";
     public static final String KIND_TRANSFER = "transfer";
     public static final String KIND_ANCHOR = "anchor";
+    public static final String KIND_SWAP = "swap";
     public static final String RULE_NONE = "none";
     public static final String RULE_OTHER = "other";
 
@@ -56,7 +57,13 @@ public class SignerMetrics {
             "validator_key_not_configured", "attestation_missing", "attestation_bad_signature", "attestation_unparseable",
             "attestation_validator_mismatch", "attestation_proposal_mismatch", "attestation_message_mismatch", "attestation_denied",
             "attestation_no_window", "attestation_not_yet_valid", "attestation_expired", "attestation_cluster_missing",
-            "attestation_cluster_mismatch", "attestation_hash_not_from_bytes", "attestation_swap_not_checked");
+            "attestation_cluster_mismatch", "attestation_hash_not_from_bytes", "attestation_swap_not_checked",
+            // SwapSigningPolicy (/sign-swap, pilot)
+            "swaps_disabled", "already_signed", "compute_budget_not_allowed", "ata_instruction_not_allowed", "system_instruction_not_allowed",
+            "token_instruction_not_allowed", "jupiter_instruction_not_allowed", "jupiter_instruction_count", "route_authority_mismatch",
+            "route_source_mismatch", "route_destination_mismatch", "platform_fee", "slippage_too_high", "swap_amount_over_cap",
+            "swap_floor_not_configured", "price_below_floor", "min_out_missing", "minimum_received_too_low",
+            "attestation_swap_missing", "attestation_swap_mismatch", "daily_cap_usdc", "attestation_not_required", "system_transfer_not_allowed", "wrap_exceeds_amount", "priority_fee_too_high");
 
     private static final Set<String> KNOWN = Set.copyOf(KNOWN_RULES);
     private static final Duration[] LATENCY_BUCKETS = {
@@ -113,7 +120,7 @@ public class SignerMetrics {
     }
 
     private static String kind(String kind) {
-        return KIND_ANCHOR.equals(kind) ? KIND_ANCHOR : KIND_TRANSFER;
+        return KIND_ANCHOR.equals(kind) || KIND_SWAP.equals(kind) ? kind : KIND_TRANSFER;
     }
 
     private Counter counter(String outcome, String rule, String kind) {
@@ -135,11 +142,14 @@ public class SignerMetrics {
     private void registerPlaceholders() {
         counter(OUTCOME_SIGNED, RULE_NONE, KIND_TRANSFER);
         counter(OUTCOME_SIGNED, RULE_NONE, KIND_ANCHOR);
+        counter(OUTCOME_SIGNED, RULE_NONE, KIND_SWAP);
         for (String rule : KNOWN_RULES) {
             counter(OUTCOME_REFUSED, rule, KIND_TRANSFER);
+            counter(OUTCOME_REFUSED, rule, KIND_SWAP);
         }
         counter(OUTCOME_REFUSED, RULE_OTHER, KIND_TRANSFER);
         latency(KIND_TRANSFER);
         latency(KIND_ANCHOR);
+        latency(KIND_SWAP);
     }
 }

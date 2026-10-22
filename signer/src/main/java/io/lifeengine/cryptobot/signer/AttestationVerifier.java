@@ -94,6 +94,27 @@ public class AttestationVerifier {
         return props.requireAttestation();
     }
 
+    /** The swap an attestation names (pilot): mints, input amount and the intent's minimum output. */
+    public record AttestedSwap(String inputMint, String outputMint, long inAmount, long minOutAmount) {}
+
+    /**
+     * The {@code swap} object of an attestation payload, or empty when there is none or it is not well formed. Only
+     * meaningful once {@link #verify} accepted the attestation: the payload is then the validator's signed bytes.
+     */
+    public java.util.Optional<AttestedSwap> swapOf(Attestation att) {
+        try {
+            JsonNode s = mapper.readTree(att.payload()).get("swap");
+            if (s == null || !s.isObject() || !s.path("input_mint").isTextual() || !s.path("output_mint").isTextual()
+                    || !s.path("in_amount").canConvertToLong() || !s.path("min_out_amount").canConvertToLong()) {
+                return java.util.Optional.empty();
+            }
+            return java.util.Optional.of(new AttestedSwap(s.get("input_mint").asText(), s.get("output_mint").asText(), s.get("in_amount").asLong(),
+                    s.get("min_out_amount").asLong()));
+        } catch (Exception ex) {
+            return java.util.Optional.empty();
+        }
+    }
+
     /** The checks an attestation for these bytes must declare: the hash always; the swap rules if Jupiter is called. */
     static Set<String> requiredChecks(LegacyMessageDecoder.Decoded tx) {
         boolean jupiter = tx.instructions().stream().anyMatch(ix -> JUPITER_V6.equals(ix.programId()));

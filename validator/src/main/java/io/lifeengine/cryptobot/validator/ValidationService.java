@@ -52,7 +52,8 @@ import org.springframework.stereotype.Component;
  * the bytes it is asked to sign) cannot be handed other bytes — another blockhash, another signer, another anything —
  * under this attestation. With a {@code swap} intent, {@link SwapRules} is applied to those same bytes and any
  * violation denies ({@code SWAP_RULES}). {@code checks} in the payload records what was actually verified, so the
- * signer can later require it.
+ * signer can later require it, and {@code swap} carries the swap itself (mints, input amount, minimum output) so the
+ * signer can require the exact minimum it signs for to be the attested one.
  */
 @Component
 public class ValidationService {
@@ -206,6 +207,15 @@ public class ValidationService {
         payload.put("expires_at", expires.getEpochSecond());
         if (!checks.isEmpty()) {
             payload.put("checks", List.copyOf(checks));
+        }
+        if (swapIntent != null) {
+            // pilot: the swap the signer may sign, in the signed payload, so the exact minimum is authenticated end to end
+            Map<String, Object> swap = new LinkedHashMap<>();
+            swap.put("input_mint", swapIntent.inputMint());
+            swap.put("output_mint", swapIntent.outputMint());
+            swap.put("in_amount", swapIntent.inAmount());
+            swap.put("min_out_amount", swapIntent.minOutAmount());
+            payload.put("swap", swap);
         }
         String canonical = CanonicalJson.canonicalize(payload);
         String signature = Base58.encode(keys.sign(canonical.getBytes(StandardCharsets.UTF_8)));

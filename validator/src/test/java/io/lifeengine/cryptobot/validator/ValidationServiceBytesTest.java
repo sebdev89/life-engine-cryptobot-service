@@ -104,6 +104,17 @@ class ValidationServiceBytesTest {
         assertThat(r.decision()).isNotEqualTo("DENY");
         assertThat(r.checks()).containsExactly(ValidationService.CHECK_HASH_FROM_BYTES, ValidationService.CHECK_JUPITER_SWAP);
         assertThat(payload(r).path("checks").toString()).contains(ValidationService.CHECK_JUPITER_SWAP);
+        // the swap itself is signed, so the signer can require the exact minimum
+        JsonNode swap = payload(r).path("swap");
+        assertThat(swap.path("input_mint").asText()).isEqualTo(SOL);
+        assertThat(swap.path("output_mint").asText()).isEqualTo(USDC);
+        assertThat(swap.path("in_amount").asLong()).isEqualTo(10_000_000L);
+        assertThat(swap.path("min_out_amount").asLong()).isEqualTo(1_042_824L);
+    }
+
+    @Test
+    void withoutASwapIntentThereIsNoSwapInThePayload() throws Exception {
+        assertThat(payload(ValidationServiceTest.service(true).validate(request(null, jupiterTx(), null))).has("swap")).isFalse();
     }
 
     @Test

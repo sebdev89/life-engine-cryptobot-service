@@ -10,7 +10,7 @@ import org.springframework.boot.context.properties.EnableConfigurationProperties
  * returns the same bytes signed. cryptobot-service broadcasts; this never talks to an RPC.
  */
 @SpringBootApplication
-@EnableConfigurationProperties(SignerProperties.class)
+@EnableConfigurationProperties({SignerProperties.class, SwapProperties.class})
 public class SignerApplication {
 
     public static void main(String[] args) {
