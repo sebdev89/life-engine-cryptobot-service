@@ -8,6 +8,7 @@ import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.security.Keys;
 import io.lifeengine.cryptobot.CryptobotServiceApplication;
 import io.lifeengine.cryptobot.solana.rpc.Base58;
+import io.lifeengine.cryptobot.solana.rpc.SolanaRpcProperties;
 import io.lifeengine.cryptobot.solana.tx.SolanaKeypair;
 import io.lifeengine.cryptobot.core.receipts.AnchorMemo;
 import io.lifeengine.cryptobot.core.receipts.MerkleTree;
@@ -265,6 +266,8 @@ class AnchorFlowTest {
                     case "getSignaturesForAddress" -> "[]";
                     case "getLatestBlockhash" -> "{\"context\":{\"slot\":1},\"value\":{\"blockhash\":\"So11111111111111111111111111111111111111112\",\"lastValidBlockHeight\":1000}}";
                     case "getBlockHeight" -> "10";
+                    // KAN-602: a devnet node answers its genesis; the client checks it before broadcasting
+                    case "getGenesisHash" -> "\"" + SolanaRpcProperties.DEVNET_GENESIS + "\"";
                     case "sendTransaction" -> {
                         sendCount.incrementAndGet();
                         byte[] wire = Base64.getDecoder().decode(body.path("params").get(0).asText());
