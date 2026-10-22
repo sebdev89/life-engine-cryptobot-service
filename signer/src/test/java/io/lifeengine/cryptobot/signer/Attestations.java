@@ -3,6 +3,7 @@ package io.lifeengine.cryptobot.signer;
 import io.lifeengine.cryptobot.signer.solana.Base58;
 import io.lifeengine.cryptobot.signer.solana.SolanaKeypair;
 import java.nio.charset.StandardCharsets;
+import java.util.List;
 
 /**
  * Builds validator attestations the way {@code cryptobot-validator} does (canonical JSON, keys in
@@ -19,7 +20,14 @@ final class Attestations {
 
     /** {@code cluster == null} ⇒ a legacy payload with no {@code cluster} key at all. */
     static String payload(String proposalId, String messageHash, String decision, String validator, long issuedAt, long expiresAt, String cluster) {
-        return "{" + (cluster == null ? "" : "\"cluster\":\"" + cluster + "\",")
+        return payload(proposalId, messageHash, decision, validator, issuedAt, expiresAt, cluster, List.of(AttestationVerifier.CHECK_HASH_FROM_BYTES));
+    }
+
+    /** {@code checks == null} ⇒ no {@code checks} key, as a validator before KAN-600 signed it. */
+    static String payload(String proposalId, String messageHash, String decision, String validator, long issuedAt, long expiresAt, String cluster,
+            List<String> checks) {
+        String checksJson = checks == null ? "" : "\"checks\":[" + String.join(",", checks.stream().map(c -> "\"" + c + "\"").toList()) + "],";
+        return "{" + checksJson + (cluster == null ? "" : "\"cluster\":\"" + cluster + "\",")
                 + "\"decision\":\"" + decision + "\",\"escalation\":\"NONE\",\"expires_at\":" + expiresAt
                 + ",\"input_hash\":\"sha256:" + "1".repeat(64) + "\",\"issued_at\":" + issuedAt
                 + ",\"message_hash\":\"" + messageHash + "\",\"policy_hash\":\"sha256:" + "2".repeat(64) + "\""

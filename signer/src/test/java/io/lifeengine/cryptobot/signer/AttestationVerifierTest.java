@@ -3,12 +3,16 @@ package io.lifeengine.cryptobot.signer;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import io.lifeengine.cryptobot.signer.solana.LegacyTransaction;
 import io.lifeengine.cryptobot.signer.solana.SolanaKeypair;
+import io.lifeengine.cryptobot.signer.solana.SystemProgram;
 import java.nio.charset.StandardCharsets;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
+import java.util.Base64;
 import java.util.List;
+import java.util.Set;
 import org.junit.jupiter.api.Test;
 
 class AttestationVerifierTest {
@@ -119,5 +123,49 @@ class AttestationVerifierTest {
         assertThat(verifier().verify(Attestations.signed(VALIDATOR, noCluster), "p-1", MESSAGE, "devnet").reason()).isEqualTo("attestation_cluster_missing");
         String unknown = Attestations.payload("p-1", HASH, "ESCALATE", VALIDATOR.publicKeyBase58(), T, T + 90, "testnet");
         assertThat(verifier().verify(Attestations.signed(VALIDATOR, unknown), "p-1", MESSAGE, "devnet").reason()).isEqualTo("attestation_cluster_missing");
+    }
+
+    // ---- KAN-600: what the validator says it checked ------------------------------------------
+
+    static AttestationVerifier.Attestation withChecks(List<String> checks) {
+        return Attestations.signed(VALIDATOR, Attestations.payload("p-1", HASH, "ESCALATE", VALIDATOR.publicKeyBase58(), T, T + 90, "devnet", checks));
+    }
+
+    @Test
+    void anAttestationOverAHashTheValidatorDidNotComputeIsRefused() {
+        AttestationVerifier verifier = verifier();
+        // a validator before KAN-600: no checks at all
+        assertThat(verifier.verify(withChecks(null), "p-1", MESSAGE, "devnet").reason()).isEqualTo("attestation_hash_not_from_bytes");
+        // checks present, but not this one
+        assertThat(verifier.verify(withChecks(List.of("something_else")), "p-1", MESSAGE, "devnet").reason()).isEqualTo("attestation_hash_not_from_bytes");
+        assertThat(verifier.verify(withChecks(List.of(AttestationVerifier.CHECK_HASH_FROM_BYTES)), "p-1", MESSAGE, "devnet").ok()).isTrue();
+    }
+
+    @Test
+    void theCheckMustBeInTheChecksArrayNotElsewhere() {
+        // the value as the proposal id, with no checks: still refused
+        String payload = Attestations.payload(AttestationVerifier.CHECK_HASH_FROM_BYTES, HASH, "ESCALATE", VALIDATOR.publicKeyBase58(), T, T + 90, "devnet", null);
+        assertThat(verifier().verify(Attestations.signed(VALIDATOR, payload), AttestationVerifier.CHECK_HASH_FROM_BYTES, MESSAGE, "devnet").reason())
+                .isEqualTo("attestation_hash_not_from_bytes");
+    }
+
+    @Test
+    void bytesThatCallJupiterNeedTheSwapRulesToo() {
+        String me = SigningPolicyTest.KEY.publicKeyBase58();
+        LegacyTransaction jupiter = new LegacyTransaction(me, "So11111111111111111111111111111111111111112",
+                List.of(new LegacyTransaction.Instruction(AttestationVerifier.JUPITER_V6, List.of(), new byte[] {1})));
+        LegacyTransaction transfer = new LegacyTransaction(me, "So11111111111111111111111111111111111111112",
+                List.of(SystemProgram.transfer(me, "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v", 1L)));
+
+        Set<String> forJupiter = AttestationVerifier.requiredChecks(LegacyMessageDecoder.decodeTransaction(Base64.getDecoder().decode(jupiter.unsignedBase64())));
+        Set<String> forTransfer = AttestationVerifier.requiredChecks(LegacyMessageDecoder.decodeTransaction(Base64.getDecoder().decode(transfer.unsignedBase64())));
+        assertThat(forJupiter).containsExactlyInAnyOrder(AttestationVerifier.CHECK_HASH_FROM_BYTES, AttestationVerifier.CHECK_JUPITER_SWAP);
+        assertThat(forTransfer).containsExactly(AttestationVerifier.CHECK_HASH_FROM_BYTES);
+
+        AttestationVerifier verifier = verifier();
+        assertThat(verifier.verify(withChecks(List.of(AttestationVerifier.CHECK_HASH_FROM_BYTES)), "p-1", MESSAGE, "devnet", forJupiter).reason())
+                .isEqualTo("attestation_swap_not_checked");
+        assertThat(verifier.verify(withChecks(List.of(AttestationVerifier.CHECK_HASH_FROM_BYTES, AttestationVerifier.CHECK_JUPITER_SWAP)), "p-1", MESSAGE,
+                "devnet", forJupiter).ok()).isTrue();
     }
 }
