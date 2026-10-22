@@ -127,4 +127,31 @@ class ModuleBoundariesTest {
                         + " future work, tracked with the chain-ports-callers proposal.");
         rule.check(classes);
     }
+
+    /**
+     * KAN-1249: the swap path (Jupiter client + preview) can only quote, build and simulate. It must not reach the
+     * signer, the signing/transaction-building package, or any RPC call that writes. A future change that needs
+     * one of these has to remove this rule on purpose, in review.
+     */
+    @Test
+    void swapPathCannotSignOrBroadcast() {
+        ArchRule noSigner = noClasses()
+                .that().resideInAnyPackage("io.lifeengine.cryptobot.adapters.jupiter..", "io.lifeengine.cryptobot.application.swap..")
+                .should().dependOnClassesThat()
+                .resideInAnyPackage(
+                        "io.lifeengine.cryptobot.integration.signer..",
+                        "io.lifeengine.cryptobot.integration.validator..",
+                        "io.lifeengine.cryptobot.solana.tx..",
+                        "io.lifeengine.cryptobot.core.signing..")
+                .because("KAN-1249: a swap preview never signs; it holds no signer client and no keypair.");
+        ArchRule noWrites = noClasses()
+                .that().resideInAnyPackage("io.lifeengine.cryptobot.adapters.jupiter..", "io.lifeengine.cryptobot.application.swap..")
+                .should().callMethodWhere(com.tngtech.archunit.base.DescribedPredicate.describe(
+                        "a SolanaRpcClient write (sendTransaction / requestAirdrop)",
+                        call -> call.getTargetOwner().getFullName().equals("io.lifeengine.cryptobot.solana.rpc.SolanaRpcClient")
+                                && (call.getName().equals("sendTransaction") || call.getName().equals("requestAirdrop"))))
+                .because("KAN-1249: the only RPC method on the swap path is simulateTransaction.");
+        noSigner.check(classes);
+        noWrites.check(classes);
+    }
 }
