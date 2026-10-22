@@ -12,6 +12,11 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
  * configuration later differs from what was frozen is not advanced (that would be fitting the window), it is
  * reported as {@code PARAMS_CHANGED}. Start a new window with a new id instead.
  *
+ * <p>KAN-1276: the job fires on the wall clock, at every multiple of {@code interval} plus {@code settle} (default
+ * 30 s, the time a just-closed candle takes to be served), not {@code interval} after the process started — so the
+ * delay from a candle's close to its decision is the same after every deploy. {@code settle} must be shorter than
+ * {@code interval}.
+ *
  * <p>Defaults: 1000 USD each, 30 bps fee + 20 bps slippage (the v2 backtest's), and four portfolios — the two
  * benchmarks, the 50 % ± 5 % band and 50 USD/day DCA.
  */
@@ -24,10 +29,15 @@ public record PaperProperties(
         BigDecimal initialUsd,
         Integer feeBps,
         Integer slippageBps,
-        List<PortfolioDef> portfolios) {
+        List<PortfolioDef> portfolios,
+        Duration settle) {
 
     public PaperProperties {
         interval = interval == null ? Duration.ofMinutes(5) : interval;
+        settle = settle == null ? Duration.ofSeconds(30) : settle;
+        if (interval.isNegative() || interval.isZero() || settle.isNegative() || settle.compareTo(interval) >= 0) {
+            throw new IllegalArgumentException("cryptobot.paper: interval must be > 0 and 0 <= settle < interval (interval=" + interval + ", settle=" + settle + ")");
+        }
         granularity = granularity == null ? Duration.ofHours(1) : granularity;
         maxCatchUpBars = maxCatchUpBars == null ? 168 : maxCatchUpBars;
         initialUsd = initialUsd == null ? new BigDecimal("1000") : initialUsd;

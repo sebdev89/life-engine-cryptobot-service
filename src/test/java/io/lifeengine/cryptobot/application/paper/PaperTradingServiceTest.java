@@ -125,7 +125,7 @@ class PaperTradingServiceTest {
         MarketDataProperties md = new MarketDataProperties(base, Duration.ofSeconds(2), Map.of(), Map.of(), true,
                 new MarketDataProperties.Pyth(false, base, Map.of()), new MarketDataProperties.CoinGecko(false, base, Map.of()),
                 new MarketDataProperties.Coinbase(true, base, Map.of("SOL", "SOL-USD")), null);
-        PaperProperties props = new PaperProperties(true, null, null, null, null, null, null, portfolios);
+        PaperProperties props = new PaperProperties(true, null, null, null, null, null, null, portfolios, null);
         return new PaperTradingService(new CoinbaseCandleHistory(WebClient.builder(), bt, om), new JupiterPriceClient(WebClient.builder(), md, om),
                 new CoinbaseSpotPriceSource(WebClient.builder(), md, om), repo, props, bt, meters, clock);
     }
@@ -164,6 +164,33 @@ class PaperTradingServiceTest {
         assertThat(repo.ticks("hold-sol").collectList().block()).extracting(Tick::barTime)
                 .containsExactly(DAY.plusSeconds(11 * 3600), DAY.plusSeconds(12 * 3600), DAY.plusSeconds(13 * 3600), DAY.plusSeconds(14 * 3600));
         assertThat(repo.find("hold-sol").block().ticks()).isEqualTo(4);
+    }
+
+    @Test
+    @DisplayName("KAN-1276: when a tick runs does not change what it decides — same candles, ticks at :00:31 or :04:59, same rows")
+    void timingDoesNotChangeDecisions() {
+        // run 1: ticks right after the closes (what the clock-aligned job does)
+        MovingClock early = new MovingClock(DAY.plusSeconds(12 * 3600 + 31));
+        PaperTradingService a = service(early);
+        a.tick().block();
+        early.now = DAY.plusSeconds(15 * 3600 + 31);
+        a.tick().block();
+        java.util.Map<String, List<Tick>> first = new java.util.TreeMap<>();
+        for (String id : List.of("hold-sol", "hold-usdc", "band-50-500", "dca-50-24")) {
+            first.put(id, repo.ticks(id).collectList().block());
+        }
+
+        // run 2, from scratch: ticks late in the cycle, and the late one catches up three candles at once
+        repo = new InMemoryPaperRepository();
+        MovingClock late = new MovingClock(DAY.plusSeconds(12 * 3600 + 299));
+        PaperTradingService b = service(late);
+        b.tick().block();
+        late.now = DAY.plusSeconds(15 * 3600 + 299);
+        b.tick().block();
+
+        for (String id : first.keySet()) {
+            assertThat(repo.ticks(id).collectList().block()).as(id).isEqualTo(first.get(id)).isNotEmpty();
+        }
     }
 
     @Test
