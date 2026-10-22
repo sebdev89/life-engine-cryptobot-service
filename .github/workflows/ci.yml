@@ -52,6 +52,11 @@ jobs:
       - name: Run signer tests (isolated module, own pom)
         run: ./mvnw -B -ntp -f signer/pom.xml test
 
+      # Piloto (firma de swaps): mutation testing de lo que decide qué se firma con plata real. Falla por debajo
+      # del umbral de signer/pom.xml (mutationThreshold).
+      - name: Signer swap policy mutation testing (PIT)
+        run: ./mvnw -B -ntp -f signer/pom.xml test-compile org.pitest:pitest-maven:mutationCoverage
+
       - name: Run validator tests (isolated module, own pom)
         run: ./mvnw -B -ntp -f validator/pom.xml test
 
