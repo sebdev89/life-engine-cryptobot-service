@@ -166,6 +166,13 @@ public record CompiledTransaction(
         ByteArrayOutputStream out = new ByteArrayOutputStream();
         compactU16(out, signatures.size());
         signatures.forEach(out::writeBytes);
+        out.writeBytes(message());
+        return out.toByteArray();
+    }
+
+    /** The message bytes — what a signature signs and what {@code message_hash} is the SHA-256 of. */
+    public byte[] message() {
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
         if (versioned) {
             out.write(0x80);
         }

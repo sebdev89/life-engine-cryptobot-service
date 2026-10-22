@@ -93,6 +93,19 @@ class SignerControllerTest {
     }
 
     @Test
+    void anAttestationForOneMessageCannotSignAnotherWithTheSameTransfer() {
+        // KAN-600: the validator attests sha256(message) computed from the bytes. Same transfer, same amount, same
+        // destination — only the recent blockhash differs — and the signer still refuses: the hash covers everything.
+        String me = KEY.publicKeyBase58();
+        LegacyTransaction attested = new LegacyTransaction(me, BLOCKHASH, List.of(SystemProgram.transfer(me, VAULT, 1234L)));
+        LegacyTransaction sent = new LegacyTransaction(me, "11111111111111111111111111111112", List.of(SystemProgram.transfer(me, VAULT, 1234L)));
+        AttestationVerifier.Attestation att = Attestations.fresh(VALIDATOR, "p-ab", attested.serializeMessage(), Instant.now().getEpochSecond());
+        web.post().uri("/api/signer/sign").header("X-Signer-Token", "test-token")
+                .bodyValue(Map.of("proposalId", "p-ab", "unsignedTransactionBase64", sent.unsignedBase64(), "cluster", "devnet", "attestation", attestation(att)))
+                .exchange().expectStatus().isForbidden().expectBody().jsonPath("$.reason").isEqualTo("attestation_message_mismatch");
+    }
+
+    @Test
     void refusalsAre403WithAReason() {
         String me = KEY.publicKeyBase58();
         LegacyTransaction tx = new LegacyTransaction(me, BLOCKHASH, List.of(SystemProgram.transfer(me, VAULT, 5_000_000L)));
