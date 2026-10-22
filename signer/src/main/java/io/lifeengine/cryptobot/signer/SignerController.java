@@ -48,10 +48,13 @@ public class SignerController {
     private final AttestationVerifier attestations;
     private final SignerMetrics metrics;
     private final DailySpendLedger dailyCap;
+    private final SwapProperties swaps;
 
+    @org.springframework.beans.factory.annotation.Autowired
     public SignerController(SignerProperties props, SignerKeyStore keys, SigningPolicy policy, AttestationVerifier attestations, SignerMetrics metrics,
-            DailySpendLedger dailyCap) {
+            DailySpendLedger dailyCap, SwapProperties swaps) {
         this.props = props;
+        this.swaps = swaps;
         this.keys = keys;
         this.policy = policy;
         this.attestations = attestations;
@@ -129,6 +132,99 @@ public class SignerController {
                 req.proposalId(), v.lamports(), v.destination(), signed.signature(), a.validator(), a.decision(), a.verdictHash(),
                 LogFields.event("signed"), LogFields.status("signed"));
         return ResponseEntity.ok(signed);
+    }
+
+    /**
+     * The pilot's swap ({@code signer.swaps.enabled}, off by default). The bytes must pass {@link SwapSigningPolicy}
+     * with this signer as owner, carry an attestation whose {@code checks} include both
+     * {@code message_hash_from_bytes} and {@code jupiter_swap_v1} for the hash of exactly these bytes, and fit the
+     * daily cap, which reserves {@link SwapSigningPolicy.Verdict#lamportsOut()} before anything is signed. A
+     * reservation is never released: the signer does not broadcast, so it cannot prove a send failed, and counting a
+     * swap that never landed is the safe side.
+     */
+    /**
+     * {@code minOut}: the intent's minimum output (base units of the output mint); missing or {@code <= 0} is refused,
+     * and it must equal the {@code swap.min_out_amount} the validator signed.
+     */
+    public record SwapSignRequest(String proposalId, String unsignedTransactionBase64, String cluster, Long minOut,
+            AttestationVerifier.Attestation attestation) {}
+
+    static final java.util.Set<String> SWAP_CHECKS = java.util.Set.of(AttestationVerifier.CHECK_HASH_FROM_BYTES, AttestationVerifier.CHECK_JUPITER_SWAP);
+
+    @PostMapping(path = "/sign-swap", consumes = "application/json")
+    public Mono<ResponseEntity<?>> signSwap(@RequestHeader(value = TOKEN_HEADER, required = false) String token, @RequestBody SwapSignRequest req) {
+        return Mono.<ResponseEntity<?>>fromCallable(() -> {
+                    if (!authorized(token)) {
+                        return badToken("sign-swap");
+                    }
+                    Timer.Sample sample = metrics.start();
+                    try {
+                        return doSignSwap(req);
+                    } finally {
+                        metrics.stop(SignerMetrics.KIND_SWAP, sample);
+                    }
+                })
+                .contextWrite(ctx -> LogContext.write(ctx, LogContext.PROPOSAL_ID, req == null ? null : req.proposalId()));
+    }
+
+    private ResponseEntity<?> doSignSwap(SwapSignRequest req) {
+        if (req == null || req.unsignedTransactionBase64() == null || req.unsignedTransactionBase64().isBlank()) {
+            return refuseSwap(req, "missing_transaction", HttpStatus.BAD_REQUEST);
+        }
+        if (!props.enabled()) {
+            return refuseSwap(req, "signer_disabled", HttpStatus.FORBIDDEN);
+        }
+        if (!swaps.enabled()) {
+            return refuseSwap(req, "swaps_disabled", HttpStatus.FORBIDDEN);
+        }
+        SigningPolicy.Verdict cluster = policy.evaluateCluster(req.cluster());
+        if (!cluster.allowed()) {
+            return refuseSwap(req, cluster.reason(), HttpStatus.FORBIDDEN);
+        }
+        byte[] wire;
+        try {
+            wire = Base64.getDecoder().decode(req.unsignedTransactionBase64());
+        } catch (IllegalArgumentException ex) {
+            return refuseSwap(req, "undecodable_transaction", HttpStatus.FORBIDDEN);
+        }
+        SwapSigningPolicy.Verdict v = SwapSigningPolicy.evaluate(wire, keys.publicKey(), swaps.limits(), req.minOut() == null ? 0 : req.minOut());
+        if (!v.allowed()) {
+            return refuseSwap(req, v.reason(), HttpStatus.FORBIDDEN);
+        }
+        // the hash is recomputed here over the exact message about to be signed, and both checks are required
+        byte[] message = v.decoded().message();
+        AttestationVerifier.Verdict a = attestations.verify(req.attestation(), req.proposalId(), message, req.cluster(), SWAP_CHECKS);
+        if (!a.ok()) {
+            return refuseSwap(req, a.reason(), HttpStatus.FORBIDDEN);
+        }
+        // the exact minimum is the attested one: the validator signed the swap (mints, amount, minimum), and it has to
+        // be the swap in these bytes and the minimum this request asked the policy to enforce
+        java.util.Optional<AttestationVerifier.AttestedSwap> attested = attestations.swapOf(req.attestation());
+        if (attested.isEmpty()) {
+            return refuseSwap(req, "attestation_swap_missing", HttpStatus.FORBIDDEN);
+        }
+        AttestationVerifier.AttestedSwap s = attested.get();
+        if (!s.inputMint().equals(v.inputMint()) || !s.outputMint().equals(v.outputMint()) || s.inAmount() != v.inAmount()
+                || req.minOut() == null || s.minOutAmount() != req.minOut()) {
+            return refuseSwap(req, "attestation_swap_mismatch", HttpStatus.FORBIDDEN);
+        }
+        String capRefusal = reserveDaily(v.lamportsOut());
+        if (capRefusal != null) {
+            return refuseSwap(req, capRefusal, HttpStatus.FORBIDDEN);
+        }
+        SignResponse signed = sign(message, a.validator(), a.verdictHash());
+        metrics.signed(SignerMetrics.KIND_SWAP);
+        log.info("signer_swap_signed proposalId={} cluster={} input={} output={} in_amount={} lamports_out={} spent_24h={} signature={} validator={} verdictHash={}",
+                req.proposalId(), req.cluster(), v.inputMint(), v.outputMint(), v.inAmount(), v.lamportsOut(), dailyCap.spentInWindow(),
+                signed.signature(), a.validator(), a.verdictHash(), LogFields.event("swap_signed"), LogFields.status("signed"));
+        return ResponseEntity.ok(signed);
+    }
+
+    private ResponseEntity<?> refuseSwap(SwapSignRequest req, String reason, HttpStatus status) {
+        metrics.refused(SignerMetrics.KIND_SWAP, reason);
+        log.warn("signer_swap_refused proposalId={} cluster={} reason={}", req == null ? null : req.proposalId(), req == null ? null : req.cluster(), reason,
+                LogFields.event("swap_refused"), LogFields.status("refused"), ErrorCode.SIGN_REFUSED.kv());
+        return ResponseEntity.status(status).body(Map.of("reason", reason));
     }
 
     /**

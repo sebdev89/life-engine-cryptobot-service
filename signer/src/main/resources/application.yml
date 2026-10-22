@@ -32,6 +32,17 @@ signer:
   allowed-destinations: ${SIGNER_ALLOWED_DESTINATIONS:}
   # Emergency stop for the signer itself.
   enabled: ${SIGNER_ENABLED:true}
+  # Pilot: Jupiter swaps through /api/signer/sign-swap. OFF by default; on mainnet it also needs allow-mainnet=true
+  # (the signer refuses to start otherwise). Caps and the gross price floor are this signer's own.
+  swaps:
+    enabled: ${SIGNER_SWAPS_ENABLED:false}
+    max-lamports-in: ${SIGNER_SWAPS_MAX_LAMPORTS_IN:100000000}
+    max-usdc-in: ${SIGNER_SWAPS_MAX_USDC_IN:10000000}
+    max-priority-fee-lamports: ${SIGNER_SWAPS_MAX_PRIORITY_FEE_LAMPORTS:200000}
+    max-slippage-bps: ${SIGNER_SWAPS_MAX_SLIPPAGE_BPS:100}
+    # Gross floors, deliberately ~half the market; 0 = not configured = that direction is refused.
+    min-usdc-per-sol: ${SIGNER_SWAPS_MIN_USDC_PER_SOL:0}
+    min-lamports-per-usdc: ${SIGNER_SWAPS_MIN_LAMPORTS_PER_USDC:0}
   # (paper §20, level 5): base58 public key of cryptobot-validator. A sign request must carry
   # an attestation signed by it for this proposal and these exact bytes, not a DENY, not expired.
   # Empty while require-attestation is true ⇒ every request is refused (fail-closed).
