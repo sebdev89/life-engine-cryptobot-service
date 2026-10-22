@@ -243,4 +243,51 @@ class ValidatorClientTest {
                 .verify();
         assertThat(server.getRequestCount()).isEqualTo(before);
     }
+
+    @Test
+    void theCheckMustBeTheChecksFieldNotAnyValueThatSpellsIt() throws Exception {
+        PolicyInput in = input();
+        PolicyVerdict verdict = DeterministicPolicyEngine.evaluate(RULES, in);
+        PolicyDecision decision = new PolicyDecision(true, true, List.of(), List.of(), List.of(), NOW, verdict, in);
+        // the string is there — as a proposal id, a value the request controls — and checks is not
+        String payload = "{\\\"cluster\\\":\\\"devnet\\\",\\\"decision\\\":\\\"ESCALATE\\\",\\\"message_hash\\\":\\\"" + messageHash()
+                + "\\\",\\\"proposal_id\\\":\\\"message_hash_from_bytes\\\"}";
+        server.enqueue(json(withPayload(verdict, payload)));
+        StepVerifier.create(client.authorize(proposal(decision), tx()))
+                .expectErrorSatisfies(ex -> assertThat(ex).hasMessageContaining("hashed the bytes itself"))
+                .verify();
+        server.takeRequest();
+
+        // checks present but as a string, not an array
+        String notArray = "{\\\"checks\\\":\\\"message_hash_from_bytes\\\",\\\"cluster\\\":\\\"devnet\\\",\\\"decision\\\":\\\"ESCALATE\\\",\\\"message_hash\\\":\\\""
+                + messageHash() + "\\\"}";
+        server.enqueue(json(withPayload(verdict, notArray)));
+        StepVerifier.create(client.authorize(proposal(decision), tx()))
+                .expectErrorSatisfies(ex -> assertThat(ex).hasMessageContaining("hashed the bytes itself"))
+                .verify();
+        server.takeRequest();
+    }
+
+    @Test
+    void theMessageHashMustBeTheFieldNotAValueElsewhere() throws Exception {
+        PolicyInput in = input();
+        PolicyVerdict verdict = DeterministicPolicyEngine.evaluate(RULES, in);
+        PolicyDecision decision = new PolicyDecision(true, true, List.of(), List.of(), List.of(), NOW, verdict, in);
+        // our hash appears as the proposal id; the attested message_hash is another one
+        String payload = "{\\\"checks\\\":[\\\"message_hash_from_bytes\\\"],\\\"cluster\\\":\\\"devnet\\\",\\\"decision\\\":\\\"ESCALATE\\\",\\\"message_hash\\\":\\\""
+                + "f".repeat(64) + "\\\",\\\"proposal_id\\\":\\\"" + messageHash() + "\\\"}";
+        server.enqueue(json(withPayload(verdict, payload)));
+        StepVerifier.create(client.authorize(proposal(decision), tx()))
+                .expectErrorSatisfies(ex -> assertThat(ex).hasMessageContaining("not for these transaction bytes"))
+                .verify();
+        server.takeRequest();
+    }
+
+    /** A response whose attestation carries exactly {@code payload} (already escaped for embedding in JSON). */
+    static String withPayload(PolicyVerdict verdict, String payload) {
+        return "{\"decision\":\"ESCALATE\",\"escalation\":\"REQUIRE_SECOND_AGENT\",\"tier\":\"SECOND_AGENT\",\"failedPredicates\":[],\"refusals\":[],"
+                + "\"policyVersion\":\"cryptobot-policy-v1\",\"policyHash\":\"" + verdict.policyHash() + "\",\"inputHash\":\"x\",\"verdictHash\":\"" + verdict.hash() + "\","
+                + "\"issuedAt\":" + NOW.getEpochSecond() + ",\"expiresAt\":" + (NOW.getEpochSecond() + 90) + ","
+                + "\"attestation\":{\"payload\":\"" + payload + "\",\"signature\":\"sig\",\"validator\":\"vkey\"}}";
+    }
 }
