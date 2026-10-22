@@ -1,0 +1,24 @@
+{
+  "swapTransaction": "AQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAACAAQAHET7YbIaYupgUeKCotoA55Top/r0jZOU5Q7Kuf+uRgBGXHLYomrsD2Fx0YxdtJwpp5tpJ9W/i3n5RfgOeClU1KTp3BHo4HDkVOPejukK6/oQdRT8m1S5xpmRD9q8e3XSK/azaNWqzpN5b/Wja84D51XdgHkT3wINpA+TuR2ogqWdYs0AA9eWPz7GXnQxeRgRM96dGTRfTBBGrunxoZ0r4vo7FmdeuGtHgVDdg9gJsFy8c71Z/w6IPEC/D12h8kTifCuT/f8yGkon3k/E0Yy+jDi9paj+HsK8HWxUtqVurVBqL6dRIiwf+OZsakVXlghtpfUMBbAo8Tzu8oq+0HQFjMFfqFN2mLGv/hwhn+ebcpXMbEvzLc9DgmHcWgb+GC1Ol1vHe6poKIts7H+yRx9QAZ94SeHmULvywDiIXrVyjC4E+AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAADBkZv5SEXMv/srbpyw5vnvIzlu8X3EmssQ5s6QAAAAAR51VvyMcBu7nTFbs5oFQf9sbLeo/SOUQKxzaJWvBOPBt324ddloZPZy+FGzut5rBy0he1fWzeROoz1hX7/AKmMlyWPTiSJ8bs9ECkUjg2DC1oTmdr/EIQEjnvY2+n4Wawa49CH8pI3BiVI9wxMBK7CqZVpSYbny7RnUgYh04YwtD/6J/XX9kp0wJsfKVh53ksJqzbfyd1RSzIap7OM5ej/H93C2gFts14F/6/LrsJbFlwCTQxCNbffOETDTbUt7wgLAAUCwFwVAAsACQMEFwEAAAAAAA4GAAMAIQoNAQEKAgADDAIAAACAlpgAAAAAAA0BAwERDgYACAAoCg0BAQw9DQ8AAwIHCCEoDAwQDCMPJhkCBhoXGw0EGAkBDBIVEhMRBgUiJRYSDw0NJBIUDCcADx8KBQcgHA0iDSgdHi3BIJszQdacgQUDAAAAGmQAASZkAQJ0AWQCA4CWmAAAAAAAAf4PAAAAAAAyAAANAwMAAAEJAx8ZLpG9pSE0n0gp9nutHaLpGZleKqFL38h5i18V892tBuru6Onn6wUE7Hrt8T3CFqkkzGJiDVj9L1tE5auNd+V1kIVzIwT+ydt4WSSEBSspFxYYASVHUuCz9+ByyLxzxWhcHKGrizCtT3xNycUDh55QgKxwhAWNlIyRkwKVBQ==",
+  "lastValidBlockHeight": 438124913,
+  "prioritizationFeeLamports": 99999,
+  "computeUnitLimit": 1400000,
+  "loadedAccountsDataSize": 0,
+  "loadedAccountsDataSizeLimit": null,
+  "transactionVersion": 0,
+  "prioritizationType": {
+    "computeBudget": {
+      "microLamports": 71428,
+      "estimatedMicroLamports": 163438
+    }
+  },
+  "simulationSlot": 460091858,
+  "dynamicSlippageReport": null,
+  "simulationError": {
+    "errorCode": "TRANSACTION_ERROR",
+    "error": "Attempt to debit an account but found no record of a prior credit."
+  },
+  "addressesByLookupTableAddress": null,
+  "timeTaken": 0.270384981,
+  "createAtaTimeTaken": 0.130687149
+}
