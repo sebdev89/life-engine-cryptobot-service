@@ -43,6 +43,8 @@ public class ValidatorClient {
     public static final String TOKEN_HEADER = "X-Validator-Token";
     /** What the validator writes in the signed payload when it computed {@code message_hash} from the bytes (KAN-600). */
     public static final String CHECK_HASH_FROM_BYTES = "message_hash_from_bytes";
+    /** What the validator writes when it applied the swap rules to the bytes (pilot). */
+    public static final String CHECK_JUPITER_SWAP = "jupiter_swap_v1";
     private static final ObjectMapper PAYLOAD_READER = new ObjectMapper();
 
     @JsonIgnoreProperties(ignoreUnknown = true)
@@ -135,6 +137,41 @@ public class ValidatorClient {
      * binds as {@code proposal_id} (and what the signer is then asked to sign for). Same checks, same refusals.
      */
     public Mono<Response> authorize(java.util.UUID operationId, PolicyVerdict verdict, PolicyInput input, PreparedTransaction tx) {
+        return request(operationId, verdict, input, tx, null);
+    }
+
+    /**
+     * Pilot: the swap the validator must check against these bytes ({@code SwapRules}) and sign into its payload.
+     * Amounts are base units of their mints; {@code owner} is the signer's public key (the fee payer).
+     */
+    public record SwapIntent(String owner, String inputMint, String outputMint, long inAmount, long minOutAmount, int maxSlippageBps,
+            long maxPriorityFeeLamports) {
+        Map<String, Object> wire() {
+            Map<String, Object> m = new LinkedHashMap<>();
+            m.put("owner", owner);
+            m.put("input_mint", inputMint);
+            m.put("output_mint", outputMint);
+            m.put("in_amount", inAmount);
+            m.put("min_out_amount", minOutAmount);
+            m.put("max_slippage_bps", maxSlippageBps);
+            m.put("max_priority_fee_lamports", maxPriorityFeeLamports);
+            return m;
+        }
+    }
+
+    /**
+     * Pilot: an attestation for a Jupiter swap. Same request and checks as {@link #authorize}, plus the swap intent:
+     * the answer must declare {@code jupiter_swap_v1} and carry, in its signed payload, exactly this swap (mints, input
+     * amount, minimum output) — what the signer will in turn require before signing.
+     */
+    public Mono<Response> authorizeSwap(java.util.UUID operationId, PolicyVerdict verdict, PolicyInput input, PreparedTransaction tx, SwapIntent swap) {
+        if (swap == null) {
+            return Mono.error(new ValidatorRefused("no swap intent to attest"));
+        }
+        return request(operationId, verdict, input, tx, swap);
+    }
+
+    private Mono<Response> request(java.util.UUID operationId, PolicyVerdict verdict, PolicyInput input, PreparedTransaction tx, SwapIntent swap) {
         if (!props.enabled()) {
             return Mono.error(new ValidatorRefused("validator disabled"));
         }
@@ -164,6 +201,9 @@ public class ValidatorClient {
         Map<String, Object> facts = input.canonicalMap();
         body.put("intent", facts.get("intent"));
         body.put("state", facts.get("state"));
+        if (swap != null) {
+            body.put("swap", swap.wire());
+        }
         return webClient
                 .post()
                 .uri("/api/validator/validate")
@@ -178,10 +218,10 @@ public class ValidatorClient {
                 .switchIfEmpty(Mono.error(new ValidatorRefused("no answer from the validator (empty response)")))
                 .onErrorMap(WebClientResponseException.class, ex -> new ValidatorRefused("HTTP " + ex.getStatusCode().value() + " " + ex.getResponseBodyAsString()))
                 .onErrorMap(ex -> !(ex instanceof ValidatorRefused), ex -> new ValidatorRefused(ex.getMessage()))
-                .flatMap(r -> check(r, verdict, messageHash, cluster));
+                .flatMap(r -> check(r, verdict, messageHash, cluster, swap));
     }
 
-    private static Mono<Response> check(Response r, PolicyVerdict recorded, String messageHash, String cluster) {
+    private static Mono<Response> check(Response r, PolicyVerdict recorded, String messageHash, String cluster, SwapIntent swap) {
         if (r == null || r.attestation() == null || r.attestation().payload() == null || r.attestation().signature() == null) {
             return Mono.error(new ValidatorRefused("no attestation in the response"));
         }
@@ -222,6 +262,22 @@ public class ValidatorClient {
         }
         if (!hashed) {
             return Mono.error(new ValidatorRefused("attestation does not say the validator hashed the bytes itself"));
+        }
+        if (swap != null) {
+            boolean swapChecked = false;
+            for (JsonNode c : checks) {
+                swapChecked |= c.isTextual() && CHECK_JUPITER_SWAP.equals(c.asText());
+            }
+            if (!swapChecked) {
+                return Mono.error(new ValidatorRefused("attestation does not say the validator checked the swap rules"));
+            }
+            JsonNode a = payload.get("swap");
+            if (a == null || !a.isObject() || !swap.inputMint().equals(a.path("input_mint").asText(null))
+                    || !swap.outputMint().equals(a.path("output_mint").asText(null))
+                    || !a.path("in_amount").canConvertToLong() || a.path("in_amount").asLong() != swap.inAmount()
+                    || !a.path("min_out_amount").canConvertToLong() || a.path("min_out_amount").asLong() != swap.minOutAmount()) {
+                return Mono.error(new ValidatorRefused("attested swap is not the intent's swap"));
+            }
         }
         return Mono.just(r);
     }
