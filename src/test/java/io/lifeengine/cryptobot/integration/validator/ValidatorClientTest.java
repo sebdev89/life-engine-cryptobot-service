@@ -283,6 +283,63 @@ class ValidatorClientTest {
         server.takeRequest();
     }
 
+    // ---- pilot: authorizeSwap ---------------------------------------------------------------------
+
+    static final String SOL = "So11111111111111111111111111111111111111112";
+    static final String USDC = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
+    static final ValidatorClient.SwapIntent SWAP = new ValidatorClient.SwapIntent("5tzFkiKscXHK5ZXCGbXZxdw7gTjjD1mBwuoFbhUvuAi9", SOL, USDC,
+            10_000_000L, 1_026_998L, 50, 200_000L);
+
+    /** A signed payload (escaped for embedding) with both checks and the given swap object (already escaped), or none. */
+    static String swapPayload(String swapJson) throws Exception {
+        return "{\\\"checks\\\":[\\\"message_hash_from_bytes\\\",\\\"jupiter_swap_v1\\\"],\\\"cluster\\\":\\\"devnet\\\","
+                + "\\\"decision\\\":\\\"ESCALATE\\\",\\\"message_hash\\\":\\\"" + messageHash() + "\\\""
+                + (swapJson == null ? "" : ",\\\"swap\\\":" + swapJson) + "}";
+    }
+
+    static String swapJson(long inAmount, long minOut) {
+        return "{\\\"in_amount\\\":" + inAmount + ",\\\"input_mint\\\":\\\"" + SOL + "\\\",\\\"min_out_amount\\\":" + minOut
+                + ",\\\"output_mint\\\":\\\"" + USDC + "\\\"}";
+    }
+
+    @Test
+    void aSwapAttestationSendsTheIntentAndMustSignExactlyThatSwap() throws Exception {
+        PolicyInput in = input();
+        PolicyVerdict verdict = DeterministicPolicyEngine.evaluate(RULES, in);
+        UUID op = UUID.randomUUID();
+
+        server.enqueue(json(withPayload(verdict, swapPayload(swapJson(10_000_000L, 1_026_998L)))));
+        StepVerifier.create(client.authorizeSwap(op, verdict, in, tx(), SWAP)).assertNext(r -> assertThat(r.decision()).isEqualTo("ESCALATE"))
+                .verifyComplete();
+        JsonNode body = new ObjectMapper().readTree(server.takeRequest().getBody().readUtf8());
+        assertThat(body.path("transaction").asText()).isEqualTo(tx().unsignedTransactionBase64());
+        assertThat(body.path("swap").path("owner").asText()).isEqualTo(SWAP.owner());
+        assertThat(body.path("swap").path("min_out_amount").asLong()).isEqualTo(1_026_998L);
+        assertThat(body.path("swap").path("max_slippage_bps").asInt()).isEqualTo(50);
+
+        // another minimum, another amount, no swap object, or no swap check: refused
+        server.enqueue(json(withPayload(verdict, swapPayload(swapJson(10_000_000L, 1L)))));
+        StepVerifier.create(client.authorizeSwap(op, verdict, in, tx(), SWAP))
+                .expectErrorSatisfies(ex -> assertThat(ex).hasMessageContaining("not the intent's swap")).verify();
+        server.takeRequest();
+        server.enqueue(json(withPayload(verdict, swapPayload(swapJson(5_000_000L, 1_026_998L)))));
+        StepVerifier.create(client.authorizeSwap(op, verdict, in, tx(), SWAP))
+                .expectErrorSatisfies(ex -> assertThat(ex).hasMessageContaining("not the intent's swap")).verify();
+        server.takeRequest();
+        server.enqueue(json(withPayload(verdict, swapPayload(null))));
+        StepVerifier.create(client.authorizeSwap(op, verdict, in, tx(), SWAP))
+                .expectErrorSatisfies(ex -> assertThat(ex).hasMessageContaining("not the intent's swap")).verify();
+        server.takeRequest();
+        String hashOnly = "{\\\"checks\\\":[\\\"message_hash_from_bytes\\\"],\\\"cluster\\\":\\\"devnet\\\",\\\"decision\\\":\\\"ESCALATE\\\","
+                + "\\\"message_hash\\\":\\\"" + messageHash() + "\\\",\\\"swap\\\":" + swapJson(10_000_000L, 1_026_998L) + "}";
+        server.enqueue(json(withPayload(verdict, hashOnly)));
+        StepVerifier.create(client.authorizeSwap(op, verdict, in, tx(), SWAP))
+                .expectErrorSatisfies(ex -> assertThat(ex).hasMessageContaining("checked the swap rules")).verify();
+        server.takeRequest();
+        StepVerifier.create(client.authorizeSwap(op, verdict, in, tx(), null))
+                .expectErrorSatisfies(ex -> assertThat(ex).hasMessageContaining("no swap intent")).verify();
+    }
+
     /** A response whose attestation carries exactly {@code payload} (already escaped for embedding in JSON). */
     static String withPayload(PolicyVerdict verdict, String payload) {
         return "{\"decision\":\"ESCALATE\",\"escalation\":\"REQUIRE_SECOND_AGENT\",\"tier\":\"SECOND_AGENT\",\"failedPredicates\":[],\"refusals\":[],"

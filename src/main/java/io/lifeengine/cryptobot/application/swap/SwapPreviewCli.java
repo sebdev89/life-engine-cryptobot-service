@@ -49,7 +49,7 @@ public final class SwapPreviewCli {
         System.out.println("owner=" + owner);
         System.out.println("quote in=" + p.quote().inAmount() + " out=" + p.quote().outAmount() + " min_out=" + p.quote().minOutAmount()
                 + " slippage_bps=" + p.quote().slippageBps() + " impact_pct=" + p.quote().priceImpactPct() + " route=" + p.quote().routeLabels());
-        System.out.println("check fee_payer=" + p.checked().feePayer() + " programs=" + p.checked().programs() + " lookup_tables=" + p.checked().lookupTables());
+        System.out.println("check fee_payer=" + p.checked().feePayer() + " programs=" + p.checked().programs());
         System.out.println("jupiter_presimulation_error=" + p.swap().jupiterSimulationError() + " priority_fee_lamports=" + p.swap().prioritizationFeeLamports());
         System.out.println("simulation ok=" + p.simulation().ok() + " error=" + p.simulation().error() + " units=" + p.simulation().unitsConsumed());
         p.simulation().logs().forEach(l -> System.out.println("  log " + l));

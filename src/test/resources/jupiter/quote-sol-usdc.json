@@ -2,62 +2,34 @@
   "inputMint": "So11111111111111111111111111111111111111112",
   "inAmount": "10000000",
   "outputMint": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
-  "outAmount": "1048065",
-  "otherAmountThreshold": "1042825",
+  "outAmount": "1032158",
+  "otherAmountThreshold": "1026998",
   "swapMode": "ExactIn",
   "slippageBps": 50,
   "platformFee": null,
-  "priceImpactPct": "0.0003667571054219918719515108",
+  "priceImpactPct": "0",
   "routePlan": [
     {
       "swapInfo": {
-        "ammKey": "3nMFwZXwY1s1M5s8vYAHqd4wGs4iSxXE4LRoUMMYqEgF",
-        "label": "Raydium CLMM",
+        "ammKey": "4U2JzGENeMhYuVMGMUeLdzPP9d4PwqnKX9iLxjwPXZU8",
+        "label": "TesseraV",
         "inputMint": "So11111111111111111111111111111111111111112",
-        "outputMint": "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB",
-        "inAmount": "10000000",
-        "outAmount": "1048832",
-        "updateContextSlot": "460063372"
-      },
-      "percent": 100,
-      "bps": null
-    },
-    {
-      "swapInfo": {
-        "ammKey": "AGbqXEi8E5cVCxAbkKcfKXPmR9VZvsE5EKJMhNz92iR9",
-        "label": "Meteora DLMM",
-        "inputMint": "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB",
-        "outputMint": "USDSwr9ApdHk5bvJKMjzff41FfuX8bSxdKcR81vTwcA",
-        "inAmount": "1048832",
-        "outAmount": "1048115",
-        "updateContextSlot": "460063345"
-      },
-      "percent": 100,
-      "bps": null
-    },
-    {
-      "swapInfo": {
-        "ammKey": "CgPgXrTQYe9Qqq77wWoHMaqURP2tya4iA4mcyxhD194z",
-        "label": "Manifest",
-        "inputMint": "USDSwr9ApdHk5bvJKMjzff41FfuX8bSxdKcR81vTwcA",
         "outputMint": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
-        "inAmount": "1048115",
-        "outAmount": "1048065",
-        "updateContextSlot": "460063322"
+        "inAmount": "10000000",
+        "outAmount": "1032158",
+        "updateContextSlot": "460213280"
       },
       "percent": 100,
       "bps": null
     }
   ],
-  "contextSlot": 460063372,
-  "timeTaken": 0.001780606,
-  "swapUsdValue": "1.048123407625817",
+  "contextSlot": 460213280,
+  "timeTaken": 0.000927804,
+  "swapUsdValue": "1.031581711976718",
   "mostReliableAmmsQuoteReport": {
     "info": {
-      "Czfq3xZZDmsdGdUyrNLtRhGc47cXcZtLG4crryfu44zE": "1047584",
-      "8sjV1AqBFvFuADBCQHhotaRq5DFFYSjjg1jMyVWMqXvZ": "1047859",
-      "BZtgQEyS6eXUXicYPHecYQ7PybqodXQMvkjUbP4R8mUU": "1047806",
-      "AS5MV3ear4NZPMWXbCsEz3AdbCaXEnq4ChdaWsvLgkcM": "1047853"
+      "Czfq3xZZDmsdGdUyrNLtRhGc47cXcZtLG4crryfu44zE": "1031679",
+      "BZtgQEyS6eXUXicYPHecYQ7PybqodXQMvkjUbP4R8mUU": "Not used RG: FullLiquidIntermediate, contains ALT: true"
     }
   },
   "longtailMarketQuoteReport": null,
@@ -65,6 +37,5 @@
   "useRewards": null,
   "otherRoutePlans": null,
   "loadedLongtailToken": false,
-  "instructionVersion": null,
-  "transactionVersion": 0
+  "instructionVersion": null
 }

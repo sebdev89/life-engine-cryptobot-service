@@ -118,6 +118,41 @@ public class SignerClient {
     }
 
     /**
+     * Pilot: a Jupiter swap ({@code POST /api/signer/sign-swap}). The signer decides with its own swap policy and caps,
+     * and requires {@code attestation} to declare {@code jupiter_swap_v1} and to have signed exactly this swap with
+     * {@code minOut} as its minimum. Off unless the signer has {@code SIGNER_SWAPS_ENABLED=true}.
+     */
+    public Mono<SignResponse> signSwap(UUID operationId, String unsignedTransactionBase64, SolanaCluster cluster, long minOut,
+            ValidatorClient.Attestation attestation) {
+        if (!props.enabled()) {
+            return Mono.error(new SignerRefused("signer disabled"));
+        }
+        if (operationId == null || cluster == null || unsignedTransactionBase64 == null || unsignedTransactionBase64.isBlank() || minOut <= 0) {
+            return Mono.error(new SignerRefused("incomplete swap sign request"));
+        }
+        if (attestation == null || attestation.payload() == null || attestation.signature() == null) {
+            return Mono.error(new SignerRefused("no validator attestation to present"));
+        }
+        return webClient
+                .post()
+                .uri("/api/signer/sign-swap")
+                .header(TOKEN_HEADER, props.token())
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(Map.of(
+                        "proposalId", operationId.toString(),
+                        "unsignedTransactionBase64", unsignedTransactionBase64,
+                        "cluster", cluster.id(),
+                        "minOut", minOut,
+                        "attestation", Map.of("payload", attestation.payload(), "signature", attestation.signature())))
+                .retrieve()
+                .bodyToMono(SignResponse.class)
+                .timeout(props.timeout())
+                .switchIfEmpty(Mono.error(new SignerRefused("no answer from the signer (empty response)")))
+                .onErrorMap(WebClientResponseException.class, ex -> new SignerRefused("HTTP " + ex.getStatusCode().value() + " " + ex.getResponseBodyAsString()))
+                .onErrorMap(ex -> !(ex instanceof SignerRefused), ex -> new SignerRefused(ex.getMessage()));
+    }
+
+    /**
      * A receipt-batch memo transaction. The signer re-derives the memo from the bytes and
      * refuses unless it is exactly {@code ir/1 root=<root> n=<receiptCount> …} on devnet.
      */
