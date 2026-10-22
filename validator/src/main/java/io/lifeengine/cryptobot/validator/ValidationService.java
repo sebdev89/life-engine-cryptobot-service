@@ -6,7 +6,13 @@ import io.lifeengine.cryptobot.validator.policy.CanonicalJson;
 import io.lifeengine.cryptobot.validator.policy.IndependentPolicyTable;
 import io.lifeengine.cryptobot.validator.policy.PolicyInput;
 import io.lifeengine.cryptobot.validator.policy.PolicyVerdict;
+import io.lifeengine.cryptobot.validator.tx.CompiledTransaction;
+import io.lifeengine.cryptobot.validator.tx.SwapRules;
 import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.util.Base64;
+import java.util.HexFormat;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -39,6 +45,14 @@ import org.springframework.stereotype.Component;
  * The attestation says "an independent process, holding policy {@code H_R}, re-derived this
  * verdict over these facts for these bytes, now". It does not say the facts are true: that is
  * the post-MVP step where the validator reads state from the chain itself.
+ *
+ * <p>KAN-600: the caller may send the unsigned transaction itself ({@code transaction}, base64). Then the validator
+ * decodes it and computes {@code message_hash} from the bytes; a claimed hash that differs is refused
+ * ({@code MESSAGE_HASH_MISMATCH}) and the attestation always carries the computed one, so the signer (which hashes
+ * the bytes it is asked to sign) cannot be handed other bytes — another blockhash, another signer, another anything —
+ * under this attestation. With a {@code swap} intent, {@link SwapRules} is applied to those same bytes and any
+ * violation denies ({@code SWAP_RULES}). {@code checks} in the payload records what was actually verified, so the
+ * signer can later require it.
  */
 @Component
 public class ValidationService {
@@ -50,6 +64,10 @@ public class ValidationService {
     public static final String REFUSAL_DISABLED = "VALIDATOR_DISABLED";
     public static final String REFUSAL_POLICY_HASH = "POLICY_HASH_MISMATCH";
     public static final String REFUSAL_DISAGREEMENT = "VERDICT_DISAGREEMENT";
+    public static final String REFUSAL_MESSAGE_HASH = "MESSAGE_HASH_MISMATCH";
+    public static final String REFUSAL_SWAP_RULES = "SWAP_RULES";
+    public static final String CHECK_HASH_FROM_BYTES = "message_hash_from_bytes";
+    public static final String CHECK_JUPITER_SWAP = "jupiter_swap_v1";
 
     /** {@code cluster}: {@code devnet} | {@code mainnet-beta} ({@code mainnet} accepted); required, attested verbatim. */
     public record Request(
@@ -59,7 +77,16 @@ public class ValidationService {
             String messageHash,
             Map<String, Object> intent,
             Map<String, Object> state,
-            String cluster) {}
+            String cluster,
+            String transaction,
+            Map<String, Object> swap) {
+
+        /** The pre-KAN-600 shape: only the hash of the bytes. */
+        public Request(String proposalId, String policyHash, String expectedVerdictHash, String messageHash, Map<String, Object> intent,
+                Map<String, Object> state, String cluster) {
+            this(proposalId, policyHash, expectedVerdictHash, messageHash, intent, state, cluster, null, null);
+        }
+    }
 
     public record Attestation(String payload, String signature, String validator) {}
 
@@ -75,7 +102,10 @@ public class ValidationService {
             String verdictHash,
             long issuedAt,
             long expiresAt,
-            Attestation attestation) {}
+            Attestation attestation,
+            String messageHash,
+            List<String> checks,
+            List<String> swapViolations) {}
 
     /** A request the validator cannot even evaluate: 400, no attestation. */
     public static class MalformedRequest extends RuntimeException {
@@ -109,10 +139,18 @@ public class ValidationService {
         if (proposalId == null) {
             throw new MalformedRequest("missing_proposal_id");
         }
-        String messageHash = req.messageHash() == null ? null : req.messageHash().trim().toLowerCase(Locale.ROOT);
-        if (messageHash == null || !HEX64.matcher(messageHash).matches()) {
+        String claimedHash = blankToNull(req.messageHash()) == null ? null : req.messageHash().trim().toLowerCase(Locale.ROOT);
+        CompiledTransaction tx = decodeTransaction(req.transaction());
+        if (tx == null && (claimedHash == null || !HEX64.matcher(claimedHash).matches())) {
             throw new MalformedRequest("missing_or_invalid_message_hash");
         }
+        if (req.swap() != null && tx == null) {
+            throw new MalformedRequest("swap_requires_transaction");
+        }
+        SwapRules.SwapIntent swapIntent = req.swap() == null ? null : swapIntent(req.swap());
+        String messageHash = tx == null ? claimedHash : sha256Hex(tx.message());
+        List<String> checks = new ArrayList<>();
+        List<String> swapViolations = List.of();
         String claimedPolicyHash = blankToNull(req.policyHash());
         if (claimedPolicyHash == null) {
             throw new MalformedRequest("missing_policy_hash");
@@ -135,6 +173,19 @@ public class ValidationService {
         if (expected != null && !expected.equals(verdict.hash())) {
             refusals.add(REFUSAL_DISAGREEMENT);
         }
+        if (tx != null) {
+            checks.add(CHECK_HASH_FROM_BYTES);
+            if (claimedHash != null && !claimedHash.equals(messageHash)) {
+                refusals.add(REFUSAL_MESSAGE_HASH);
+            }
+        }
+        if (swapIntent != null) {
+            checks.add(CHECK_JUPITER_SWAP);
+            swapViolations = SwapRules.check(tx, swapIntent).violations().stream().map(v -> v.code() + ": " + v.detail()).toList();
+            if (!swapViolations.isEmpty()) {
+                refusals.add(REFUSAL_SWAP_RULES);
+            }
+        }
         PolicyVerdict.Decision decision = refusals.isEmpty() ? verdict.decision() : PolicyVerdict.Decision.DENY;
         PolicyVerdict.Escalation escalation = refusals.isEmpty() ? verdict.escalation() : PolicyVerdict.Escalation.NONE;
 
@@ -153,6 +204,9 @@ public class ValidationService {
         payload.put("validator", keys.publicKey());
         payload.put("issued_at", issued.getEpochSecond());
         payload.put("expires_at", expires.getEpochSecond());
+        if (!checks.isEmpty()) {
+            payload.put("checks", List.copyOf(checks));
+        }
         String canonical = CanonicalJson.canonicalize(payload);
         String signature = Base58.encode(keys.sign(canonical.getBytes(StandardCharsets.UTF_8)));
 
@@ -171,7 +225,47 @@ public class ValidationService {
                 verdict.hash(),
                 issued.getEpochSecond(),
                 expires.getEpochSecond(),
-                new Attestation(canonical, signature, keys.publicKey()));
+                new Attestation(canonical, signature, keys.publicKey()),
+                messageHash,
+                List.copyOf(checks),
+                swapViolations);
+    }
+
+    private static CompiledTransaction decodeTransaction(String base64) {
+        String b = blankToNull(base64);
+        if (b == null) {
+            return null;
+        }
+        try {
+            return CompiledTransaction.decode(Base64.getDecoder().decode(b));
+        } catch (IllegalArgumentException | CompiledTransaction.MalformedTransaction ex) {
+            throw new MalformedRequest("malformed_transaction");
+        }
+    }
+
+    /** Wire swap intent → {@link SwapRules.SwapIntent}; every field is required and nothing is coerced. */
+    private static SwapRules.SwapIntent swapIntent(Map<String, Object> s) {
+        String owner = Facts.str(s.get("owner"));
+        String input = Facts.str(s.get("input_mint"));
+        String output = Facts.str(s.get("output_mint"));
+        Long in = Facts.lng(s.get("in_amount"));
+        Long minOut = Facts.lng(s.get("min_out_amount"));
+        Integer slippage = Facts.integer(s.get("max_slippage_bps"));
+        Long fee = Facts.lng(s.get("max_priority_fee_lamports"));
+        if (owner == null || input == null || output == null || in == null || minOut == null || slippage == null || fee == null
+                || !Base58.isPublicKey(owner) || !Base58.isPublicKey(input) || !Base58.isPublicKey(output)
+                || in <= 0 || minOut <= 0 || slippage < 0 || slippage > 10_000 || fee < 0) {
+            throw new MalformedRequest("invalid_swap_intent");
+        }
+        return new SwapRules.SwapIntent(owner, input, output, in, minOut, slippage, fee);
+    }
+
+    static String sha256Hex(byte[] bytes) {
+        try {
+            return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(bytes));
+        } catch (NoSuchAlgorithmException e) {
+            throw new IllegalStateException(e);
+        }
     }
 
     private static String blankToNull(String s) {
