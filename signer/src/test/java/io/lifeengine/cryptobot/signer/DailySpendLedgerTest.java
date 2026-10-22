@@ -42,7 +42,11 @@ class DailySpendLedgerTest {
     }
 
     private static SignerProperties props(String ledgerPath, boolean allowMainnet) {
-        return new SignerProperties("", "", "t", "devnet", 1_000_000_000L, List.of(), true, "", false, allowMainnet, CAP, ledgerPath);
+        return props(ledgerPath, allowMainnet, CAP);
+    }
+
+    private static SignerProperties props(String ledgerPath, boolean allowMainnet, long cap) {
+        return new SignerProperties("", "", "t", "devnet", 1_000_000_000L, List.of(), true, "", false, allowMainnet, cap, ledgerPath);
     }
 
     @Test
@@ -97,5 +101,39 @@ class DailySpendLedgerTest {
 
         assertThatThrownBy(() -> new DailySpendLedger(props(file.toString(), false), new MovingClock()))
                 .isInstanceOf(IllegalStateException.class);
+    }
+
+    @Test
+    void anOverflowingSumIsRefusedInsteadOfWrappingNegative() {
+        DailySpendLedger ledger = new DailySpendLedger(props("", false, Long.MAX_VALUE), new MovingClock());
+        assertThat(ledger.tryReserve(Long.MAX_VALUE - 1)).isTrue();
+
+        // spent + 2 wraps to a negative long, which a plain "+" would find under the cap
+        assertThat(ledger.tryReserve(2L)).isFalse();
+        assertThat(ledger.spentInWindow()).isEqualTo(Long.MAX_VALUE - 1);
+    }
+
+    @Test
+    void aLedgerFileWhoseTotalOverflowsDoesNotStart() throws Exception {
+        Path file = dir.resolve("spend.ledger");
+        long now = new MovingClock().millis();
+        Files.writeString(file, now + " " + Long.MAX_VALUE + "\n" + now + " 1\n");
+
+        assertThatThrownBy(() -> new DailySpendLedger(props(file.toString(), false, Long.MAX_VALUE), new MovingClock()))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("overflows");
+    }
+
+    @Test
+    void persistingLeavesOnlyTheLedgerBehind() throws Exception {
+        Path file = dir.resolve("spend.ledger");
+        DailySpendLedger ledger = new DailySpendLedger(props(file.toString(), false), new MovingClock());
+        assertThat(ledger.tryReserve(1_000L)).isTrue();
+        assertThat(ledger.tryReserve(2_000L)).isTrue();
+
+        try (var files = Files.list(dir)) {
+            assertThat(files.map(f -> f.getFileName().toString()).toList()).containsExactly("spend.ledger");
+        }
+        assertThat(Files.readAllLines(file)).hasSize(2);
     }
 }

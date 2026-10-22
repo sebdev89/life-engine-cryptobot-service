@@ -1,11 +1,14 @@
 package io.lifeengine.cryptobot.signer;
 
 import java.io.IOException;
+import java.nio.ByteBuffer;
+import java.nio.channels.FileChannel;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
+import java.nio.file.StandardOpenOption;
 import java.time.Clock;
 import java.time.Duration;
 import java.util.ArrayDeque;
@@ -28,6 +31,11 @@ import org.springframework.stereotype.Component;
  * atomically), because the signer has no database. Without a path the window lives in memory and a restart resets
  * it, so with mainnet allowed a path is mandatory and the signer refuses to start without one (fail-closed). An
  * unreadable or corrupt ledger file is fail-closed too: the signer does not start rather than forget what it signed.
+ *
+ * <p>Durability: the temp file is fsynced before the rename and the directory after it, so a power cut right after a
+ * signature cannot bring back an older ledger. Sums use {@link Math#addExact}: an overflow refuses instead of
+ * wrapping negative. The window is wall-clock based: a forward clock jump prunes it early, so the node must keep
+ * NTP time (a backward jump only keeps entries longer, which is the safe side).
  */
 @Component
 public class DailySpendLedger {
@@ -66,8 +74,14 @@ public class DailySpendLedger {
     public synchronized boolean tryReserve(long lamports) {
         long now = clock.millis();
         prune(now);
-        long spent = sum();
-        if (lamports < 0 || spent + lamports > maxPerDay) {
+        if (lamports < 0) {
+            return false;
+        }
+        try {
+            if (Math.addExact(sum(), lamports) > maxPerDay) {
+                return false;
+            }
+        } catch (ArithmeticException overflow) {
             return false;
         }
         window.addLast(new Spend(now, lamports));
@@ -88,7 +102,7 @@ public class DailySpendLedger {
     private long sum() {
         long total = 0;
         for (Spend s : window) {
-            total += s.lamports();
+            total = Math.addExact(total, s.lamports());
         }
         return total;
     }
@@ -126,6 +140,11 @@ public class DailySpendLedger {
         read.sort((a, b) -> Long.compare(a.epochMillis(), b.epochMillis()));
         window.addAll(read);
         prune(clock.millis());
+        try {
+            sum();
+        } catch (ArithmeticException ex) {
+            throw new IllegalStateException("spend ledger " + path + " overflows a long: corrupt", ex);
+        }
     }
 
     private void persist() {
@@ -136,18 +155,37 @@ public class DailySpendLedger {
         for (Spend s : window) {
             sb.append(s.epochMillis()).append(' ').append(s.lamports()).append('\n');
         }
+        Path tmp = null;
         try {
             Path dir = path.toAbsolutePath().getParent();
-            Path tmp = Files.createTempFile(dir, ".spend-ledger", ".tmp");
-            Files.writeString(tmp, sb.toString(), StandardCharsets.UTF_8);
+            tmp = Files.createTempFile(dir, ".spend-ledger", ".tmp");
+            try (FileChannel ch = FileChannel.open(tmp, StandardOpenOption.WRITE, StandardOpenOption.TRUNCATE_EXISTING)) {
+                ByteBuffer buf = ByteBuffer.wrap(sb.toString().getBytes(StandardCharsets.UTF_8));
+                while (buf.hasRemaining()) {
+                    ch.write(buf);
+                }
+                ch.force(true);
+            }
             try {
                 Files.move(tmp, path, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
             } catch (AtomicMoveNotSupportedException ex) {
                 Files.move(tmp, path, StandardCopyOption.REPLACE_EXISTING);
             }
+            tmp = null;
+            // the rename lives in the directory entry: without this a crash can keep the old file
+            try (FileChannel d = FileChannel.open(dir, StandardOpenOption.READ)) {
+                d.force(true);
+            }
         } catch (IOException ex) {
             // the signature this reservation is for has not been produced yet: failing here keeps the cap honest
             window.removeLast();
+            if (tmp != null) {
+                try {
+                    Files.deleteIfExists(tmp);
+                } catch (IOException ignored) {
+                    // a stray .tmp is harmless: load() only reads the ledger file itself
+                }
+            }
             throw new IllegalStateException("cannot persist spend ledger " + path + ": " + ex.getMessage(), ex);
         }
     }
