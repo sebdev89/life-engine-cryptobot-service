@@ -49,12 +49,16 @@ public class SignerController {
     private final SignerMetrics metrics;
     private final DailySpendLedger dailyCap;
     private final SwapProperties swaps;
+    private final DailySpendLedger usdcCap;
+    /** Both swap caps are checked and reserved under one lock: either both reservations happen or neither does. */
+    private final Object swapCaps = new Object();
 
     @org.springframework.beans.factory.annotation.Autowired
     public SignerController(SignerProperties props, SignerKeyStore keys, SigningPolicy policy, AttestationVerifier attestations, SignerMetrics metrics,
-            DailySpendLedger dailyCap, SwapProperties swaps) {
+            DailySpendLedger dailyCap, SwapProperties swaps, UsdcSpendLedger usdcCap) {
         this.props = props;
         this.swaps = swaps;
+        this.usdcCap = usdcCap.ledger();
         this.keys = keys;
         this.policy = policy;
         this.attestations = attestations;
@@ -177,6 +181,10 @@ public class SignerController {
         if (!swaps.enabled()) {
             return refuseSwap(req, "swaps_disabled", HttpStatus.FORBIDDEN);
         }
+        // a swap is never signed on the token alone, whatever the profile allows for the legacy transfer path
+        if (!attestations.required()) {
+            return refuseSwap(req, "attestation_not_required", HttpStatus.FORBIDDEN);
+        }
         SigningPolicy.Verdict cluster = policy.evaluateCluster(req.cluster());
         if (!cluster.allowed()) {
             return refuseSwap(req, cluster.reason(), HttpStatus.FORBIDDEN);
@@ -208,7 +216,7 @@ public class SignerController {
                 || req.minOut() == null || s.minOutAmount() != req.minOut()) {
             return refuseSwap(req, "attestation_swap_mismatch", HttpStatus.FORBIDDEN);
         }
-        String capRefusal = reserveDaily(v.lamportsOut());
+        String capRefusal = reserveSwap(v);
         if (capRefusal != null) {
             return refuseSwap(req, capRefusal, HttpStatus.FORBIDDEN);
         }
@@ -290,6 +298,32 @@ public class SignerController {
             return java.util.HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(bytes));
         } catch (Exception e) {
             return "";
+        }
+    }
+
+    /**
+     * The swap's SOL (lamportsOut) against the lamports cap and, when the input is USDC, its amount against the USDC
+     * cap: both checked first, then both reserved, under one lock. null = reserved; a ledger that cannot persist
+     * refuses (a reservation already written stays: counting spend that did not happen is the safe side).
+     */
+    private String reserveSwap(SwapSigningPolicy.Verdict v) {
+        boolean usdc = SwapSigningPolicy.USDC_MINT.equals(v.inputMint());
+        synchronized (swapCaps) {
+            try {
+                if (usdc && !usdcCap.canReserve(v.inAmount())) {
+                    return "daily_cap_usdc";
+                }
+                if (!dailyCap.canReserve(v.lamportsOut())) {
+                    return "daily_cap";
+                }
+                if (usdc && !usdcCap.tryReserve(v.inAmount())) {
+                    return "daily_cap_usdc";
+                }
+                return dailyCap.tryReserve(v.lamportsOut()) ? null : "daily_cap";
+            } catch (IllegalStateException ex) {
+                log.error("signer_spend_ledger_failed error={}", ex.toString());
+                return "spend_ledger_unavailable";
+            }
         }
     }
 

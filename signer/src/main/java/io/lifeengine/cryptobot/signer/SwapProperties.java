@@ -15,6 +15,8 @@ import org.springframework.boot.context.properties.bind.ConstructorBinding;
  * @param maxSlippageBps largest slippage the route may carry (default 100)
  * @param minUsdcPerSol gross floor: USDC base units per SOL in; unset (0) refuses SOL→USDC
  * @param minLamportsPerUsdc gross floor: lamports per USDC in; unset (0) refuses USDC→SOL
+ * @param maxUsdcPerDay USDC (base units) swaps may spend in any rolling 24 h (default 50 USDC); SOL spend is the
+ *     lamports cap ({@code signer.max-lamports-per-day})
  */
 @ConfigurationProperties(prefix = "signer.swaps")
 public record SwapProperties(
@@ -24,7 +26,8 @@ public record SwapProperties(
         Long maxPriorityFeeLamports,
         Integer maxSlippageBps,
         Long minUsdcPerSol,
-        Long minLamportsPerUsdc) {
+        Long minLamportsPerUsdc,
+        Long maxUsdcPerDay) {
 
     @ConstructorBinding
     public SwapProperties {
@@ -35,6 +38,7 @@ public record SwapProperties(
         maxSlippageBps = maxSlippageBps == null || maxSlippageBps < 0 ? 100 : Math.min(maxSlippageBps, 10_000);
         minUsdcPerSol = minUsdcPerSol == null || minUsdcPerSol < 0 ? 0L : minUsdcPerSol;
         minLamportsPerUsdc = minLamportsPerUsdc == null || minLamportsPerUsdc < 0 ? 0L : minLamportsPerUsdc;
+        maxUsdcPerDay = positive(maxUsdcPerDay, 50_000_000L);
     }
 
     public SwapSigningPolicy.Limits limits() {

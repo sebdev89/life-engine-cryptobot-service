@@ -63,7 +63,7 @@ public class SignerMetrics {
             "token_instruction_not_allowed", "jupiter_instruction_not_allowed", "jupiter_instruction_count", "route_authority_mismatch",
             "route_source_mismatch", "route_destination_mismatch", "platform_fee", "slippage_too_high", "swap_amount_over_cap",
             "swap_floor_not_configured", "price_below_floor", "min_out_missing", "minimum_received_too_low",
-            "attestation_swap_missing", "attestation_swap_mismatch", "system_transfer_not_allowed", "wrap_exceeds_amount", "priority_fee_too_high");
+            "attestation_swap_missing", "attestation_swap_mismatch", "daily_cap_usdc", "attestation_not_required", "system_transfer_not_allowed", "wrap_exceeds_amount", "priority_fee_too_high");
 
     private static final Set<String> KNOWN = Set.copyOf(KNOWN_RULES);
     private static final Duration[] LATENCY_BUCKETS = {

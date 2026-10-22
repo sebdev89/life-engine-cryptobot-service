@@ -43,6 +43,8 @@ class SignerSwapEndpointTest {
         r.add("signer.swaps.enabled", () -> "true");
         r.add("signer.swaps.min-usdc-per-sol", () -> "50000000");
         r.add("signer.swaps.min-lamports-per-usdc", () -> "4700000");
+        // 1.5 USDC a day: one 1-USDC swap fits, a second does not
+        r.add("signer.swaps.max-usdc-per-day", () -> "1500000");
     }
 
     @Autowired private WebTestClient web;
@@ -50,11 +52,15 @@ class SignerSwapEndpointTest {
 
     /** The real Binance-owned swap with the payer and its token accounts swapped for this test's key. */
     static byte[] ours() {
+        return ours(SwapSigningPolicyTest.solToUsdc());
+    }
+
+    static byte[] ours(byte[] binanceSwap) {
         String me = KEY.publicKeyBase58();
         Map<String, String> remap = Map.of(BINANCE, me,
                 TokenAccounts.associated(BINANCE, TokenAccounts.WSOL_MINT), TokenAccounts.associated(me, TokenAccounts.WSOL_MINT),
                 TokenAccounts.associated(BINANCE, SwapSigningPolicy.USDC_MINT), TokenAccounts.associated(me, SwapSigningPolicy.USDC_MINT));
-        return SwapSigningPolicyTest.rebuild(SwapSigningPolicyTest.solToUsdc(), ixs -> ixs.stream()
+        return SwapSigningPolicyTest.rebuild(binanceSwap, ixs -> ixs.stream()
                 .map(ix -> new LegacyTransaction.Instruction(ix.programId(), ix.accounts().stream()
                         .map(m -> new LegacyTransaction.AccountMeta(remap.getOrDefault(m.pubkey(), m.pubkey()), m.signer(), m.writable())).toList(), ix.data()))
                 .toList(), me, null);
@@ -107,7 +113,7 @@ class SignerSwapEndpointTest {
         assertThat(SolanaKeypair.verify(KEY.publicKeyBytes(), msg, Arrays.copyOfRange(signed, 1, 65))).isTrue();
         long reserved = dailyCap.spentInWindow() - before;
         assertThat(reserved).isEqualTo(SwapSigningPolicy.evaluate(wire, KEY.publicKeyBase58(),
-                new SwapProperties(true, null, null, null, null, 50_000_000L, 4_700_000L).limits(), MIN_OUT).lamportsOut()).isGreaterThan(10_000_000L);
+                new SwapProperties(true, null, null, null, null, 50_000_000L, 4_700_000L, null).limits(), MIN_OUT).lamportsOut()).isGreaterThan(10_000_000L);
 
         signSwap("swap-2", wire, "devnet", attest("swap-2", msg, BOTH)).expectStatus().isOk();
         signSwap("swap-3", wire, "devnet", attest("swap-3", msg, BOTH)).expectStatus().isForbidden()
@@ -157,6 +163,27 @@ class SignerSwapEndpointTest {
     }
 
     @Test
+    void aRequestMinimumAboveTheAttestedOneIsAMismatchToo() {
+        byte[] wire = ours();
+        // 1 020 000 still passes the policy (the route returns ≥ 1 027 446), but the validator attested 1 000 000
+        signSwap("swap-s5", wire, "devnet", 1_020_000L, attest("swap-s5", message(wire), BOTH))
+                .expectStatus().isForbidden().expectBody().jsonPath("$.reason").isEqualTo("attestation_swap_mismatch");
+    }
+
+    @Test
+    void aUsdcInputIsCappedPerDayInUsdcNotOnlyInFees() {
+        byte[] wire = ours(SwapSigningPolicyTest.fixture("legacy-usdc-sol-binance2.json"));
+        String reversed = "{\"in_amount\":1000000,\"input_mint\":\"" + SwapSigningPolicy.USDC_MINT + "\",\"min_out_amount\":9000000,"
+                + "\"output_mint\":\"" + TokenAccounts.WSOL_MINT + "\"}";
+        signSwap("swap-u1", wire, "devnet", 9_000_000L, attest("swap-u1", message(wire), BOTH, reversed)).expectStatus().isOk();
+        // the second 1-USDC swap would take the day to 2 USDC > 1.5: refused on USDC even though its SOL fees fit
+        long lamportsBefore = dailyCap.spentInWindow();
+        signSwap("swap-u2", wire, "devnet", 9_000_000L, attest("swap-u2", message(wire), BOTH, reversed))
+                .expectStatus().isForbidden().expectBody().jsonPath("$.reason").isEqualTo("daily_cap_usdc");
+        assertThat(dailyCap.spentInWindow()).isEqualTo(lamportsBefore);
+    }
+
+    @Test
     void anAttestationForOtherBytesIsRefused() {
         byte[] wire = ours();
         byte[] other = message(SwapSigningPolicyTest.rebuild(wire, ixs -> ixs, null, "11111111111111111111111111111112"));
@@ -177,12 +204,12 @@ class SignerSwapEndpointTest {
     @Test
     void theGuardRefusesMainnetSwapsWithoutTheMainnetGate() {
         SignerProperties mainnet = new SignerProperties("", "", "t", "mainnet-beta", 1L, List.of(), true, "", true, false);
-        SwapProperties on = new SwapProperties(true, null, null, null, null, null, null);
+        SwapProperties on = new SwapProperties(true, null, null, null, null, null, null, null);
         assertThatThrownBy(() -> new SwapGuard(mainnet, on)).isInstanceOf(IllegalStateException.class).hasMessageContaining("allow-mainnet");
         // with the gate, or with swaps off, it starts
         new SwapGuard(new SignerProperties("", "", "t", "mainnet-beta", 1L, List.of(), true, "", true, true), on);
-        new SwapGuard(mainnet, new SwapProperties(false, null, null, null, null, null, null));
+        new SwapGuard(mainnet, new SwapProperties(false, null, null, null, null, null, null, null));
         // and swaps are off unless turned on
-        assertThat(new SwapProperties(null, null, null, null, null, null, null).enabled()).isFalse();
+        assertThat(new SwapProperties(null, null, null, null, null, null, null, null).enabled()).isFalse();
     }
 }

@@ -56,15 +56,37 @@ public class DailySpendLedger {
     }
 
     DailySpendLedger(SignerProperties props, Clock clock) {
-        this.maxPerDay = props.maxLamportsPerDay();
-        this.path = props.spendLedgerPath().isEmpty() ? null : Path.of(props.spendLedgerPath());
+        this(props.maxLamportsPerDay(), props.spendLedgerPath(), props.allowMainnet(), "lamports", clock);
+    }
+
+    /**
+     * A rolling 24 h cap over any unit ({@code lamports}, or a token's base units for the pilot's USDC cap), kept in
+     * {@code ledgerPath} (empty = memory). {@code pathRequired}: refuse to start without a file (mainnet).
+     */
+    DailySpendLedger(long maxPerDay, String ledgerPath, boolean pathRequired, String unit, Clock clock) {
+        this.maxPerDay = maxPerDay;
+        this.path = ledgerPath == null || ledgerPath.isEmpty() ? null : Path.of(ledgerPath);
         this.clock = clock;
-        if (props.allowMainnet() && path == null) {
+        if (pathRequired && path == null) {
             throw new IllegalStateException("signer.allow-mainnet=true requires signer.spend-ledger-path (SIGNER_SPEND_LEDGER_PATH):"
                     + " a daily cap that a restart resets is no cap for real funds");
         }
         load();
-        log.info("signer_daily_cap max_lamports_per_day={} ledger={} spent_in_window={}", maxPerDay, path == null ? "memory" : path, spentInWindow());
+        log.info("signer_daily_cap unit={} max_lamports_per_day={} ledger={} spent_in_window={}", unit, maxPerDay, path == null ? "memory" : path,
+                spentInWindow());
+    }
+
+    /** Whether {@code amount} would fit in the window right now, without reserving it. */
+    public synchronized boolean canReserve(long amount) {
+        prune(clock.millis());
+        if (amount < 0) {
+            return false;
+        }
+        try {
+            return Math.addExact(sum(), amount) <= maxPerDay;
+        } catch (ArithmeticException overflow) {
+            return false;
+        }
     }
 
     /**
