@@ -76,6 +76,41 @@
 
     <build>
         <plugins>
+            <!-- Pilot (swap signing): mutation testing of the code that decides what gets signed with real money.
+                 Not bound to the build; CI runs `pitest:mutationCoverage` and fails below mutationThreshold. -->
+            <plugin>
+                <groupId>org.pitest</groupId>
+                <artifactId>pitest-maven</artifactId>
+                <version>1.15.8</version>
+                <dependencies>
+                    <dependency>
+                        <groupId>org.pitest</groupId>
+                        <artifactId>pitest-junit5-plugin</artifactId>
+                        <version>1.2.1</version>
+                    </dependency>
+                </dependencies>
+                <configuration>
+                    <targetClasses>
+                        <param>io.lifeengine.cryptobot.signer.SwapSigningPolicy*</param>
+                        <param>io.lifeengine.cryptobot.signer.LegacyMessageDecoder*</param>
+                    </targetClasses>
+                    <targetTests>
+                        <param>io.lifeengine.cryptobot.signer.SwapSigningPolicyTest</param>
+                    </targetTests>
+                    <mutators>
+                        <mutator>STRONGER</mutator>
+                    </mutators>
+                    <timestampedReports>false</timestampedReports>
+                    <!-- Measured 2026-10-22: the survivors left are equivalent (same refusal either way, a mint that can only
+                         be SOL or USDC, fields the policy does not read), stricter-direction (refuse shapes Jupiter never
+                         emits) or a static initializer PIT cannot see. Raising the bar is welcome; lowering it is a review. -->
+                    <mutationThreshold>92</mutationThreshold>
+                    <outputFormats>
+                        <param>XML</param>
+                        <param>HTML</param>
+                    </outputFormats>
+                </configuration>
+            </plugin>
             <plugin>
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-maven-plugin</artifactId>

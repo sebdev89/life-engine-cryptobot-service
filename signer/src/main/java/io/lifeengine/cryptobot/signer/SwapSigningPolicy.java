@@ -1,6 +1,7 @@
 package io.lifeengine.cryptobot.signer;
 
 import io.lifeengine.cryptobot.signer.swap.TokenAccounts;
+import java.math.BigInteger;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.charset.StandardCharsets;
@@ -25,8 +26,15 @@ import java.util.Set;
  *       account back to us; exactly one Jupiter v6 {@code route} or {@code shared_accounts_route};
  *   <li>the route: we are the authority, the source is our token account for one allowed mint and the destination
  *       our token account for the other, no platform fee account and fee 0, slippage within the cap, and the input
- *       amount within the per-swap cap of the input mint.
+ *       amount within the per-swap cap of the input mint;
+ *   <li>the least the route can return, {@code floor(quoted_out × (10000 − slippage) / 10000)} — the bound the
+ *       Jupiter program enforces on chain — is at least {@code max(minOut, gross floor)}: {@code minOut} is the
+ *       intent's minimum (the precise one, also attested by the validator) and the gross floor is this signer's own,
+ *       per pair, deliberately loose (about half the market) so it does not follow the price and still stops a swap
+ *       at any price if everything upstream were compromised. No {@code minOut} or no floor for the pair is refused.
  * </ul>
+ *
+ * <p>Any exception while reading the bytes or the owner is a refusal, never an error that escapes.
  *
  * <p>{@link Verdict#lamportsOut()} is what the swap can take from our SOL: the input when it is SOL, plus base and
  * priority fees and the rent of every account it creates — what the daily cap reserves. The accounts Jupiter's route
@@ -48,10 +56,29 @@ public final class SwapSigningPolicy {
     static final byte[] ROUTE = discriminator("route");
     static final byte[] SHARED_ACCOUNTS_ROUTE = discriminator("shared_accounts_route");
 
-    /** Per-swap caps. {@code maxInputByMint}: the largest input amount, in base units, per allowed input mint. */
-    public record Limits(long maxLamportsIn, long maxUsdcIn, long maxPriorityFeeLamports, int maxSlippageBps) {
+    /**
+     * Per-swap caps and the gross price floor. {@code maxLamportsIn}/{@code maxUsdcIn}: the largest input, in base
+     * units, per input mint. {@code minUsdcPerSol}: least USDC base units the route may return per SOL (10⁹
+     * lamports) in; {@code minLamportsPerUsdc}: least lamports per USDC (10⁶ base units) in. {@code <= 0} = not
+     * configured, and that pair is refused.
+     */
+    public record Limits(long maxLamportsIn, long maxUsdcIn, long maxPriorityFeeLamports, int maxSlippageBps, long minUsdcPerSol,
+            long minLamportsPerUsdc) {
         long maxIn(String mint) {
             return TokenAccounts.WSOL_MINT.equals(mint) ? maxLamportsIn : USDC_MINT.equals(mint) ? maxUsdcIn : -1;
+        }
+
+        /** Least output (base units) for {@code in} of {@code inputMint}, or -1 when the pair has no floor. */
+        long floorOut(String inputMint, long in) {
+            long rate = TokenAccounts.WSOL_MINT.equals(inputMint) ? minUsdcPerSol : USDC_MINT.equals(inputMint) ? minLamportsPerUsdc : 0;
+            long unit = TokenAccounts.WSOL_MINT.equals(inputMint) ? 1_000_000_000L : 1_000_000L;
+            if (rate <= 0) {
+                return -1;
+            }
+            // ceil(in × rate / unit): never round the floor down
+            BigInteger[] qr = BigInteger.valueOf(in).multiply(BigInteger.valueOf(rate)).divideAndRemainder(BigInteger.valueOf(unit));
+            BigInteger out = qr[1].signum() == 0 ? qr[0] : qr[0].add(BigInteger.ONE);
+            return out.bitLength() < 63 ? out.longValue() : Long.MAX_VALUE;
         }
     }
 
@@ -64,13 +91,20 @@ public final class SwapSigningPolicy {
 
     private SwapSigningPolicy() {}
 
-    public static Verdict evaluate(byte[] wire, String owner, Limits limits) {
-        LegacyMessageDecoder.Decoded tx;
+    /** @param minOut the intent's minimum output, base units of the output mint; {@code <= 0} is refused */
+    public static Verdict evaluate(byte[] wire, String owner, Limits limits, long minOut) {
         try {
-            tx = LegacyMessageDecoder.decodeTransaction(wire);
+            return check(wire, owner, limits, minOut);
         } catch (RuntimeException e) {
             return Verdict.refuse("undecodable_transaction");
         }
+    }
+
+    private static Verdict check(byte[] wire, String owner, Limits limits, long minOut) {
+        if (minOut <= 0) {
+            return Verdict.refuse("min_out_missing");
+        }
+        LegacyMessageDecoder.Decoded tx = LegacyMessageDecoder.decodeTransaction(wire);
         if (tx.signatureCount() != 1 || tx.numRequiredSignatures() != 1) {
             return Verdict.refuse("multiple_signers");
         }
@@ -171,7 +205,7 @@ public final class SwapSigningPolicy {
                     }
                     ByteBuffer tail = le(d, d.length - 19, 19);
                     inAmount = tail.getLong();
-                    tail.getLong(); // quoted out: the minimum is the validator's to attest against the intent
+                    long quoted = tail.getLong();
                     int slippage = Short.toUnsignedInt(tail.getShort());
                     int fee = Byte.toUnsignedInt(tail.get());
                     if (fee != 0) {
@@ -182,6 +216,18 @@ public final class SwapSigningPolicy {
                     }
                     if (inAmount <= 0 || inAmount > limits.maxIn(inputMint)) {
                         return Verdict.refuse("swap_amount_over_cap");
+                    }
+                    long floor = limits.floorOut(inputMint, inAmount);
+                    if (floor < 0) {
+                        return Verdict.refuse("swap_floor_not_configured");
+                    }
+                    long leastOut = quoted < 0 ? -1
+                            : BigInteger.valueOf(quoted).multiply(BigInteger.valueOf(10_000 - slippage)).divide(BigInteger.valueOf(10_000)).longValue();
+                    if (leastOut < minOut) {
+                        return Verdict.refuse("minimum_received_too_low");
+                    }
+                    if (leastOut < floor) {
+                        return Verdict.refuse("price_below_floor");
                     }
                 }
             }
