@@ -2,6 +2,7 @@ package io.lifeengine.cryptobot.signer;
 
 import java.util.List;
 import org.springframework.boot.context.properties.ConfigurationProperties;
+import org.springframework.boot.context.properties.bind.ConstructorBinding;
 
 /**
  * @param validatorPublicKey base58 Ed25519 public key of {@code cryptobot-validator}.
@@ -14,6 +15,10 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
  * @param allowMainnet an internal ticket: mainnet is fail-closed. {@code false} (default, env
  *     {@code SIGNER_ALLOW_MAINNET}) ⇒ a sign request for {@code mainnet-beta} is refused whatever
  *     the attestation says. Independent of the service's {@code CRYPTOBOT_ALLOW_MAINNET}.
+ * @param maxLamportsPerDay KAN-602: lamports this signer signs in any rolling 24 h window
+ *     ({@code SIGNER_MAX_LAMPORTS_PER_DAY}, default 10 SOL); see {@link DailySpendLedger}.
+ * @param spendLedgerPath KAN-602: file the 24 h window is kept in ({@code SIGNER_SPEND_LEDGER_PATH}). Empty =
+ *     in memory, reset by a restart; mandatory when {@code allowMainnet} is on.
  */
 @ConfigurationProperties(prefix = "signer")
 public record SignerProperties(
@@ -26,8 +31,11 @@ public record SignerProperties(
         boolean enabled,
         String validatorPublicKey,
         Boolean requireAttestation,
-        Boolean allowMainnet) {
+        Boolean allowMainnet,
+        Long maxLamportsPerDay,
+        String spendLedgerPath) {
 
+    @ConstructorBinding
     public SignerProperties {
         keypairPath = keypairPath == null ? "" : keypairPath.trim();
         keypairJson = keypairJson == null ? "" : keypairJson.trim();
@@ -40,6 +48,15 @@ public record SignerProperties(
         validatorPublicKey = validatorPublicKey == null ? "" : validatorPublicKey.trim();
         requireAttestation = requireAttestation == null ? Boolean.TRUE : requireAttestation;
         allowMainnet = allowMainnet == null ? Boolean.FALSE : allowMainnet;
+        maxLamportsPerDay = maxLamportsPerDay == null || maxLamportsPerDay <= 0 ? 10_000_000_000L : maxLamportsPerDay;
+        spendLedgerPath = spendLedgerPath == null ? "" : spendLedgerPath.trim();
+    }
+
+    /** The shape before KAN-602 (tests, wiring without a daily cap of its own): default daily cap, ledger in memory. */
+    public SignerProperties(String keypairPath, String keypairJson, String token, String cluster, long maxLamports,
+            List<String> allowedDestinations, boolean enabled, String validatorPublicKey, Boolean requireAttestation, Boolean allowMainnet) {
+        this(keypairPath, keypairJson, token, cluster, maxLamports, allowedDestinations, enabled, validatorPublicKey, requireAttestation,
+                allowMainnet, null, null);
     }
 
     /** {@code devnet} | {@code mainnet-beta}, or {@code null} when the string names no cluster this signer knows. */

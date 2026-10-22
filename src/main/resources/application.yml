@@ -93,6 +93,11 @@ cryptobot:
     rpc:
       devnet-url: ${CRYPTOBOT_SOLANA_DEVNET_RPC:https://api.devnet.solana.com}
       mainnet-url: ${CRYPTOBOT_SOLANA_MAINNET_RPC:https://api.mainnet-beta.solana.com}
+      # KAN-602: the genesis hash each RPC must answer before anything is sent through it (the cluster label is
+      # declarative; the genesis is not). Empty devnet value = check off, only for a local solana-test-validator
+      # (its genesis changes on every reset). The mainnet one cannot be turned off.
+      expected-genesis-devnet: ${CRYPTOBOT_SOLANA_EXPECTED_GENESIS_DEVNET:EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG}
+      expected-genesis-mainnet: ${CRYPTOBOT_SOLANA_EXPECTED_GENESIS_MAINNET:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdpKuc147dw2N9d}
       timeout: ${CRYPTOBOT_SOLANA_RPC_TIMEOUT:8s}
   # ---- Backtests (KAN-1216, v2): public SOL/USD candles from Coinbase Exchange, keyless, read-only.
   backtest:

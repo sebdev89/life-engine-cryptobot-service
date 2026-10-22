@@ -78,9 +78,14 @@ class SolanaRpcClientMainnetGateTest {
     @Test
     @DisplayName("only the explicit flag opens mainnet")
     void explicitFlagOpensMainnet() throws Exception {
-        server.enqueue(new MockResponse().setBody("{\"jsonrpc\":\"2.0\",\"result\":\"sig-mainnet\",\"id\":1}").addHeader("Content-Type", "application/json"));
+        // KAN-602: an open mainnet still asks the RPC for its genesis first, and that check cannot be turned off
+        server.enqueue(new MockResponse().setBody("{\"jsonrpc\":\"2.0\",\"result\":\"" + SolanaRpcProperties.MAINNET_GENESIS + "\",\"id\":1}")
+                .addHeader("Content-Type", "application/json"));
+        server.enqueue(new MockResponse().setBody("{\"jsonrpc\":\"2.0\",\"result\":\"sig-mainnet\",\"id\":2}").addHeader("Content-Type", "application/json"));
         StepVerifier.create(client(new ExecutionProperties(true)).sendTransaction(SolanaCluster.MAINNET_BETA, SIGNED)).expectNext("sig-mainnet").verifyComplete();
-        assertThat(server.getRequestCount()).isEqualTo(1);
+        assertThat(server.getRequestCount()).isEqualTo(2);
+        assertThat(server.takeRequest().getBody().readUtf8()).contains("\"getGenesisHash\"");
+        assertThat(server.takeRequest().getBody().readUtf8()).contains("\"sendTransaction\"");
     }
 
     @Test
