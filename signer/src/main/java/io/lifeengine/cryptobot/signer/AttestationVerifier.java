@@ -29,7 +29,10 @@ import org.springframework.stereotype.Component;
  *   <li>the attestation is inside its {@code [issued_at, expires_at]} window (small clock skew allowed);
  *   <li>an internal ticket: {@code cluster} is present and is the cluster the request named — the validator
  *       attested these bytes <em>for that cluster</em>, so a devnet attestation cannot be replayed
- *       for mainnet bytes and vice-versa.
+ *       for mainnet bytes and vice-versa;
+ *   <li>KAN-600: {@code checks} lists every check the bytes require ({@link #requiredChecks}): always
+ *       {@code message_hash_from_bytes} — the validator hashed the transaction itself instead of signing a hash it
+ *       was handed — and {@code jupiter_swap_v1} as soon as any instruction calls Jupiter.
  * </ol>
  *
  * It never re-evaluates the policy: that is the validator's job, and the whole point is that
@@ -40,6 +43,9 @@ public class AttestationVerifier {
 
     private static final Logger log = LoggerFactory.getLogger(AttestationVerifier.class);
     private static final Set<String> AUTHORIZING = Set.of("ALLOW", "ESCALATE");
+    public static final String CHECK_HASH_FROM_BYTES = "message_hash_from_bytes";
+    public static final String CHECK_JUPITER_SWAP = "jupiter_swap_v1";
+    public static final String JUPITER_V6 = "JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTaV4";
     static final long CLOCK_SKEW_SECONDS = 30;
 
     public record Attestation(String payload, String signature) {}
@@ -88,8 +94,19 @@ public class AttestationVerifier {
         return props.requireAttestation();
     }
 
+    /** The checks an attestation for these bytes must declare: the hash always; the swap rules if Jupiter is called. */
+    static Set<String> requiredChecks(LegacyMessageDecoder.Decoded tx) {
+        boolean jupiter = tx.instructions().stream().anyMatch(ix -> JUPITER_V6.equals(ix.programId()));
+        return jupiter ? Set.of(CHECK_HASH_FROM_BYTES, CHECK_JUPITER_SWAP) : Set.of(CHECK_HASH_FROM_BYTES);
+    }
+
     /** @param cluster the cluster the sign request named; the attestation must be for the same one. */
     public Verdict verify(Attestation att, String proposalId, byte[] message, String cluster) {
+        return verify(att, proposalId, message, cluster, Set.of(CHECK_HASH_FROM_BYTES));
+    }
+
+    /** @param requiredChecks what {@code checks} in the signed payload must contain (see {@link #requiredChecks}). */
+    public Verdict verify(Attestation att, String proposalId, byte[] message, String cluster, Set<String> requiredChecks) {
         if (!props.requireAttestation()) {
             return new Verdict(true, null, null, "NOT_REQUIRED", null);
         }
@@ -151,6 +168,21 @@ public class AttestationVerifier {
         }
         if (!attestedCluster.equals(SignerProperties.canonicalCluster(cluster))) {
             return Verdict.refuse("attestation_cluster_mismatch");
+        }
+        Set<String> declared = new java.util.HashSet<>();
+        JsonNode checks = p.get("checks");
+        if (checks != null && checks.isArray()) {
+            checks.forEach(c -> {
+                if (c.isTextual()) {
+                    declared.add(c.asText());
+                }
+            });
+        }
+        if (requiredChecks.contains(CHECK_HASH_FROM_BYTES) && !declared.contains(CHECK_HASH_FROM_BYTES)) {
+            return Verdict.refuse("attestation_hash_not_from_bytes");
+        }
+        if (requiredChecks.contains(CHECK_JUPITER_SWAP) && !declared.contains(CHECK_JUPITER_SWAP)) {
+            return Verdict.refuse("attestation_swap_not_checked");
         }
         return new Verdict(true, null, validator, decision, text(p, "verdict_hash"));
     }

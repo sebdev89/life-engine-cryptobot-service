@@ -56,7 +56,7 @@ public class SignerMetrics {
             "validator_key_not_configured", "attestation_missing", "attestation_bad_signature", "attestation_unparseable",
             "attestation_validator_mismatch", "attestation_proposal_mismatch", "attestation_message_mismatch", "attestation_denied",
             "attestation_no_window", "attestation_not_yet_valid", "attestation_expired", "attestation_cluster_missing",
-            "attestation_cluster_mismatch");
+            "attestation_cluster_mismatch", "attestation_hash_not_from_bytes", "attestation_swap_not_checked");
 
     private static final Set<String> KNOWN = Set.copyOf(KNOWN_RULES);
     private static final Duration[] LATENCY_BUCKETS = {

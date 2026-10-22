@@ -106,7 +106,8 @@ public class SignerController {
         byte[] message = v.decoded().message();
         // Level 5 (paper §20): the bytes that passed our own limits must also have been attested by
         // the independent validator — for this proposal, these exact bytes, for this cluster, and not as a DENY.
-        AttestationVerifier.Verdict a = attestations.verify(req.attestation(), req.proposalId(), message, req.cluster());
+        AttestationVerifier.Verdict a = attestations.verify(req.attestation(), req.proposalId(), message, req.cluster(),
+                AttestationVerifier.requiredChecks(v.decoded()));
         if (!a.ok()) {
             metrics.refused(SignerMetrics.KIND_TRANSFER, a.reason());
             log.warn("signer_refused proposalId={} reason={}", req.proposalId(), a.reason(),
