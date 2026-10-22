@@ -23,6 +23,12 @@ signer:
   cluster: ${SIGNER_CLUSTER:devnet}
   # Hard caps: enforced here, independently of anything cryptobot-service decided.
   max-lamports: ${SIGNER_MAX_LAMPORTS:2000000000}
+  # KAN-602: lamports signed in any rolling 24 h window (10 SOL). The per-transfer cap above bounds one signature;
+  # this bounds how many add up. Over it ⇒ refused `daily_cap`.
+  max-lamports-per-day: ${SIGNER_MAX_LAMPORTS_PER_DAY:10000000000}
+  # File the 24 h window is kept in (the signer has no DB). Empty = in memory, reset by a restart. Mandatory with
+  # allow-mainnet=true (the signer refuses to start without it); a corrupt file also refuses to start.
+  spend-ledger-path: ${SIGNER_SPEND_LEDGER_PATH:}
   allowed-destinations: ${SIGNER_ALLOWED_DESTINATIONS:}
   # Emergency stop for the signer itself.
   enabled: ${SIGNER_ENABLED:true}

@@ -344,6 +344,8 @@ final class ChainStack implements AutoCloseable {
                     case "getSignaturesForAddress" -> "[]";
                     case "getLatestBlockhash" -> "{\"context\":{\"slot\":1},\"value\":{\"blockhash\":\"So11111111111111111111111111111111111111112\",\"lastValidBlockHeight\":1000}}";
                     case "getBlockHeight" -> "900";
+                    // KAN-602: the service asks the genesis before its first sendTransaction; this node is "devnet"
+                    case "getGenesisHash" -> "\"" + io.lifeengine.cryptobot.solana.rpc.SolanaRpcProperties.DEVNET_GENESIS + "\"";
                     case "simulateTransaction" -> "{\"context\":{\"slot\":1},\"value\":{\"err\":null,\"logs\":[\"Program 11111111111111111111111111111111 invoke [1]\",\"Program 11111111111111111111111111111111 success\"],\"unitsConsumed\":150}}";
                     case "sendTransaction" -> {
                         String signedBase64 = body.path("params").get(0).asText();

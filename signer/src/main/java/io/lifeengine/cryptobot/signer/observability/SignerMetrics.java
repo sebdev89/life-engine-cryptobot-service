@@ -50,7 +50,7 @@ public class SignerMetrics {
             // SigningPolicy (transfer and anchor)
             "signer_disabled", "undecodable_transaction", "multiple_signers", "fee_payer_mismatch", "expected_fee_payer_mismatch",
             "instruction_count", "program_not_allowed", "not_a_transfer", "transfer_source_mismatch", "destination_not_allowed",
-            "amount_over_cap", "cluster_missing", "cluster_unknown", "mainnet_disabled", "cluster_mismatch",
+            "amount_over_cap", "daily_cap", "spend_ledger_unavailable", "cluster_missing", "cluster_unknown", "mainnet_disabled", "cluster_mismatch",
             "anchor_cluster_not_devnet", "memo_accounts_not_allowed", "memo_format", "memo_mismatch",
             // AttestationVerifier
             "validator_key_not_configured", "attestation_missing", "attestation_bad_signature", "attestation_unparseable",

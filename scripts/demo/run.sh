@@ -238,6 +238,7 @@ setup_local() {
   if [[ "$RPC_MODE" == "local" ]]; then
     COMPOSE+=(--profile local-validator)
     export CRYPTOBOT_SOLANA_DEVNET_RPC="http://solana-local:8899"
+    export CRYPTOBOT_SOLANA_EXPECTED_GENESIS_DEVNET=""   # KAN-602: a local validator has its own genesis
     HOST_RPC="http://127.0.0.1:${SOLANA_LOCAL_PORT:-8999}"; RPC_LABEL="local solana-test-validator (${HOST_RPC})"
   else
     HOST_RPC="$devnet"; RPC_LABEL="devnet (${HOST_RPC})"

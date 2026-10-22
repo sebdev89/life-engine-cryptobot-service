@@ -47,13 +47,16 @@ public class SignerController {
     private final SigningPolicy policy;
     private final AttestationVerifier attestations;
     private final SignerMetrics metrics;
+    private final DailySpendLedger dailyCap;
 
-    public SignerController(SignerProperties props, SignerKeyStore keys, SigningPolicy policy, AttestationVerifier attestations, SignerMetrics metrics) {
+    public SignerController(SignerProperties props, SignerKeyStore keys, SigningPolicy policy, AttestationVerifier attestations, SignerMetrics metrics,
+            DailySpendLedger dailyCap) {
         this.props = props;
         this.keys = keys;
         this.policy = policy;
         this.attestations = attestations;
         this.metrics = metrics == null ? SignerMetrics.noop() : metrics;
+        this.dailyCap = dailyCap;
     }
 
     @GetMapping("/identity")
@@ -109,6 +112,15 @@ public class SignerController {
             log.warn("signer_refused proposalId={} reason={}", req.proposalId(), a.reason(),
                     LogFields.event("sign_refused"), LogFields.status("refused"), ErrorCode.ATTESTATION_REFUSED.kv());
             return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("reason", a.reason()));
+        }
+        // KAN-602: the daily velocity cap, reserved last so that a refused request never uses budget.
+        String capRefusal = reserveDaily(v.lamports());
+        if (capRefusal != null) {
+            metrics.refused(SignerMetrics.KIND_TRANSFER, capRefusal);
+            log.warn("signer_refused proposalId={} reason={} lamports={} spent_24h={} max_per_day={}", req.proposalId(), capRefusal, v.lamports(),
+                    dailyCap.spentInWindow(), dailyCap.maxPerDay(), LogFields.event("sign_refused"), LogFields.status("refused"),
+                    ErrorCode.SIGN_REFUSED.kv());
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("reason", capRefusal));
         }
         SignResponse signed = sign(message, a.validator(), a.verdictHash());
         metrics.signed(SignerMetrics.KIND_TRANSFER);
@@ -181,6 +193,16 @@ public class SignerController {
             return java.util.HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(bytes));
         } catch (Exception e) {
             return "";
+        }
+    }
+
+    /** null = reserved; otherwise the refusal. A ledger that cannot persist refuses too: fail-closed. */
+    private String reserveDaily(long lamports) {
+        try {
+            return dailyCap.tryReserve(lamports) ? null : "daily_cap";
+        } catch (IllegalStateException ex) {
+            log.error("signer_spend_ledger_failed error={}", ex.toString());
+            return "spend_ledger_unavailable";
         }
     }
 }

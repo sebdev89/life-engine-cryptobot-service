@@ -32,6 +32,9 @@ cryptobot:
       devnet-url: http://localhost:0
       mainnet-url: http://localhost:0
       timeout: 2s
+      # KAN-602: the RPC in these tests is a stub, not devnet, so devnet's genesis check is off here (the check itself
+      # is covered by SolanaRpcClientGenesisTest). Mainnet's cannot be turned off, and no test sends to mainnet.
+      expected-genesis-devnet: ""
   # no network in tests — every price source is off and points at a closed port. With no source the
   # oracle has no consensus: the portfolio is valued from the labelled fallback and the policy DENIES. The flow
   # test enables the three sources against its own fake feed (all agreeing on SOL $100 / USDC $1).

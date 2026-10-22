@@ -43,6 +43,8 @@ public class SolanaRpcClient {
     private final CryptobotMetrics metrics;
     private final ExecutionProperties execution;
     private final AtomicLong requestIds = new AtomicLong(1);
+    /** KAN-602: a cluster whose RPC answered the expected genesis hash; failures are not kept, so they are retried. */
+    private final Map<SolanaCluster, Mono<Void>> verifiedGenesis = new java.util.concurrent.ConcurrentHashMap<>();
 
     /** Test-friendly: no metrics exported, mainnet fail-closed. */
     public SolanaRpcClient(WebClient.Builder builder, SolanaRpcProperties properties, ObjectMapper objectMapper) {
@@ -217,7 +219,7 @@ public class SolanaRpcClient {
             return Mono.error(new MainnetDisabledException("sendTransaction", cluster));
         }
         Map<String, Object> config = Map.of("encoding", "base64", "skipPreflight", false, "preflightCommitment", "confirmed");
-        return call(cluster, "sendTransaction", List.of(signedTransactionBase64, config)).map(JsonNode::asText);
+        return verifyGenesis(cluster).then(call(cluster, "sendTransaction", List.of(signedTransactionBase64, config)).map(JsonNode::asText));
     }
 
     public Mono<SignatureStatus> getSignatureStatus(SolanaCluster cluster, String signature) {
@@ -282,6 +284,31 @@ public class SolanaRpcClient {
 
     public Mono<String> requestAirdrop(SolanaCluster cluster, String address, long lamports) {
         return call(cluster, "requestAirdrop", List.of(address, lamports)).map(JsonNode::asText);
+    }
+
+    /**
+     * KAN-602: completes when the RPC configured for {@code cluster} answers the expected genesis hash (or the check
+     * is off for a devnet local validator); errors with {@code genesis_mismatch} otherwise. A match is remembered for
+     * the life of the process; an RPC failure is not, so the next send asks again.
+     */
+    public Mono<Void> verifyGenesis(SolanaCluster cluster) {
+        String expected = properties.expectedGenesisFor(cluster);
+        if (expected.isEmpty()) {
+            return Mono.empty();
+        }
+        return verifiedGenesis.computeIfAbsent(cluster, c -> call(c, "getGenesisHash", List.of())
+                .map(JsonNode::asText)
+                .flatMap(actual -> {
+                    if (expected.equals(actual)) {
+                        log.info("solana_genesis_verified cluster={} genesis={}", c.id(), actual);
+                        return Mono.<Void>empty();
+                    }
+                    log.error("solana_genesis_mismatch cluster={} expected={} actual={} url={}", c.id(), expected, actual, properties.urlFor(c));
+                    return Mono.<Void>error(new SolanaRpcException("getGenesisHash", -32099,
+                            "genesis_mismatch: the RPC for " + c.id() + " answered genesis " + actual + ", expected " + expected, null));
+                })
+                .doOnError(ex -> verifiedGenesis.remove(c))
+                .cache());
     }
 
     // ---- plumbing -----------------------------------------------------------------------------

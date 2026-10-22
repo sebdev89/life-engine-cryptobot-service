@@ -76,6 +76,7 @@ COMPOSE=(docker compose -f "${PROJECT}/docker-compose.demo.yml" --env-file "$ENV
 if [[ "$LOCAL_VALIDATOR" -eq 1 ]]; then
   COMPOSE+=(--profile local-validator)
   export CRYPTOBOT_SOLANA_DEVNET_RPC="http://solana-local:8899"
+  export CRYPTOBOT_SOLANA_EXPECTED_GENESIS_DEVNET=""   # KAN-602: a local validator has its own genesis
   HOST_RPC="http://127.0.0.1:${SOLANA_LOCAL_PORT:-8999}"
   MODE="local-validator (solana-test-validator in Docker; explorer links do not resolve)"
 else

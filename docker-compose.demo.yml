@@ -114,6 +114,8 @@ services:
       CRYPTOBOT_DB_PASSWORD: ${CRYPTOBOT_DB_PASSWORD:?}
       # Solana: devnet by default; the local-validator profile overrides the URL (same cluster label).
       CRYPTOBOT_SOLANA_DEVNET_RPC: ${CRYPTOBOT_SOLANA_DEVNET_RPC:-https://api.devnet.solana.com}
+      # KAN-602: devnet's genesis is checked before sending; the local validator (run.sh --rpc local) sets it empty.
+      CRYPTOBOT_SOLANA_EXPECTED_GENESIS_DEVNET: ${CRYPTOBOT_SOLANA_EXPECTED_GENESIS_DEVNET-EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG}
       CRYPTOBOT_SNAPSHOT_PROVIDER: deterministic-local
       # ---- the execution path, for real ----
       CRYPTOBOT_EXECUTION_ENABLED: "true"
