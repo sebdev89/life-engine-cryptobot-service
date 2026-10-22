@@ -77,7 +77,12 @@ class ValidatorClientTest {
     }
 
     static String response(String decision, String policyHash, String verdictHash, String messageHash, String cluster) {
-        String payload = "{\\\"cluster\\\":\\\"" + cluster + "\\\",\\\"decision\\\":\\\"" + decision + "\\\",\\\"message_hash\\\":\\\"" + messageHash + "\\\"}";
+        return response(decision, policyHash, verdictHash, messageHash, cluster, true);
+    }
+
+    static String response(String decision, String policyHash, String verdictHash, String messageHash, String cluster, boolean hashedTheBytes) {
+        String checks = hashedTheBytes ? "\\\"checks\\\":[\\\"message_hash_from_bytes\\\"]," : "";
+        String payload = "{" + checks + "\\\"cluster\\\":\\\"" + cluster + "\\\",\\\"decision\\\":\\\"" + decision + "\\\",\\\"message_hash\\\":\\\"" + messageHash + "\\\"}";
         return "{\"decision\":\"" + decision + "\",\"escalation\":\"REQUIRE_SECOND_AGENT\",\"tier\":\"SECOND_AGENT\",\"failedPredicates\":[],\"refusals\":[],"
                 + "\"policyVersion\":\"cryptobot-policy-v1\",\"policyHash\":\"" + policyHash + "\",\"inputHash\":\"x\",\"verdictHash\":\"" + verdictHash + "\","
                 + "\"issuedAt\":" + NOW.getEpochSecond() + ",\"expiresAt\":" + (NOW.getEpochSecond() + 90) + ","
@@ -107,6 +112,8 @@ class ValidatorClientTest {
         assertThat(body.path("policyHash").asText()).isEqualTo(verdict.policyHash());
         assertThat(body.path("expectedVerdictHash").asText()).isEqualTo(verdict.hash());
         assertThat(body.path("messageHash").asText()).isEqualTo(messageHash());
+        // KAN-600: the bytes travel too, so the validator hashes them itself
+        assertThat(body.path("transaction").asText()).isEqualTo(tx().unsignedTransactionBase64());
         // the cluster the bytes are for travels with the request and comes back attested.
         assertThat(body.path("cluster").asText()).isEqualTo("devnet");
         // The facts travel in the schema's snake_case, exactly as they were hashed.
@@ -207,5 +214,33 @@ class ValidatorClientTest {
 
     private static MockResponse json(String body) {
         return new MockResponse().setBody(body).addHeader("Content-Type", "application/json");
+    }
+
+    @Test
+    void anAttestationThatDoesNotSayTheBytesWereHashedIsRefused() throws Exception {
+        PolicyInput in = input();
+        PolicyVerdict verdict = DeterministicPolicyEngine.evaluate(RULES, in);
+        PolicyDecision decision = new PolicyDecision(true, true, List.of(), List.of(), List.of(), NOW, verdict, in);
+        // a validator that ignored the bytes (an older build) signs the claimed hash without checking it
+        server.enqueue(json(response("ESCALATE", verdict.policyHash(), verdict.hash(), messageHash(), "devnet", false)));
+
+        StepVerifier.create(client.authorize(proposal(decision), tx()))
+                .expectErrorSatisfies(ex -> assertThat(ex).hasMessageContaining("hashed the bytes itself").isInstanceOf(ValidatorClient.ValidatorRefused.class))
+                .verify();
+        server.takeRequest();
+    }
+
+    @Test
+    void withoutTransactionBytesNothingIsSentToTheValidator() {
+        PolicyInput in = input();
+        PolicyVerdict verdict = DeterministicPolicyEngine.evaluate(RULES, in);
+        String b64 = Base64.getEncoder().encodeToString(MESSAGE);
+        PreparedTransaction noBytes = new PreparedTransaction("devnet", "wallet", "vault", 1L, "bh", 1L, null, b64, "transfer");
+        int before = server.getRequestCount();
+
+        StepVerifier.create(client.authorize(UUID.randomUUID(), verdict, in, noBytes))
+                .expectErrorSatisfies(ex -> assertThat(ex).hasMessageContaining("no transaction bytes"))
+                .verify();
+        assertThat(server.getRequestCount()).isEqualTo(before);
     }
 }

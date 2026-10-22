@@ -39,6 +39,8 @@ public class ValidatorClient {
 
     private static final Logger log = LoggerFactory.getLogger(ValidatorClient.class);
     public static final String TOKEN_HEADER = "X-Validator-Token";
+    /** What the validator writes in the signed payload when it computed {@code message_hash} from the bytes (KAN-600). */
+    public static final String CHECK_HASH_FROM_BYTES = "message_hash_from_bytes";
 
     @JsonIgnoreProperties(ignoreUnknown = true)
     public record Identity(String publicKey, String policyVersion, String policyHash, boolean pinned, boolean enabled) {}
@@ -142,6 +144,9 @@ public class ValidatorClient {
         if (tx.cluster() == null || tx.cluster().isBlank()) {
             return Mono.error(new ValidatorRefused("no cluster on the prepared transaction to attest"));
         }
+        if (tx.unsignedTransactionBase64() == null || tx.unsignedTransactionBase64().isBlank()) {
+            return Mono.error(new ValidatorRefused("no transaction bytes for the validator to hash"));
+        }
         String messageHash = sha256Hex(Base64.getDecoder().decode(tx.messageBase64()));
         String cluster = tx.cluster().trim().toLowerCase(java.util.Locale.ROOT);
         Map<String, Object> body = new LinkedHashMap<>();
@@ -149,6 +154,8 @@ public class ValidatorClient {
         body.put("policyHash", verdict.policyHash());
         body.put("expectedVerdictHash", verdict.hash());
         body.put("messageHash", messageHash);
+        // KAN-600: the bytes themselves. The validator hashes them and refuses if they are not the message above.
+        body.put("transaction", tx.unsignedTransactionBase64());
         // the attestation is bound to the cluster the bytes are for; the signer checks it.
         body.put("cluster", cluster);
         Map<String, Object> facts = input.canonicalMap();
@@ -189,6 +196,11 @@ public class ValidatorClient {
         }
         if (!r.attestation().payload().contains("\"cluster\":\"" + cluster + "\"")) {
             return Mono.error(new ValidatorRefused("attestation is not for cluster " + cluster));
+        }
+        // the signed payload, not the unsigned response, must say the hash was computed from the bytes: a validator
+        // that ignored them (an older build) would otherwise attest a hash it never checked
+        if (!r.attestation().payload().contains("\"" + CHECK_HASH_FROM_BYTES + "\"")) {
+            return Mono.error(new ValidatorRefused("attestation does not say the validator hashed the bytes itself"));
         }
         return Mono.just(r);
     }

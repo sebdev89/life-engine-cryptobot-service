@@ -103,15 +103,33 @@ final class PovRewardFakes {
                 }
                 JsonNode body = JSON.readTree(request.getBody().readUtf8());
                 REQUESTS.add(body);
-                String payload = "{\"cluster\":\"" + body.path("cluster").asText() + "\",\"decision\":\"ALLOW\",\"message_hash\":\""
-                        + body.path("messageHash").asText() + "\",\"proposal_id\":\"" + body.path("proposalId").asText() + "\"}";
-                return json(200, "{\"decision\":\"ALLOW\",\"escalation\":\"NONE\",\"tier\":\"AUTONOMOUS\",\"failedPredicates\":[],\"refusals\":[],"
+                // like the real validator (KAN-600): the hash it attests is the one it computes from the bytes it was sent
+                String computed = messageHashOf(body.path("transaction").asText(""));
+                String decision = computed != null && computed.equals(body.path("messageHash").asText()) ? "ALLOW" : "DENY";
+                String payload = "{\"checks\":[\"message_hash_from_bytes\"],\"cluster\":\"" + body.path("cluster").asText() + "\",\"decision\":\"" + decision
+                        + "\",\"message_hash\":\"" + computed + "\",\"proposal_id\":\"" + body.path("proposalId").asText() + "\"}";
+                return json(200, "{\"decision\":\"" + decision + "\",\"escalation\":\"NONE\",\"tier\":\"AUTONOMOUS\",\"failedPredicates\":[],\"refusals\":[],"
                         + "\"policyVersion\":\"cryptobot-policy-v1\",\"policyHash\":\"" + body.path("policyHash").asText() + "\",\"inputHash\":\"sha256:"
                         + "c".repeat(64) + "\",\"verdictHash\":\"" + body.path("expectedVerdictHash").asText() + "\",\"issuedAt\":1,\"expiresAt\":2,"
                         + "\"attestation\":{\"payload\":" + JSON.writeValueAsString(payload) + ",\"signature\":\"sig\",\"validator\":\"validator-key\"}}");
             } catch (Exception e) {
                 return new MockResponse().setResponseCode(500);
             }
+        }
+    }
+
+    /** sha256 of the message inside an unsigned transaction (signature count, then 64 bytes per signature); null if absent. */
+    static String messageHashOf(String unsignedBase64) {
+        if (unsignedBase64.isEmpty()) {
+            return null;
+        }
+        byte[] tx = java.util.Base64.getDecoder().decode(unsignedBase64);
+        int signatures = tx[0]; // compact-u16, one byte below 128
+        byte[] message = java.util.Arrays.copyOfRange(tx, 1 + 64 * signatures, tx.length);
+        try {
+            return java.util.HexFormat.of().formatHex(java.security.MessageDigest.getInstance("SHA-256").digest(message));
+        } catch (java.security.NoSuchAlgorithmException e) {
+            throw new IllegalStateException(e);
         }
     }
 
