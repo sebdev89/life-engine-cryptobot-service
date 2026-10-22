@@ -3,6 +3,8 @@ package io.lifeengine.cryptobot.integration.validator;
 import io.lifeengine.cryptobot.observability.ErrorCode;
 import io.lifeengine.cryptobot.observability.LogFields;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import io.lifeengine.cryptobot.core.policy.PolicyDecision;
 import io.lifeengine.cryptobot.core.policy.PolicyInput;
 import io.lifeengine.cryptobot.core.policy.PolicyVerdict;
@@ -39,6 +41,9 @@ public class ValidatorClient {
 
     private static final Logger log = LoggerFactory.getLogger(ValidatorClient.class);
     public static final String TOKEN_HEADER = "X-Validator-Token";
+    /** What the validator writes in the signed payload when it computed {@code message_hash} from the bytes (KAN-600). */
+    public static final String CHECK_HASH_FROM_BYTES = "message_hash_from_bytes";
+    private static final ObjectMapper PAYLOAD_READER = new ObjectMapper();
 
     @JsonIgnoreProperties(ignoreUnknown = true)
     public record Identity(String publicKey, String policyVersion, String policyHash, boolean pinned, boolean enabled) {}
@@ -142,6 +147,9 @@ public class ValidatorClient {
         if (tx.cluster() == null || tx.cluster().isBlank()) {
             return Mono.error(new ValidatorRefused("no cluster on the prepared transaction to attest"));
         }
+        if (tx.unsignedTransactionBase64() == null || tx.unsignedTransactionBase64().isBlank()) {
+            return Mono.error(new ValidatorRefused("no transaction bytes for the validator to hash"));
+        }
         String messageHash = sha256Hex(Base64.getDecoder().decode(tx.messageBase64()));
         String cluster = tx.cluster().trim().toLowerCase(java.util.Locale.ROOT);
         Map<String, Object> body = new LinkedHashMap<>();
@@ -149,6 +157,8 @@ public class ValidatorClient {
         body.put("policyHash", verdict.policyHash());
         body.put("expectedVerdictHash", verdict.hash());
         body.put("messageHash", messageHash);
+        // KAN-600: the bytes themselves. The validator hashes them and refuses if they are not the message above.
+        body.put("transaction", tx.unsignedTransactionBase64());
         // the attestation is bound to the cluster the bytes are for; the signer checks it.
         body.put("cluster", cluster);
         Map<String, Object> facts = input.canonicalMap();
@@ -184,11 +194,34 @@ public class ValidatorClient {
         if (!recorded.hash().equals(r.verdictHash())) {
             return Mono.error(new ValidatorRefused("verdict disagreement: recorded " + recorded.hash() + ", validator derived " + r.verdictHash()));
         }
-        if (!r.attestation().payload().contains("\"message_hash\":\"" + messageHash + "\"")) {
+        // read the signed payload as JSON, field by field: a substring match could be satisfied by a value the
+        // request itself put there (a proposal id, a cluster) instead of the field it names
+        JsonNode payload;
+        try {
+            payload = PAYLOAD_READER.readTree(r.attestation().payload());
+        } catch (Exception ex) {
+            payload = null;
+        }
+        if (payload == null || !payload.isObject()) {
+            return Mono.error(new ValidatorRefused("attestation payload is not a JSON object"));
+        }
+        if (!messageHash.equals(payload.path("message_hash").asText(null))) {
             return Mono.error(new ValidatorRefused("attestation is not for these transaction bytes"));
         }
-        if (!r.attestation().payload().contains("\"cluster\":\"" + cluster + "\"")) {
+        if (!cluster.equals(payload.path("cluster").asText(null))) {
             return Mono.error(new ValidatorRefused("attestation is not for cluster " + cluster));
+        }
+        // the signed payload, not the unsigned response, must say the hash was computed from the bytes: a validator
+        // that ignored them (an older build) would otherwise attest a hash it never checked
+        JsonNode checks = payload.get("checks");
+        boolean hashed = false;
+        if (checks != null && checks.isArray()) {
+            for (JsonNode c : checks) {
+                hashed |= c.isTextual() && CHECK_HASH_FROM_BYTES.equals(c.asText());
+            }
+        }
+        if (!hashed) {
+            return Mono.error(new ValidatorRefused("attestation does not say the validator hashed the bytes itself"));
         }
         return Mono.just(r);
     }
