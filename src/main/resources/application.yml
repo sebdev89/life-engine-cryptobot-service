@@ -121,6 +121,8 @@ cryptobot:
     initial-usd: ${CRYPTOBOT_PAPER_INITIAL_USD:1000}
     fee-bps: ${CRYPTOBOT_PAPER_FEE_BPS:30}
     slippage-bps: ${CRYPTOBOT_PAPER_SLIPPAGE_BPS:20}
+    # KAN-1276: the job fires at every multiple of interval on the wall clock, plus this settle.
+    settle: ${CRYPTOBOT_PAPER_SETTLE:30s}
   # ---- Price oracle (paper §22): ≥2 independent keyless sources, median, freshness, deviation
   # bound, circuit breaker. No consensus ⇒ the portfolio view falls back to the static prices below
   # (labelled "fallback-static") and the policy DENIES every proposal: CorrectRules + CorruptState ⇏ SafeExecution.
