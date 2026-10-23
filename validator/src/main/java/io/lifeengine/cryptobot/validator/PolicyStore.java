@@ -69,10 +69,23 @@ public class PolicyStore {
                     p.maxSlippageBps(),
                     p.maxOracleAgeSeconds(),
                     p.autonomousUpToCents(),
-                    p.secondAgentUpToCents());
+                    p.secondAgentUpToCents(),
+                    pilotSwap(p));
         } catch (IllegalArgumentException e) {
             throw new IllegalStateException("validator policy does not load: " + e.getMessage(), e);
         }
+    }
+
+    /** KAN-1249: all three pilot limits or none; half a pilot does not load. */
+    private static PolicyRules.PilotSwap pilotSwap(ValidatorProperties.Policy p) {
+        int set = (p.pilotSwapMaxLamportsIn() == null ? 0 : 1) + (p.pilotSwapMaxUsdcIn() == null ? 0 : 1) + (p.pilotSwapMaxSlippageBps() == null ? 0 : 1);
+        if (set == 0) {
+            return null;
+        }
+        if (set != 3) {
+            throw new IllegalStateException("validator policy does not load: validator.policy.pilot-swap-* must all be set or none");
+        }
+        return new PolicyRules.PilotSwap(p.pilotSwapMaxLamportsIn(), p.pilotSwapMaxUsdcIn(), p.pilotSwapMaxSlippageBps());
     }
 
     private static void require(String field, Object value) {

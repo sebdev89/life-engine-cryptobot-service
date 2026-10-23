@@ -24,8 +24,19 @@ public record AuthorizationProperties(
         Integer maxSlippageBps,
         Integer executorSlippageBps,
         Duration maxOracleAge,
-        List<String> enabledStrategies) {
+        List<String> enabledStrategies,
+        Long pilotSwapMaxLamportsIn,
+        Long pilotSwapMaxUsdcIn,
+        Integer pilotSwapMaxSlippageBps) {
 
+    /** The shape before the pilot: no {@code pilot_swap} section, so {@code H_R} is what it was. */
+    public AuthorizationProperties(String version, BigDecimal autonomousUpToUsd, BigDecimal secondAgentUpToUsd, BigDecimal dailyLimitUsd,
+            Integer maxAssetExposureBps, Integer maxSlippageBps, Integer executorSlippageBps, Duration maxOracleAge, List<String> enabledStrategies) {
+        this(version, autonomousUpToUsd, secondAgentUpToUsd, dailyLimitUsd, maxAssetExposureBps, maxSlippageBps, executorSlippageBps, maxOracleAge,
+                enabledStrategies, null, null, null);
+    }
+
+    @org.springframework.boot.context.properties.bind.ConstructorBinding
     public AuthorizationProperties {
         version = version == null || version.isBlank() ? "cryptobot-policy-v1" : version.trim();
         autonomousUpToUsd = autonomousUpToUsd == null ? new BigDecimal("100") : autonomousUpToUsd;
@@ -50,7 +61,20 @@ public record AuthorizationProperties(
                 maxSlippageBps,
                 maxOracleAge.toSeconds(),
                 cents(autonomousUpToUsd),
-                cents(secondAgentUpToUsd));
+                cents(secondAgentUpToUsd),
+                pilotSwap());
+    }
+
+    /** KAN-1249: all three pilot limits, or none (then no {@code pilot_swap} in the policy). Half a pilot does not start. */
+    PolicyRules.PilotSwap pilotSwap() {
+        int set = (pilotSwapMaxLamportsIn == null ? 0 : 1) + (pilotSwapMaxUsdcIn == null ? 0 : 1) + (pilotSwapMaxSlippageBps == null ? 0 : 1);
+        if (set == 0) {
+            return null;
+        }
+        if (set != 3) {
+            throw new IllegalStateException("cryptobot.authorization.pilot-swap-*: set all three limits or none");
+        }
+        return new PolicyRules.PilotSwap(pilotSwapMaxLamportsIn, pilotSwapMaxUsdcIn, pilotSwapMaxSlippageBps);
     }
 
     /** USD limit → cents, rounding <em>down</em>: quantization never widens a limit. */

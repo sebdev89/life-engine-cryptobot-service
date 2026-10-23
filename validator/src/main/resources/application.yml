@@ -40,6 +40,11 @@ validator:
     max-oracle-age-seconds: ${VALIDATOR_POLICY_MAX_ORACLE_AGE_SECONDS:900}
     autonomous-up-to-cents: ${VALIDATOR_POLICY_AUTONOMOUS_UP_TO_CENTS:10000}
     second-agent-up-to-cents: ${VALIDATOR_POLICY_SECOND_AGENT_UP_TO_CENTS:25000}
+    # KAN-1249 pilot: PILOT_SWAP's per-swap limits (lamports, USDC base units, bps). All three or none; set ⇒ the
+    # policy gains a `pilot_swap` section and a new hash (the service's CRYPTOBOT_POLICY_PILOT_SWAP_* must match).
+    pilot-swap-max-lamports-in: ${VALIDATOR_POLICY_PILOT_SWAP_MAX_LAMPORTS_IN:}
+    pilot-swap-max-usdc-in: ${VALIDATOR_POLICY_PILOT_SWAP_MAX_USDC_IN:}
+    pilot-swap-max-slippage-bps: ${VALIDATOR_POLICY_PILOT_SWAP_MAX_SLIPPAGE_BPS:}
     # H_R the operator approved. Empty ⇒ starts with a WARN that prints the hash to pin.
     # Set ⇒ the process refuses to start if the policy above hashes to anything else.
     expected-hash: ${VALIDATOR_POLICY_HASH:}

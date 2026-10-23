@@ -39,10 +39,22 @@ public record ValidatorProperties(
             Long maxOracleAgeSeconds,
             Long autonomousUpToCents,
             Long secondAgentUpToCents,
-            String expectedHash) {
+            String expectedHash,
+            Long pilotSwapMaxLamportsIn,
+            Long pilotSwapMaxUsdcIn,
+            Integer pilotSwapMaxSlippageBps) {
 
+        @org.springframework.boot.context.properties.bind.ConstructorBinding
         public Policy {
             expectedHash = expectedHash == null ? "" : expectedHash.trim();
+        }
+
+        /** Without the pilot (KAN-1249): no {@code pilot_swap} section, the hash it always had. */
+        public Policy(String version, List<String> allowedAssets, List<String> enabledStrategies, Long maxTradeValueCents, Long dailyLimitCents,
+                Integer maxAssetExposureBps, Integer maxSlippageBps, Long maxOracleAgeSeconds, Long autonomousUpToCents, Long secondAgentUpToCents,
+                String expectedHash) {
+            this(version, allowedAssets, enabledStrategies, maxTradeValueCents, dailyLimitCents, maxAssetExposureBps, maxSlippageBps,
+                    maxOracleAgeSeconds, autonomousUpToCents, secondAgentUpToCents, expectedHash, null, null, null);
         }
     }
 }

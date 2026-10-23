@@ -21,6 +21,10 @@ import java.util.TreeSet;
  * → ESCALATE(REQUIRE_SECOND_AGENT) · {@code ≤ max_trade_value} → ESCALATE(REQUIRE_HUMAN_SIGNATURE)
  * · above → DENY. The constructor refuses a policy whose tiers are not monotonic: a policy that
  * cannot be loaded must not exist (§17).
+ *
+ * <p>Pilot (KAN-1249): {@code pilot_swap} — the per-swap limits of strategy {@code PILOT_SWAP}, in token base units
+ * (lamports, USDC units) and bps. Optional: absent, the canonical JSON and therefore {@code H_R} are exactly what they
+ * were, so a deployment without the pilot keeps its hash; present, it is part of the policy text and changes it.
  */
 public record PolicyRules(
         String version,
@@ -32,7 +36,35 @@ public record PolicyRules(
         int maxSlippageBps,
         long maxOracleAgeSeconds,
         long autonomousUpToCents,
-        long secondAgentUpToCents) {
+        long secondAgentUpToCents,
+        PilotSwap pilotSwap) {
+
+    /** {@code PILOT_SWAP}'s limits per swap: input caps per mint and the largest slippage a swap may carry. */
+    public record PilotSwap(long maxLamportsIn, long maxUsdcIn, int maxSlippageBps) {
+        public PilotSwap {
+            if (maxLamportsIn <= 0 || maxUsdcIn <= 0) {
+                throw new IllegalArgumentException("pilot_swap: max_lamports_in and max_usdc_in must be > 0");
+            }
+            if (maxSlippageBps < 0 || maxSlippageBps > 10_000) {
+                throw new IllegalArgumentException("pilot_swap: max_slippage_bps must be within 0..10000");
+            }
+        }
+
+        Map<String, Object> canonicalMap() {
+            Map<String, Object> m = new LinkedHashMap<>();
+            m.put("max_lamports_in", maxLamportsIn);
+            m.put("max_usdc_in", maxUsdcIn);
+            m.put("max_slippage_bps", maxSlippageBps);
+            return m;
+        }
+    }
+
+    /** The policy without the pilot (the shape before KAN-1249; its hash is unchanged). */
+    public PolicyRules(String version, List<String> allowedAssets, List<String> enabledStrategies, long maxTradeValueCents, long dailyLimitCents,
+            int maxAssetExposureBps, int maxSlippageBps, long maxOracleAgeSeconds, long autonomousUpToCents, long secondAgentUpToCents) {
+        this(version, allowedAssets, enabledStrategies, maxTradeValueCents, dailyLimitCents, maxAssetExposureBps, maxSlippageBps, maxOracleAgeSeconds,
+                autonomousUpToCents, secondAgentUpToCents, null);
+    }
 
     public static final String SCHEMA_VERSION = "1";
     public static final int MAX_BPS = 10_000;
@@ -54,6 +86,9 @@ public record PolicyRules(
         if (secondAgentUpToCents > maxTradeValueCents) {
             throw new IllegalArgumentException("second_agent_up_to_cents (" + secondAgentUpToCents + ") exceeds max_trade_value_cents (" + maxTradeValueCents + ")");
         }
+        if (pilotSwap != null && pilotSwap.maxSlippageBps() > maxSlippageBps) {
+            throw new IllegalArgumentException("pilot_swap.max_slippage_bps (" + pilotSwap.maxSlippageBps() + ") exceeds max_slippage_bps (" + maxSlippageBps + ")");
+        }
     }
 
     /** The value tree that is hashed. Field order is irrelevant: the canonicalizer sorts. */
@@ -70,6 +105,9 @@ public record PolicyRules(
         m.put("max_oracle_age_seconds", maxOracleAgeSeconds);
         m.put("autonomous_up_to_cents", autonomousUpToCents);
         m.put("second_agent_up_to_cents", secondAgentUpToCents);
+        if (pilotSwap != null) {
+            m.put("pilot_swap", pilotSwap.canonicalMap());
+        }
         return m;
     }
 
