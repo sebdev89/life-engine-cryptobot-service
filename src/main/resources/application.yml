@@ -99,6 +99,10 @@ cryptobot:
       expected-genesis-devnet: ${CRYPTOBOT_SOLANA_EXPECTED_GENESIS_DEVNET:EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG}
       expected-genesis-mainnet: ${CRYPTOBOT_SOLANA_EXPECTED_GENESIS_MAINNET:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdpKuc147dw2N9d}
       timeout: ${CRYPTOBOT_SOLANA_RPC_TIMEOUT:8s}
+      # KAN-1304 (Alpenglow): commitment per cluster — auto (asks getAgGenesisCert: finalized once the cluster runs
+      # Alpenglow, confirmed before), confirmed or finalized. "confirmed" is deprecated under Alpenglow.
+      commitment-devnet: ${CRYPTOBOT_SOLANA_COMMITMENT_DEVNET:auto}
+      commitment-mainnet: ${CRYPTOBOT_SOLANA_COMMITMENT_MAINNET:auto}
   # ---- Backtests (KAN-1216, v2): public SOL/USD candles from Coinbase Exchange, keyless, read-only.
   backtest:
     history-base-url: ${CRYPTOBOT_BACKTEST_HISTORY_BASE_URL:https://api.exchange.coinbase.com}

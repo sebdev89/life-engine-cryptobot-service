@@ -7,6 +7,7 @@ import io.lifeengine.cryptobot.observability.ErrorCode;
 import io.lifeengine.cryptobot.observability.LogFields;
 import java.math.BigDecimal;
 import java.math.BigInteger;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -45,6 +46,10 @@ public class SolanaRpcClient {
     private final AtomicLong requestIds = new AtomicLong(1);
     /** KAN-602: a cluster whose RPC answered the expected genesis hash; failures are not kept, so they are retried. */
     private final Map<SolanaCluster, Mono<Void>> verifiedGenesis = new java.util.concurrent.ConcurrentHashMap<>();
+    /** KAN-1304: the detected commitment per cluster (see {@link #commitmentFor}). */
+    private final Map<SolanaCluster, Mono<String>> detectedCommitment = new java.util.concurrent.ConcurrentHashMap<>();
+    /** How long a "not Alpenglow yet" answer is trusted before the cluster is asked again. */
+    static final Duration RECHECK_BEFORE_ALPENGLOW = Duration.ofMinutes(10);
 
     /** Test-friendly: no metrics exported, mainnet fail-closed. */
     public SolanaRpcClient(WebClient.Builder builder, SolanaRpcProperties properties, ObjectMapper objectMapper) {
@@ -103,7 +108,7 @@ public class SolanaRpcClient {
     // ---- reads --------------------------------------------------------------------------------
 
     public Mono<Long> getBalanceLamports(SolanaCluster cluster, String address) {
-        return call(cluster, "getBalance", List.of(address, Map.of("commitment", "confirmed")))
+        return commitmentFor(cluster).flatMap(commitment -> call(cluster, "getBalance", List.of(address, Map.of("commitment", commitment))))
                 .map(result -> result.path("value").asLong());
     }
 
@@ -117,8 +122,8 @@ public class SolanaRpcClient {
 
     private Flux<TokenAccountBalance> tokenAccounts(SolanaCluster cluster, String address, String programId) {
         Map<String, Object> filter = Map.of("programId", programId);
-        Map<String, Object> config = Map.of("encoding", "jsonParsed", "commitment", "confirmed");
-        return call(cluster, "getTokenAccountsByOwner", List.of(address, filter, config))
+        return commitmentFor(cluster)
+                .flatMap(commitment -> call(cluster, "getTokenAccountsByOwner", List.of(address, filter, Map.of("encoding", "jsonParsed", "commitment", commitment))))
                 .flatMapMany(
                         result -> {
                             List<TokenAccountBalance> out = new ArrayList<>();
@@ -143,7 +148,8 @@ public class SolanaRpcClient {
 
     public Mono<List<SignatureInfo>> getSignaturesForAddress(SolanaCluster cluster, String address, int limit) {
         int capped = Math.max(1, Math.min(limit, 50));
-        return call(cluster, "getSignaturesForAddress", List.of(address, Map.of("limit", capped, "commitment", "confirmed")))
+        return commitmentFor(cluster)
+                .flatMap(commitment -> call(cluster, "getSignaturesForAddress", List.of(address, Map.of("limit", capped, "commitment", commitment))))
                 .map(
                         result -> {
                             List<SignatureInfo> out = new ArrayList<>();
@@ -167,7 +173,7 @@ public class SolanaRpcClient {
      * signature without retrying it.
      */
     public Mono<Long> getBlockHeight(SolanaCluster cluster) {
-        return call(cluster, "getBlockHeight", List.of(Map.of("commitment", "confirmed"))).map(JsonNode::asLong);
+        return commitmentFor(cluster).flatMap(commitment -> call(cluster, "getBlockHeight", List.of(Map.of("commitment", commitment)))).map(JsonNode::asLong);
     }
 
     public Mono<LatestBlockhash> getLatestBlockhash(SolanaCluster cluster) {
@@ -189,8 +195,11 @@ public class SolanaRpcClient {
         config.put("encoding", "base64");
         config.put("sigVerify", sigVerify);
         config.put("replaceRecentBlockhash", !sigVerify);
-        config.put("commitment", "confirmed");
-        return call(cluster, "simulateTransaction", List.of(transactionBase64, config))
+        return commitmentFor(cluster)
+                .flatMap(commitment -> {
+                    config.put("commitment", commitment);
+                    return call(cluster, "simulateTransaction", List.of(transactionBase64, config));
+                })
                 .map(
                         result -> {
                             JsonNode value = result.path("value");
@@ -218,8 +227,11 @@ public class SolanaRpcClient {
             log.warn("solana_mainnet_disabled method=sendTransaction cluster={}", cluster.id());
             return Mono.error(new MainnetDisabledException("sendTransaction", cluster));
         }
-        Map<String, Object> config = Map.of("encoding", "base64", "skipPreflight", false, "preflightCommitment", "confirmed");
-        return verifyGenesis(cluster).then(call(cluster, "sendTransaction", List.of(signedTransactionBase64, config)).map(JsonNode::asText));
+        return verifyGenesis(cluster)
+                .then(commitmentFor(cluster))
+                .flatMap(commitment -> call(cluster, "sendTransaction", List.of(signedTransactionBase64,
+                        Map.of("encoding", "base64", "skipPreflight", false, "preflightCommitment", commitment))))
+                .map(JsonNode::asText);
     }
 
     public Mono<SignatureStatus> getSignatureStatus(SolanaCluster cluster, String signature) {
@@ -309,6 +321,35 @@ public class SolanaRpcClient {
                 })
                 .doOnError(ex -> verifiedGenesis.remove(c))
                 .cache());
+    }
+
+    /**
+     * KAN-1304: the commitment to ask {@code cluster} for. A fixed setting is used as is. {@code auto} asks the
+     * cluster's own RPC for {@code getAgGenesisCert}: a certificate means Alpenglow is running there — confirmed and
+     * finalized have converged and {@code confirmed} is on its way out — so {@code finalized}, remembered for the life
+     * of the process (a cluster does not go back). {@code null} (still TowerBFT, where finalized costs ~12.8 s) or
+     * "method not found" (-32601, a node older than Agave 4.3) means {@code confirmed}, asked again after
+     * {@link #RECHECK_BEFORE_ALPENGLOW}. If the question itself fails, {@code confirmed} for this call (it still
+     * works today) and the next call asks again.
+     */
+    public Mono<String> commitmentFor(SolanaCluster cluster) {
+        String setting = properties.commitmentSettingFor(cluster);
+        if (!SolanaRpcProperties.AUTO.equals(setting)) {
+            return Mono.just(setting);
+        }
+        return detectedCommitment.computeIfAbsent(cluster, c -> detectCommitment(c)
+                        .cache(v -> SolanaRpcProperties.FINALIZED.equals(v) ? Duration.ofDays(36_500) : RECHECK_BEFORE_ALPENGLOW,
+                                ex -> Duration.ZERO, () -> Duration.ZERO))
+                .onErrorResume(ex -> Mono.just(SolanaRpcProperties.CONFIRMED));
+    }
+
+    private Mono<String> detectCommitment(SolanaCluster cluster) {
+        return call(cluster, "getAgGenesisCert", List.of())
+                .map(cert -> cert.isNull() || cert.isMissingNode() ? SolanaRpcProperties.CONFIRMED : SolanaRpcProperties.FINALIZED)
+                .onErrorResume(SolanaRpcException.class, ex -> ex.getCause() == null && ex.code() == -32601
+                        ? Mono.just(SolanaRpcProperties.CONFIRMED) : Mono.error(ex))
+                .doOnNext(commitment -> log.info("solana_commitment cluster={} alpenglow={} commitment={}", cluster.id(),
+                        SolanaRpcProperties.FINALIZED.equals(commitment), commitment));
     }
 
     // ---- plumbing -----------------------------------------------------------------------------
