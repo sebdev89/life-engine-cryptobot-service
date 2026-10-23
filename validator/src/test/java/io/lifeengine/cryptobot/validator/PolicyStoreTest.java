@@ -55,4 +55,42 @@ class PolicyStoreTest {
         assertThatThrownBy(() -> new PolicyStore(props(broken)))
                 .isInstanceOf(IllegalStateException.class).hasMessageContaining("autonomous_up_to_cents");
     }
+
+    // ---- KAN-1249 pilot: pilot_swap in the policy ----------------------------------------------------
+
+    static ValidatorProperties.Policy pilot(Long lamports, Long usdc, Integer slippage) {
+        return new ValidatorProperties.Policy("cryptobot-policy-v1", List.of("SOL", "USDC", "USDT"), List.of("REBALANCE", "PILOT_SWAP"),
+                50_000L, 250_000L, 8_000, 100, 900L, 10_000L, 25_000L, "", lamports, usdc, slippage);
+    }
+
+    @Test
+    void thePilotPolicyIsTheExactTextTheServicePins() {
+        // the same string as the service's DefaultPolicyHashParityTest.PILOT_CANONICAL: drift on either side fails one of them
+        assertThat(new PolicyStore(props(pilot(100_000_000L, 10_000_000L, 100))).rules().canonicalJson()).isEqualTo(
+                "{\"allowed_assets\":[\"SOL\",\"USDC\",\"USDT\"],\"autonomous_up_to_cents\":10000,\"daily_limit_cents\":250000,"
+                        + "\"enabled_strategies\":[\"PILOT_SWAP\",\"REBALANCE\"],\"max_asset_exposure_bps\":8000,\"max_oracle_age_seconds\":900,"
+                        + "\"max_slippage_bps\":100,\"max_trade_value_cents\":50000,\"pilot_swap\":{\"max_lamports_in\":100000000,"
+                        + "\"max_slippage_bps\":100,\"max_usdc_in\":10000000},\"schema_version\":\"1\",\"second_agent_up_to_cents\":25000,"
+                        + "\"version\":\"cryptobot-policy-v1\"}");
+    }
+
+    @Test
+    void halfAPilotDoesNotLoad() {
+        assertThatThrownBy(() -> new PolicyStore(props(pilot(100_000_000L, 10_000_000L, null))))
+                .isInstanceOf(IllegalStateException.class).hasMessageContaining("pilot-swap");
+        assertThatThrownBy(() -> new PolicyStore(props(pilot(null, 10_000_000L, 100))))
+                .isInstanceOf(IllegalStateException.class).hasMessageContaining("pilot-swap");
+        assertThatThrownBy(() -> new PolicyStore(props(pilot(100_000_000L, null, null))))
+                .isInstanceOf(IllegalStateException.class).hasMessageContaining("pilot-swap");
+    }
+
+    @Test
+    void aPilotLooserThanThePolicyOrWithNonPositiveCapsDoesNotLoad() {
+        assertThatThrownBy(() -> new PolicyStore(props(pilot(100_000_000L, 10_000_000L, 101))))
+                .isInstanceOf(IllegalStateException.class).hasMessageContaining("pilot_swap.max_slippage_bps");
+        assertThatThrownBy(() -> new PolicyStore(props(pilot(0L, 10_000_000L, 100)))).isInstanceOf(IllegalStateException.class);
+        assertThatThrownBy(() -> new PolicyStore(props(pilot(100_000_000L, -1L, 100)))).isInstanceOf(IllegalStateException.class);
+        // exactly the general slippage is fine
+        assertThat(new PolicyStore(props(pilot(100_000_000L, 10_000_000L, 100))).rules().pilotSwap().maxSlippageBps()).isEqualTo(100);
+    }
 }

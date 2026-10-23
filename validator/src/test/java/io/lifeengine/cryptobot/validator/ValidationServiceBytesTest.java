@@ -195,6 +195,72 @@ class ValidationServiceBytesTest {
         assertThat(pilot().validate(request(null, jupiterTx(), atCap)).refusals()).doesNotContain(ValidationService.REFUSAL_PILOT_SWAP_LIMITS);
     }
 
+    static byte[] usdcToSolTx() {
+        try (InputStream in = ValidationServiceBytesTest.class.getResourceAsStream("/jupiter/swap-usdc-sol-route.json")) {
+            return Base64.getDecoder().decode(JSON.readTree(in).path("swapTransaction").asText());
+        } catch (Exception ex) {
+            throw new IllegalStateException(ex);
+        }
+    }
+
+    /** A USDC → SOL swap intent for {@code inAmount} USDC base units. */
+    static Map<String, Object> usdcSwap(long inAmount) {
+        Map<String, Object> s = swap();
+        s.put("input_mint", USDC);
+        s.put("output_mint", SOL);
+        s.put("in_amount", inAmount);
+        s.put("min_out_amount", 1L);
+        return s;
+    }
+
+    static java.util.List<String> refusals(Map<String, Object> swap, byte[] tx) {
+        return pilot().validate(request(null, tx, swap)).refusals();
+    }
+
+    @Test
+    void eachMintHasItsOwnCapAndTheCapItselfIsAllowed() {
+        // the caps differ on purpose (0.1 SOL = 100 000 000 lamports, 10 USDC = 10 000 000 units): a crossed mint would show
+        Map<String, Object> solAtCap = swap();
+        solAtCap.put("in_amount", 100_000_000L);
+        assertThat(refusals(solAtCap, jupiterTx())).doesNotContain(ValidationService.REFUSAL_PILOT_SWAP_LIMITS);
+        Map<String, Object> solOver = swap();
+        solOver.put("in_amount", 100_000_001L);
+        assertThat(refusals(solOver, jupiterTx())).contains(ValidationService.REFUSAL_PILOT_SWAP_LIMITS);
+        // USDC is held to the USDC cap, not the (ten times larger) lamports one
+        assertThat(refusals(usdcSwap(10_000_000L), usdcToSolTx())).doesNotContain(ValidationService.REFUSAL_PILOT_SWAP_LIMITS);
+        assertThat(refusals(usdcSwap(10_000_001L), usdcToSolTx())).contains(ValidationService.REFUSAL_PILOT_SWAP_LIMITS);
+        assertThat(refusals(usdcSwap(99_999_999L), usdcToSolTx())).contains(ValidationService.REFUSAL_PILOT_SWAP_LIMITS);
+    }
+
+    @Test
+    void aRealUsdcToSolSwapWithinThePilotIsAttested() {
+        Map<String, Object> s = usdcSwap(1_000_000L);
+        s.put("min_out_amount", 9_540_000L);
+        ValidationService.Response r = pilot().validate(request(null, usdcToSolTx(), s));
+        assertThat(r.refusals()).isEmpty();
+        assertThat(r.swapViolations()).isEmpty();
+        assertThat(r.decision()).isNotEqualTo("DENY");
+    }
+
+    @Test
+    void anotherStrategyWithoutASwapIsUntouchedByThePilot() {
+        // POV_REWARD (enabled next to the pilot): no swap, not PILOT_SWAP ⇒ no swap refusal of any kind
+        ValidatorProperties base = pilotProps();
+        ValidatorProperties.Policy p = base.policy();
+        ValidatorProperties withPov = new ValidatorProperties(base.token(), base.keypairPath(), base.keypairJson(), base.attestationTtl(), true,
+                new ValidatorProperties.Policy(p.version(), p.allowedAssets(), List.of("REBALANCE", "PILOT_SWAP", "POV_REWARD"), p.maxTradeValueCents(),
+                        p.dailyLimitCents(), p.maxAssetExposureBps(), p.maxSlippageBps(), p.maxOracleAgeSeconds(), p.autonomousUpToCents(),
+                        p.secondAgentUpToCents(), "", 100_000_000L, 10_000_000L, 100));
+        ValidationService svc = new ValidationService(withPov, new PolicyStore(withPov), new AttestationKeyStore(withPov),
+                java.time.Clock.fixed(ValidationServiceTest.NOW, java.time.ZoneOffset.UTC));
+        Map<String, Object> intent = new HashMap<>(ValidationServiceTest.intent());
+        intent.put("strategy_id", "POV_REWARD");
+        ValidationService.Response r = svc.validate(new ValidationService.Request("prop-1", new PolicyStore(withPov).hash(), null, null, intent,
+                ValidationServiceTest.state(), "devnet", b64(jupiterTx()), null));
+        assertThat(r.refusals()).doesNotContain(ValidationService.REFUSAL_SWAP_STRATEGY, ValidationService.REFUSAL_PILOT_SWAP_LIMITS,
+                ValidationService.REFUSAL_PILOT_SWAP_NOT_CONFIGURED, ValidationService.REFUSAL_SWAP_RULES);
+    }
+
     @Test
     void withoutAPilotSectionNoSwapIsEverAttestedAllowed() {
         // the default policy (no pilot_swap): even the strategy right and the bytes fine, a swap is refused
