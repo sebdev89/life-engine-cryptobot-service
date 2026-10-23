@@ -45,6 +45,8 @@ public class JupiterSwapClient {
                         .queryParam("amount", amount)
                         .queryParam("slippageBps", slippageBps)
                         .queryParam("swapMode", "ExactIn")
+                        // legacy: no address lookup tables, every account in the bytes (the signer refuses anything else)
+                        .queryParam("asLegacyTransaction", true)
                         .build())
                 .retrieve()
                 .bodyToMono(String.class)
@@ -58,6 +60,7 @@ public class JupiterSwapClient {
         body.put("userPublicKey", ownerPublicKey);
         body.put("wrapAndUnwrapSol", true);
         body.put("dynamicComputeUnitLimit", true);
+        body.put("asLegacyTransaction", true);
         return webClient
                 .post()
                 .uri("/swap/v1/swap")

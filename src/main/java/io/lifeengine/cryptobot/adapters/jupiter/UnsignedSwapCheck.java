@@ -11,11 +11,13 @@ import java.util.Set;
  * is a third party and its bytes are not trusted.
  *
  * <ul>
- *   <li>a v0 message with exactly one required signature, and that slot still empty (we never receive anything
- *       already signed);
+ *   <li>a <b>legacy</b> message (Jupiter's {@code asLegacyTransaction=true}) with exactly one required signature, and
+ *       that slot still empty (we never receive anything already signed). A v0 message — the only kind that can load
+ *       accounts from address lookup tables — is refused: the signer refuses it too, and nothing downstream assumes
+ *       an account it cannot read in the bytes;
  *   <li>the fee payer — the one signer — is the owner we asked for;
  *   <li>every instruction calls a program on {@link #ALLOWED_PROGRAMS} (Jupiter v6, compute budget, system, SPL
- *       token / token-2022, associated token account), named among the static keys, never through a lookup table.
+ *       token / token-2022, associated token account).
  * </ul>
  *
  * <p>Not checked here: the accounts and data of each instruction (for example, that a system transfer only wraps
@@ -34,7 +36,7 @@ public final class UnsignedSwapCheck {
             "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL");
 
     /** What the check read out of the message. */
-    public record Checked(String feePayer, List<String> programs, int lookupTables) {}
+    public record Checked(String feePayer, List<String> programs) {}
 
     private UnsignedSwapCheck() {}
 
@@ -64,10 +66,9 @@ public final class UnsignedSwapCheck {
             }
         }
         at[0] += 64;
-        if ((tx[at[0]] & 0xff) != 0x80) {
-            throw new SwapRejectedException("unexpected_version", "not a v0 message");
+        if ((tx[at[0]] & 0x80) != 0) {
+            throw new SwapRejectedException("unexpected_version", "a versioned message (lookup tables) is not signable; ask Jupiter for a legacy one");
         }
-        at[0]++;
         int requiredSignatures = tx[at[0]] & 0xff;
         at[0] += 3;
         if (requiredSignatures != 1) {
@@ -88,7 +89,7 @@ public final class UnsignedSwapCheck {
         for (int i = 0; i < instructions; i++) {
             int programIndex = tx[at[0]++] & 0xff;
             if (programIndex >= keyCount) {
-                throw new SwapRejectedException("program_not_allowed", "instruction " + i + " names its program through a lookup table");
+                throw new SwapRejectedException("malformed_transaction", "instruction " + i + " names a program outside the account keys");
             }
             String program = keys.get(programIndex);
             if (!ALLOWED_PROGRAMS.contains(program)) {
@@ -100,11 +101,13 @@ public final class UnsignedSwapCheck {
             int data = compactU16(tx, at);
             at[0] += data;
         }
-        int lookupTables = compactU16(tx, at);
+        if (at[0] != tx.length) {
+            throw new SwapRejectedException("malformed_transaction", "trailing bytes after the message");
+        }
         if (!programs.contains(JUPITER_V6)) {
             throw new SwapRejectedException("program_not_allowed", "no Jupiter instruction in the transaction");
         }
-        return new Checked(keys.get(0), List.copyOf(programs), lookupTables);
+        return new Checked(keys.get(0), List.copyOf(programs));
     }
 
     private static int compactU16(byte[] b, int[] at) {

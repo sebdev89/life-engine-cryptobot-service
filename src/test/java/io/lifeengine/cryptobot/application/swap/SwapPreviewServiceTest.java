@@ -33,7 +33,8 @@ class SwapPreviewServiceTest {
 
     static final String SOL = "So11111111111111111111111111111111111111112";
     static final String USDC = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
-    static final String OWNER = "5EKgeuMhPB7BUMnpnUof4bwutSdwP3nCokfJSAKQGRLa";
+    /** Binance's public Solana hot wallet: the fixtures were built for it (legacy, never signed). */
+    static final String OWNER = "5tzFkiKscXHK5ZXCGbXZxdw7gTjjD1mBwuoFbhUvuAi9";
 
     private MockWebServer jupiter;
     private MockWebServer mainnet;
@@ -102,12 +103,13 @@ class SwapPreviewServiceTest {
     void aPreviewQuotesBuildsChecksAndOnlySimulates() {
         StepVerifier.create(service().preview(SOL, USDC, 10_000_000L, 50, OWNER))
                 .assertNext(p -> {
-                    assertThat(p.quote().outAmount()).isEqualTo(1_048_065L);
-                    assertThat(p.quote().minOutAmount()).isEqualTo(1_042_825L);
+                    assertThat(p.quote().outAmount()).isEqualTo(1_032_158L);
+                    assertThat(p.quote().minOutAmount()).isEqualTo(1_026_998L);
                     assertThat(p.quote().routeLabels()).isNotEmpty();
                     assertThat(p.checked().feePayer()).isEqualTo(OWNER);
                     // Jupiter's own pre-simulation of the unfunded fixture address failed; surfaced, not trusted
-                    assertThat(p.swap().jupiterSimulationError()).contains("no record of a prior credit");
+                    // a funded owner: Jupiter's own pre-simulation found nothing (it is surfaced, never trusted)
+                    assertThat(p.swap().jupiterSimulationError()).isNull();
                     assertThat(p.simulation().ok()).isTrue();
                     assertThat(p.simulation().unitsConsumed()).isEqualTo(182_311L);
                 })
@@ -117,7 +119,8 @@ class SwapPreviewServiceTest {
         assertThat(mainnetBodies.get(0)).contains("\"sigVerify\":false").contains("\"replaceRecentBlockhash\":true");
         assertThat(devnet.getRequestCount()).isZero();
         assertThat(jupiterCalls).hasSize(2);
-        assertThat(jupiterCalls.get(0)).startsWith("GET /swap/v1/quote?inputMint=" + SOL).contains("amount=10000000").contains("slippageBps=50");
+        assertThat(jupiterCalls.get(0)).startsWith("GET /swap/v1/quote?inputMint=" + SOL).contains("amount=10000000").contains("slippageBps=50")
+                .contains("asLegacyTransaction=true");
         assertThat(jupiterCalls.get(1)).isEqualTo("POST /swap/v1/swap");
     }
 
