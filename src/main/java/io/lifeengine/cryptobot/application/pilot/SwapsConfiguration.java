@@ -42,4 +42,9 @@ public class SwapsConfiguration {
                 .onErrorResume(ex -> Mono.just(Optional.empty()));
         return new SwapExecutor(props, repo, orders, jupiter, rpc, validator, signer, policy, sol, meters, Clock.systemUTC());
     }
+
+    @Bean
+    SwapReconcileJob swapReconcileJob(SwapsProperties props, SwapOrderRepository repo, SwapExecutor executor) {
+        return new SwapReconcileJob(props, repo, executor);
+    }
 }

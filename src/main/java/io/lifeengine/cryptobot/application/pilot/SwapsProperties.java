@@ -19,6 +19,7 @@ import org.springframework.boot.context.properties.bind.ConstructorBinding;
  * @param confirmTimeout how long the executor waits for {@code confirmed} after the broadcast before it leaves the order
  *     UNKNOWN_SENT for reconciliation (default 30 s)
  * @param confirmPollInterval how often it asks meanwhile (default 1.5 s)
+ * @param reconcileInterval how often {@link SwapReconcileJob} settles in-flight orders (default 1 min; only while enabled)
  */
 @ConfigurationProperties(prefix = "cryptobot.swaps")
 public record SwapsProperties(
@@ -34,13 +35,22 @@ public record SwapsProperties(
         Long maxPriorityFeeLamports,
         Integer createsPerHour,
         Duration confirmTimeout,
-        Duration confirmPollInterval) {
+        Duration confirmPollInterval,
+        Duration reconcileInterval) {
 
     /** The shape before execution (b2a). */
     public SwapsProperties(Boolean enabled, UUID approverUserId, String approverTenant, Duration approvalTtl, Duration approvalIatMaxAge, String cluster,
             Long maxLamportsIn, Long maxUsdcIn, Integer maxSlippageBps, Long maxPriorityFeeLamports, Integer createsPerHour) {
         this(enabled, approverUserId, approverTenant, approvalTtl, approvalIatMaxAge, cluster, maxLamportsIn, maxUsdcIn, maxSlippageBps,
-                maxPriorityFeeLamports, createsPerHour, null, null);
+                maxPriorityFeeLamports, createsPerHour, null, null, null);
+    }
+
+    /** The shape of b2b before the reconcile job. */
+    public SwapsProperties(Boolean enabled, UUID approverUserId, String approverTenant, Duration approvalTtl, Duration approvalIatMaxAge, String cluster,
+            Long maxLamportsIn, Long maxUsdcIn, Integer maxSlippageBps, Long maxPriorityFeeLamports, Integer createsPerHour, Duration confirmTimeout,
+            Duration confirmPollInterval) {
+        this(enabled, approverUserId, approverTenant, approvalTtl, approvalIatMaxAge, cluster, maxLamportsIn, maxUsdcIn, maxSlippageBps,
+                maxPriorityFeeLamports, createsPerHour, confirmTimeout, confirmPollInterval, null);
     }
 
     @ConstructorBinding
@@ -58,6 +68,8 @@ public record SwapsProperties(
         confirmTimeout = confirmTimeout == null || confirmTimeout.isNegative() || confirmTimeout.isZero() ? Duration.ofSeconds(30) : confirmTimeout;
         confirmPollInterval = confirmPollInterval == null || confirmPollInterval.isNegative() || confirmPollInterval.isZero()
                 ? Duration.ofMillis(1500) : confirmPollInterval;
+        reconcileInterval = reconcileInterval == null || reconcileInterval.isNegative() || reconcileInterval.isZero()
+                ? Duration.ofMinutes(1) : reconcileInterval;
         if (!cluster.equals("devnet") && !cluster.equals("mainnet-beta")) {
             throw new IllegalArgumentException("cryptobot.swaps.cluster must be devnet or mainnet-beta, was " + cluster);
         }

@@ -31,6 +31,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import reactor.core.publisher.Mono;
@@ -45,21 +46,29 @@ import reactor.util.retry.Retry;
  *       window; and at most one order executing per process.</li>
  *   <li>Re-quote with the exact binding of the approval: same mints, same input amount, and Jupiter's own minimum
  *       ({@code otherAmountThreshold}) at or above the order's {@code min_out}. The route may differ; the bound may not.
- *       The new transaction is checked ({@link UnsignedSwapCheck}) and simulated again.</li>
+ *       The new transaction is checked ({@link UnsignedSwapCheck}) and simulated again; those exact bytes are what the
+ *       validator attests, the signer signs and the RPC receives.</li>
  *   <li>Policy: {@code (I, S)} for strategy {@code PILOT_SWAP} through the same deterministic engine the validator re-runs.
  *       ALLOW, or ESCALATE for a human signature (this order has one: the approval). Anything else is a refusal.</li>
  *   <li>Validator {@code authorizeSwap} over the bytes with the swap intent (mints, in amount, the order's min_out), then
  *       signer {@code signSwap} with that same min_out. Our own check of what came back: same message, signed by the
  *       owner's key.</li>
- *   <li>The signature is stored before the broadcast. {@code sendTransaction} carries the mainnet gate
- *       ({@code cryptobot.execution.allow-mainnet}). A JSON-RPC rejection is certain (FAILED); any other broadcast error
- *       is not (UNKNOWN_SENT).</li>
+ *   <li>The signature and the blockhash's last valid height are stored before the broadcast. The window is checked once
+ *       more, then {@code sendTransaction}, which carries the mainnet gate ({@code cryptobot.execution.allow-mainnet}).
+ *       A JSON-RPC rejection is certain (FAILED); any other broadcast error is not, nor is an answer naming another
+ *       signature (UNKNOWN_SENT).</li>
  *   <li>Confirmation at {@code confirmed} within {@code confirm-timeout}: CONFIRMED, FAILED (the chain said so), or
  *       UNKNOWN_SENT.</li>
  * </ol>
  *
- * <p>{@link #reconcile} asks the chain about an order's signature and moves SENT/UNKNOWN_SENT (or an EXECUTING order a
- * crash left behind) to where the chain says it is. An EXECUTING order without a signature past its window was never
+ * <p><b>The caller does not own the execution.</b> Once claimed, the run is subscribed on its own: a client that
+ * disconnects (or times out) during the ~30 s does not cancel it halfway. The caller gets the final order if it waits;
+ * otherwise {@code GET /swaps/{id}} shows it, and {@link SwapReconcileJob} settles whatever a crash left in flight.
+ *
+ * <p>{@link #reconcileOrder} asks the chain about an order's signature and moves SENT/UNKNOWN_SENT (or an EXECUTING order
+ * a crash left behind) to where the chain says it is. It reads the block height <em>before</em> the signature status: if
+ * the chain was already past the blockhash's last valid height and still does not know the signature, the swap can
+ * never land (FAILED, {@code blockhash_expired}). An EXECUTING order without a signature past its window was never
  * broadcast — the signature is written first — so it is FAILED.
  */
 public class SwapExecutor {
@@ -87,7 +96,7 @@ public class SwapExecutor {
         }
     }
 
-    private record Signed(String signedBase64, String signature) {}
+    private record Signed(String signedBase64, String signature, long lastValidBlockHeight) {}
 
     private final SwapsProperties props;
     private final SwapOrderRepository repo;
@@ -101,6 +110,8 @@ public class SwapExecutor {
     private final MeterRegistry meters;
     private final Clock clock;
     private final AtomicBoolean busy = new AtomicBoolean();
+    /** The order this process is executing right now; the reconcile job leaves it alone. */
+    private final AtomicReference<UUID> running = new AtomicReference<>();
 
     public SwapExecutor(SwapsProperties props, SwapOrderRepository repo, SwapOrderService orders, JupiterSwapClient jupiter, SolanaRpcClient rpc,
             ValidatorClient validator, SignerClient signer, PolicyEngine policy, SolPrice solPrice, MeterRegistry meters, Clock clock) {
@@ -132,7 +143,20 @@ public class SwapExecutor {
             if (!busy.compareAndSet(false, true)) {
                 return Mono.error(new SwapOrderService.SwapRefused(SwapOrderService.SwapRefused.Kind.CONFLICT, "executor_busy"));
             }
-            return claim(principal, id).flatMap(this::run).doFinally(s -> busy.set(false));
+            running.set(id);
+            Mono<SwapOrder> work = claim(principal, id).flatMap(this::run)
+                    .doFinally(s -> {
+                        running.set(null);
+                        busy.set(false);
+                    })
+                    .cache();
+            // the run is subscribed here, not by the caller: a caller that goes away does not cancel it halfway
+            work.subscribe(o -> { }, ex -> {
+                if (!(ex instanceof SwapOrderService.SwapRefused)) {
+                    log.warn("swap_order_execution_error id={} error={}", id, ex.getClass().getSimpleName());
+                }
+            });
+            return work;
         });
     }
 
@@ -160,12 +184,13 @@ public class SwapExecutor {
         SolanaCluster cluster = SolanaCluster.parse(order.cluster());
         Mono<Object> signedOrFailed = prepare(order, cluster)
                 .flatMap(tx -> attestAndSign(order, cluster, tx))
-                .flatMap(signed -> repo.markSigned(order.id(), signed.signature())
+                .flatMap(signed -> repo.markSigned(order.id(), signed.signature(), signed.lastValidBlockHeight())
                         .switchIfEmpty(Mono.error(new StepFailed("signature_not_recorded", "order left EXECUTING before the signature was stored")))
                         .flatMap(s -> repo.audit(s.id(), "SIGNED", null, s.previewHash(), "signature=" + signed.signature()).thenReturn(signed)))
                 .<Object>map(signed -> signed)
                 // up to here nothing can be on the chain: any error is FAILED. Errors after the broadcast never reach this.
-                .onErrorResume(ex -> fail(order, SwapOrder.Status.EXECUTING, ex instanceof StepFailed f ? f.code : "execution_failed", ex.toString())
+                .onErrorResume(ex -> fail(order, SwapOrder.Status.EXECUTING, ex instanceof StepFailed f ? f.code : "execution_failed",
+                                ex instanceof StepFailed ? ex.getMessage() : ex.getClass().getSimpleName())
                         .map(failed -> failed));
         return signedOrFailed.flatMap(x -> x instanceof Signed signed ? broadcast(order, cluster, signed) : Mono.just((SwapOrder) x))
                 .switchIfEmpty(Mono.defer(() -> repo.find(order.id())));
@@ -240,8 +265,7 @@ public class SwapExecutor {
 
     private Mono<Signed> attestAndSign(SwapOrder order, SolanaCluster cluster, PreparedTransaction tx) {
         Instant now = clock.instant();
-        return Mono.zip(solPrice.read(), repo.spentSince(now.minus(Duration.ofHours(1).multipliedBy(24))).filter(o -> !o.id().equals(order.id()))
-                        .collectList())
+        return Mono.zip(solPrice.read(), repo.spentSince(now.minus(Duration.ofHours(24))).filter(o -> !o.id().equals(order.id())).collectList())
                 .flatMap(ctx -> {
                     PolicyInput input = facts(order, ctx.getT1(), ctx.getT2(), now);
                     PolicyVerdict verdict = DeterministicPolicyEngine.evaluate(policy.rules(), input);
@@ -251,11 +275,19 @@ public class SwapExecutor {
                     ValidatorClient.SwapIntent intent = new ValidatorClient.SwapIntent(order.owner(), order.direction().inputMint(),
                             order.direction().outputMint(), order.inAmount(), order.minOut(), order.maxSlippageBps(), props.maxPriorityFeeLamports());
                     return validator.authorizeSwap(order.id(), verdict, input, tx, intent)
-                            .onErrorMap(ValidatorClient.ValidatorRefused.class, ex -> new StepFailed("validator_refused", ex.getMessage()));
+                            .onErrorMap(ValidatorClient.ValidatorRefused.class, ex -> new StepFailed("validator_refused", httpStatusOnly(ex.getMessage())));
                 })
                 .flatMap(att -> signer.signSwap(order.id(), tx.unsignedTransactionBase64(), cluster, order.minOut(), att.attestation())
-                        .onErrorMap(SignerClient.SignerRefused.class, ex -> new StepFailed("signer_refused", ex.getMessage())))
+                        .onErrorMap(SignerClient.SignerRefused.class, ex -> new StepFailed("signer_refused", httpStatusOnly(ex.getMessage()))))
                 .map(resp -> verifySigned(tx, resp, order.owner()));
+    }
+
+    /** What of a validator or signer refusal reaches the log: its HTTP status, never the body it sent back. */
+    static String httpStatusOnly(String message) {
+        if (message != null && message.matches("^HTTP \\d{3}\\b.*")) {
+            return message.substring(0, 8);
+        }
+        return "refused";
     }
 
     /** ALLOW, or ESCALATE for a human signature — which this order carries (its approval). */
@@ -265,7 +297,13 @@ public class SwapExecutor {
 
     /**
      * {@code (I, S)} of one swap. The asset is what it spends; its value in cents comes from the SOL price (USDC at
-     * par). Exposure is what the other swaps approved in the last 24 h spent. Unknown price ⇒ value unknown ⇒ DENY.
+     * par). Exposure is what the other swaps of the last 24 h that may have moved funds spent (EXECUTING, SENT,
+     * UNKNOWN_SENT, CONFIRMED). Unknown price ⇒ value unknown ⇒ DENY.
+     *
+     * <p>Two state facts are fixed for the pilot, as for PoV payouts: {@code nonce_unused} is true because the claim
+     * (APPROVED → EXECUTING, conditional) is the nonce being spent — a second run of the same order never gets here; and
+     * {@code asset_exposure_after_bps} is 0 because the pilot holds no portfolio to weigh (one wallet, swaps capped at
+     * 0.1 SOL / 10 USDC by the policy's {@code pilot_swap} section and again by the signer).
      */
     PolicyInput facts(SwapOrder order, Optional<Price> sol, List<SwapOrder> others, Instant now) {
         Long tradeCents = cents(order, sol);
@@ -311,19 +349,27 @@ public class SwapExecutor {
             throw new StepFailed("signature_invalid", "signature does not verify against the owner");
         }
         // the transaction id IS the first signature: known before anyone broadcasts it
-        return new Signed(resp.signedTransactionBase64(), Base58.encode(signature));
+        return new Signed(resp.signedTransactionBase64(), Base58.encode(signature), tx.lastValidBlockHeight());
     }
 
     private Mono<SwapOrder> broadcast(SwapOrder order, SolanaCluster cluster, Signed signed) {
+        if (!clock.instant().isBefore(order.expiresAt())) {
+            // signed but not sent: the approval's window closed while the validator and the signer answered
+            return fail(order, SwapOrder.Status.EXECUTING, "execution_window_elapsed", "signed, not sent: window closed at " + order.expiresAt());
+        }
         return rpc.sendTransaction(cluster, signed.signedBase64())
-                .then(Mono.defer(() -> move(order, SwapOrder.Status.EXECUTING, SwapOrder.Status.SENT, null, "SENT", "signature=" + signed.signature())))
+                .flatMap(answered -> answered.equals(signed.signature())
+                        ? move(order, SwapOrder.Status.EXECUTING, SwapOrder.Status.SENT, null, "SENT", "signature=" + signed.signature())
+                        // the RPC acknowledged a different transaction id: we cannot tell what it sent
+                        : move(order, SwapOrder.Status.EXECUTING, SwapOrder.Status.UNKNOWN_SENT, "signature_mismatch", "UNKNOWN_SENT",
+                                "expected " + signed.signature() + " rpc answered " + answered).then(Mono.empty()))
                 .onErrorResume(ex -> !(ex instanceof SwapOrderService.SwapRefused), ex -> {
                     // a JSON-RPC rejection (or the mainnet gate) is certain: nothing landed. Anything else may have.
                     boolean certain = (ex instanceof SolanaRpcException r && r.getCause() == null) || ex instanceof MainnetDisabledException;
                     return certain ? fail(order, SwapOrder.Status.EXECUTING, ex instanceof MainnetDisabledException ? "mainnet_disabled" : "broadcast_rejected",
                                     ex.getMessage()).then(Mono.empty())
-                            : move(order, SwapOrder.Status.EXECUTING, SwapOrder.Status.UNKNOWN_SENT, "broadcast_uncertain", "UNKNOWN_SENT", ex.toString())
-                                    .then(Mono.empty());
+                            : move(order, SwapOrder.Status.EXECUTING, SwapOrder.Status.UNKNOWN_SENT, "broadcast_uncertain", "UNKNOWN_SENT",
+                                    ex.getClass().getSimpleName()).then(Mono.empty());
                 })
                 .flatMap(sent -> confirm(cluster, signed.signature())
                         .flatMap(status -> settle(sent, status, SwapOrder.Status.SENT)));
@@ -333,10 +379,13 @@ public class SwapExecutor {
     private Mono<SolanaRpcClient.SignatureStatus> confirm(SolanaCluster cluster, String signature) {
         long attempts = Math.max(1, props.confirmTimeout().toMillis() / props.confirmPollInterval().toMillis());
         return rpc.getSignatureStatus(cluster, signature)
-                .flatMap(s -> s.failed() || "confirmed".equals(s.confirmationStatus()) || "finalized".equals(s.confirmationStatus())
-                        ? Mono.just(s) : Mono.<SolanaRpcClient.SignatureStatus>error(new Pending()))
+                .flatMap(s -> known(s) ? Mono.just(s) : Mono.<SolanaRpcClient.SignatureStatus>error(new Pending()))
                 .retryWhen(Retry.fixedDelay(attempts, props.confirmPollInterval()).filter(Pending.class::isInstance))
                 .onErrorResume(ex -> Mono.just(new SolanaRpcClient.SignatureStatus(signature, "pending", false, null)));
+    }
+
+    private static boolean known(SolanaRpcClient.SignatureStatus s) {
+        return s.failed() || "confirmed".equals(s.confirmationStatus()) || "finalized".equals(s.confirmationStatus());
     }
 
     private Mono<SwapOrder> settle(SwapOrder order, SolanaRpcClient.SignatureStatus status, SwapOrder.Status from) {
@@ -352,46 +401,61 @@ public class SwapExecutor {
 
     // ---- reconcile -------------------------------------------------------------------------------------
 
-    /**
-     * The creator or the approver asks where an order really is. SENT / UNKNOWN_SENT / EXECUTING-with-signature: the
-     * chain decides (CONFIRMED, FAILED, or unchanged while it does not know). EXECUTING without a signature past its
-     * window: never broadcast, FAILED. Never sends anything.
-     */
+    /** The creator or the approver asks where an order really is. See {@link #reconcileOrder}. */
     public Mono<SwapOrder> reconcile(CryptobotPrincipal principal, UUID id) {
         if (!props.enabled()) {
             return Mono.error(new SwapOrderService.SwapRefused(SwapOrderService.SwapRefused.Kind.NOT_FOUND, "swaps_disabled"));
         }
-        return orders.view(principal, id).map(SwapOrderService.View::order).flatMap(order -> {
-            SolanaCluster cluster = SolanaCluster.parse(order.cluster());
-            boolean inFlight = order.status() == SwapOrder.Status.SENT || order.status() == SwapOrder.Status.UNKNOWN_SENT
-                    || order.status() == SwapOrder.Status.EXECUTING;
-            if (!inFlight) {
-                return Mono.just(order);
+        return orders.view(principal, id).map(SwapOrderService.View::order).flatMap(order -> reconcileOrder(order, principal.userId()));
+    }
+
+    /**
+     * SENT / UNKNOWN_SENT / EXECUTING-with-signature: the chain decides — CONFIRMED, FAILED (it failed, or its blockhash
+     * expired without it landing), or unchanged while it does not know. EXECUTING without a signature past its window:
+     * never broadcast, FAILED. Never sends anything. {@code actor} is null for {@link SwapReconcileJob}.
+     */
+    Mono<SwapOrder> reconcileOrder(SwapOrder order, UUID actor) {
+        SolanaCluster cluster = SolanaCluster.parse(order.cluster());
+        boolean inFlight = order.status() == SwapOrder.Status.SENT || order.status() == SwapOrder.Status.UNKNOWN_SENT
+                || order.status() == SwapOrder.Status.EXECUTING;
+        if (!inFlight) {
+            return Mono.just(order);
+        }
+        if (order.txSignature() == null) {
+            if (order.status() == SwapOrder.Status.EXECUTING && !clock.instant().isBefore(order.expiresAt())) {
+                return fail(order, SwapOrder.Status.EXECUTING, "abandoned_before_signing", "no signature stored: never broadcast");
             }
-            if (order.txSignature() == null) {
-                if (order.status() == SwapOrder.Status.EXECUTING && !clock.instant().isBefore(order.expiresAt())) {
-                    return fail(order, SwapOrder.Status.EXECUTING, "abandoned_before_signing", "no signature stored: never broadcast");
-                }
-                return Mono.just(order);
-            }
-            return rpc.getSignatureStatus(cluster, order.txSignature())
-                    .flatMap(s -> {
-                        boolean known = s.failed() || "confirmed".equals(s.confirmationStatus()) || "finalized".equals(s.confirmationStatus());
-                        if (!known) {
-                            // EXECUTING with a signature: signed, maybe sent, the chain does not know yet
-                            return order.status() == SwapOrder.Status.EXECUTING
-                                    ? move(order, SwapOrder.Status.EXECUTING, SwapOrder.Status.UNKNOWN_SENT, "not_confirmed_in_time", "UNKNOWN_SENT",
-                                            "reconcile status=" + s.confirmationStatus())
-                                    : Mono.just(order);
-                        }
-                        return repo.audit(order.id(), "RECONCILED", principal.userId(), order.previewHash(), "status=" + s.confirmationStatus())
+            return Mono.just(order);
+        }
+        // the height first: a transaction can only land at or below its last valid height, so if the chain is already
+        // past it and the status (read after) does not know the signature, it never landed and never will
+        Mono<Boolean> expired = repo.lastValidBlockHeight(order.id())
+                .flatMap(lvb -> rpc.getBlockHeight(cluster).map(h -> h > lvb))
+                .defaultIfEmpty(false);
+        return expired.flatMap(past -> rpc.getSignatureStatus(cluster, order.txSignature()).flatMap(s -> {
+                    if (known(s)) {
+                        return repo.audit(order.id(), "RECONCILED", actor, order.previewHash(), "status=" + s.confirmationStatus())
                                 .then(settle(order, s, order.status()));
-                    })
-                    .onErrorResume(ex -> !(ex instanceof SwapOrderService.SwapRefused), ex -> {
-                        log.warn("swap_order_reconcile_unavailable id={} error={}", order.id(), ex.toString());
-                        return Mono.just(order);
-                    });
-        });
+                    }
+                    if (past) {
+                        return repo.audit(order.id(), "RECONCILED", actor, order.previewHash(), "blockhash expired, signature unknown")
+                                .then(fail(order, order.status(), "blockhash_expired", "past last valid block height, signature unknown"));
+                    }
+                    // EXECUTING with a signature: signed, maybe sent, the chain does not know yet
+                    return order.status() == SwapOrder.Status.EXECUTING
+                            ? move(order, SwapOrder.Status.EXECUTING, SwapOrder.Status.UNKNOWN_SENT, "not_confirmed_in_time", "UNKNOWN_SENT",
+                                    "reconcile status=" + s.confirmationStatus())
+                            : Mono.just(order);
+                }))
+                .onErrorResume(ex -> !(ex instanceof SwapOrderService.SwapRefused), ex -> {
+                    log.warn("swap_order_reconcile_unavailable id={} error={}", order.id(), ex.getClass().getSimpleName());
+                    return Mono.just(order);
+                });
+    }
+
+    /** The order this process is executing, if any (the job must not reconcile it under the executor's feet). */
+    UUID running() {
+        return running.get();
     }
 
     // ---- transitions -----------------------------------------------------------------------------------

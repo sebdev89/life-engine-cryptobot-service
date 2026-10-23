@@ -18,6 +18,7 @@ public class InMemorySwapOrderRepository implements SwapOrderRepository {
     private final Map<UUID, SwapOrder> orders = new ConcurrentHashMap<>();
     private final Set<String> usedJtis = ConcurrentHashMap.newKeySet();
     private final Map<UUID, List<AuditRow>> audit = new ConcurrentHashMap<>();
+    private final Map<UUID, Long> heights = new ConcurrentHashMap<>();
 
     /** One audit row as written. */
     public record AuditRow(String event, UUID actor, String previewHash, String detail) {}
@@ -68,7 +69,7 @@ public class InMemorySwapOrderRepository implements SwapOrderRepository {
     }
 
     @Override
-    public synchronized Mono<SwapOrder> markSigned(UUID id, String signature) {
+    public synchronized Mono<SwapOrder> markSigned(UUID id, String signature, long lastValidBlockHeight) {
         SwapOrder o = orders.get(id);
         if (o == null || o.status() != SwapOrder.Status.EXECUTING || o.txSignature() != null) {
             return Mono.empty();
@@ -77,7 +78,24 @@ public class InMemorySwapOrderRepository implements SwapOrderRepository {
                 o.minOut(), o.maxSlippageBps(), o.preview(), o.previewHash(), o.approvalNonce(), o.approvedBy(), o.approvedAt(), o.approvalJti(),
                 o.expiresAt(), signature, o.error(), o.createdAt(), Instant.now());
         orders.put(id, s);
+        heights.put(id, lastValidBlockHeight);
         return Mono.just(s);
+    }
+
+    @Override
+    public Mono<Long> lastValidBlockHeight(UUID id) {
+        return Mono.justOrEmpty(heights.get(id));
+    }
+
+    @Override
+    public Flux<SwapOrder> inFlight() {
+        Set<SwapOrder.Status> flying = Set.of(SwapOrder.Status.EXECUTING, SwapOrder.Status.SENT, SwapOrder.Status.UNKNOWN_SENT);
+        return Flux.fromIterable(List.copyOf(orders.values())).filter(o -> flying.contains(o.status()));
+    }
+
+    /** Test hook: the height a signature was stored with, as an earlier run would have left it. */
+    public void putHeight(UUID id, long lastValidBlockHeight) {
+        heights.put(id, lastValidBlockHeight);
     }
 
     @Override

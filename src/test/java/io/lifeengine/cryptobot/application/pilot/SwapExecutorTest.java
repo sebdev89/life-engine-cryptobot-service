@@ -94,6 +94,15 @@ class SwapExecutorTest {
     final AtomicReference<String> validatorDecision = new AtomicReference<>("ALLOW");
     final AtomicReference<Boolean> signerTampers = new AtomicReference<>(false);
     final List<String> rpcMethods = new CopyOnWriteArrayList<>();
+    final List<String> simulated = new CopyOnWriteArrayList<>();
+    final List<String> sent = new CopyOnWriteArrayList<>();
+    final List<String> signedRequests = new CopyOnWriteArrayList<>();
+    final AtomicReference<Boolean> simulationOk = new AtomicReference<>(true);
+    final AtomicReference<Runnable> onSign = new AtomicReference<>(() -> { });
+    /** The fixture's blockhash is valid up to 438 245 737. */
+    final java.util.concurrent.atomic.AtomicLong blockHeight = new java.util.concurrent.atomic.AtomicLong(438_245_000L);
+    /** What the fake Jupiter quotes: the fixture as is, or with a field replaced. */
+    final AtomicReference<java.util.function.UnaryOperator<ObjectNode>> quoteEdit = new AtomicReference<>(q -> q);
     final AtomicInteger signs = new AtomicInteger();
     final AtomicReference<JsonNode> lastValidatorBody = new AtomicReference<>();
     final AtomicReference<JsonNode> lastSignBody = new AtomicReference<>();
@@ -106,7 +115,7 @@ class SwapExecutorTest {
             public MockResponse dispatch(RecordedRequest r) {
                 String path = r.getPath() == null ? "" : r.getPath();
                 if (path.startsWith("/swap/v1/quote")) {
-                    return json(SwapOrderServiceTest.fixture("quote-sol-usdc.json"));
+                    return json(quoteEdit.get().apply((ObjectNode) read(SwapOrderServiceTest.fixture("quote-sol-usdc.json"))).toString());
                 }
                 if (path.startsWith("/swap/v1/swap")) {
                     return json(swapFixtureFor(owner));
@@ -122,12 +131,21 @@ class SwapExecutorTest {
                 String method = body.path("method").asText();
                 rpcMethods.add(method);
                 return switch (method) {
-                    case "simulateTransaction" -> result("{\"context\":{\"slot\":1},\"value\":{\"err\":null,\"logs\":[],\"unitsConsumed\":61000}}");
+                    case "simulateTransaction" -> {
+                        simulated.add(body.path("params").path(0).asText());
+                        yield result("{\"context\":{\"slot\":1},\"value\":{\"err\":" + (simulationOk.get() ? "null" : "{\"InstructionError\":[3,{\"Custom\":6001}]}")
+                                + ",\"logs\":[],\"unitsConsumed\":61000}}");
+                    }
                     case "getGenesisHash" -> result("\"" + SolanaRpcProperties.DEVNET_GENESIS + "\"");
+                    case "getBlockHeight" -> result(Long.toString(blockHeight.get()));
                     case "sendTransaction" -> switch (send.get()) {
                         case "reject" -> json("{\"jsonrpc\":\"2.0\",\"id\":1,\"error\":{\"code\":-32002,\"message\":\"Transaction simulation failed\"}}");
                         case "down" -> new MockResponse().setResponseCode(503);
-                        default -> result("\"" + signatureOf(body.path("params").path(0).asText()) + "\"");
+                        case "other" -> result("\"5otherSignatureThatIsNotOurs\"");
+                        default -> {
+                            sent.add(body.path("params").path(0).asText());
+                            yield result("\"" + signatureOf(body.path("params").path(0).asText()) + "\"");
+                        }
                     };
                     case "getSignatureStatuses" -> switch (status.get()) {
                         case "unknown" -> result("{\"context\":{\"slot\":2},\"value\":[null]}");
@@ -159,8 +177,10 @@ class SwapExecutorTest {
                 }
                 if (path.equals("/api/signer/sign-swap")) {
                     signs.incrementAndGet();
+                    onSign.get().run();
                     JsonNode body = read(r.getBody().readUtf8());
                     lastSignBody.set(body);
+                    signedRequests.add(body.path("unsignedTransactionBase64").asText());
                     byte[] wire = Base64.getDecoder().decode(body.path("unsignedTransactionBase64").asText());
                     byte[] message = Arrays.copyOfRange(wire, 65, wire.length);
                     byte[] sig = key.sign(message);
@@ -264,6 +284,10 @@ class SwapExecutorTest {
     // ---- wiring ---------------------------------------------------------------------------------------
 
     SwapExecutor executor(String cluster, boolean executionEnabled, Optional<SwapExecutor.Price> price) {
+        return executor(true, cluster, executionEnabled, price);
+    }
+
+    SwapExecutor executor(boolean enabled, String cluster, boolean executionEnabled, Optional<SwapExecutor.Price> price) {
         String rpcUrl = "http://localhost:" + rpc.getPort();
         SolanaRpcClient solana = new SolanaRpcClient(WebClient.builder(), new SolanaRpcProperties(rpcUrl, rpcUrl, Duration.ofSeconds(3)), JSON);
         MarketDataProperties md = new MarketDataProperties("http://localhost:" + jupiter.getPort(), Duration.ofSeconds(3), Map.of(), Map.of(), true);
@@ -272,7 +296,7 @@ class SwapExecutorTest {
                 new SignerProperties(true, "http://localhost:" + signer.getPort(), "tok", Duration.ofSeconds(3)));
         ValidatorClient validatorClient = new ValidatorClient(WebClient.builder(),
                 new ValidatorProperties(true, "http://localhost:" + validator.getPort(), "tok", Duration.ofSeconds(3)));
-        SwapsProperties props = new SwapsProperties(true, APPROVER, "", null, null, cluster, null, null, null, null, null,
+        SwapsProperties props = new SwapsProperties(enabled, APPROVER, "", null, null, cluster, null, null, null, null, null,
                 Duration.ofMillis(300), Duration.ofMillis(50));
         PolicyEngine policy = new PolicyEngine(new PolicyProperties(executionEnabled, null, null, null, null, null, null, 0, null),
                 new AuthorizationProperties(null, null, null, null, null, null, null, null, List.of("REBALANCE", "PILOT_SWAP"), 100_000_000L, 10_000_000L, 100),
@@ -643,5 +667,209 @@ class SwapExecutorTest {
         assertThat(facts.intent().tradeValueCents()).isEqualTo(150L);
         assertThat(facts.intent().strategyId()).isEqualTo("PILOT_SWAP");
         assertThat(ex.facts(o, Optional.empty(), List.of(), T0).intent().tradeValueCents()).isNull();
+    }
+
+    // ---- LEAD review of b2b: money guards pinned ------------------------------------------------------
+
+    SwapOrder withStatus(SwapOrder a, SwapOrder.Status st, String signature) {
+        SwapOrder o = new SwapOrder(a.id(), a.idempotencyKey(), a.createdBy(), st, a.direction(), a.cluster(), a.owner(), a.inAmount(), a.minOut(),
+                a.maxSlippageBps(), a.preview(), a.previewHash(), a.approvalNonce(), a.approvedBy(), a.approvedAt(), a.approvalJti(), a.expiresAt(),
+                signature, null, a.createdAt(), a.updatedAt());
+        repo.put(o);
+        return o;
+    }
+
+    static io.lifeengine.cryptobot.adapters.jupiter.SwapQuote quote(String in, String out, long inAmount, long minOut) {
+        return new io.lifeengine.cryptobot.adapters.jupiter.SwapQuote(in, out, inAmount, minOut + 100, minOut, 50, BigDecimal.ZERO, List.of(), null);
+    }
+
+    @Test
+    void theBindingRefusesOtherMintsAnyOtherInputAndALowerMinimum() {
+        SwapOrder o = approved(1_000L);
+        String sol = SwapOrder.Direction.SOL_USDC.inputMint();
+        String usdc = SwapOrder.Direction.SOL_USDC.outputMint();
+        assertThat(SwapExecutor.binding(o, quote(sol, usdc, 10_000_000L, 1_000L))).isNull();
+        assertThat(SwapExecutor.binding(o, quote(sol, usdc, 10_000_000L, 999L))).isEqualTo("price_moved");
+        assertThat(SwapExecutor.binding(o, quote(usdc, sol, 10_000_000L, 1_000L))).isEqualTo("quote_mints_changed");
+        assertThat(SwapExecutor.binding(o, quote(sol, "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB", 10_000_000L, 1_000L))).isEqualTo("quote_mints_changed");
+        // more than approved, and less: both are another swap
+        assertThat(SwapExecutor.binding(o, quote(sol, usdc, 10_000_001L, 1_000L))).isEqualTo("quote_amount_changed");
+        assertThat(SwapExecutor.binding(o, quote(sol, usdc, 9_999_999L, 1_000L))).isEqualTo("quote_amount_changed");
+    }
+
+    @Test
+    void aFailedSimulationOfTheNewTransactionSignsNothing() {
+        simulationOk.set(false);
+        SwapOrder done = executor().execute(approver(), approved(1_026_997L).id()).block();
+        assertThat(done.status()).isEqualTo(SwapOrder.Status.FAILED);
+        assertThat(done.error()).isEqualTo("simulation_failed");
+        assertThat(validator.getRequestCount()).isZero();
+        assertThat(signs.get()).isZero();
+        assertThat(sends()).isZero();
+    }
+
+    @Test
+    void swapsDisabledRefusesExecuteAndReconcile() {
+        SwapOrder o = approved(1_026_997L);
+        SwapExecutor off = executor(false, "devnet", true, Optional.of(new SwapExecutor.Price(new BigDecimal("150"), T0)));
+        assertThat(reason(off.execute(approver(), o.id()))).isEqualTo("swaps_disabled");
+        assertThat(reason(off.reconcile(approver(), o.id()))).isEqualTo("swaps_disabled");
+        assertThat(repo.find(o.id()).block().status()).isEqualTo(SwapOrder.Status.APPROVED);
+        assertThat(jupiter.getRequestCount()).isZero();
+    }
+
+    @Test
+    void exposureCountsEveryOtherSwapThatMayHaveMovedFundsAndNothingElse() {
+        // 0.01 SOL at 150 USD = 150 cents each; four that may have moved funds, one that failed and one only approved
+        withStatus(approved(1L), SwapOrder.Status.EXECUTING, "s1");
+        withStatus(approved(1L), SwapOrder.Status.SENT, "s2");
+        withStatus(approved(1L), SwapOrder.Status.UNKNOWN_SENT, "s3");
+        withStatus(approved(1L), SwapOrder.Status.CONFIRMED, "s4");
+        withStatus(approved(1L), SwapOrder.Status.FAILED, null);
+        approved(1L);
+        SwapOrder o = approved(1_026_997L);
+        assertThat(executor().execute(approver(), o.id()).block().status()).isEqualTo(SwapOrder.Status.CONFIRMED);
+        assertThat(lastValidatorBody.get().path("state").path("daily_exposure_cents").asLong()).isEqualTo(600L);
+        assertThat(lastValidatorBody.get().path("intent").path("trade_value_cents").asLong()).isEqualTo(150L);
+    }
+
+    @Test
+    void noOrderOutsideApprovedIsExecuted() {
+        for (SwapOrder.Status st : SwapOrder.Status.values()) {
+            if (st == SwapOrder.Status.APPROVED) {
+                continue;
+            }
+            SwapOrder o = withStatus(approved(1_026_997L), st, null);
+            assertThat(reason(executor().execute(approver(), o.id()))).as(st.name()).isEqualTo("not_approved");
+        }
+        // past its window too: a rejected order is "not approved", never re-labelled as an expired approval
+        SwapOrder late = withStatus(approved(1_026_997L), SwapOrder.Status.REJECTED, null);
+        clock.now = late.expiresAt().plusSeconds(1);
+        assertThat(reason(executor().execute(approver(), late.id()))).isEqualTo("not_approved");
+        assertThat(repo.find(late.id()).block().status()).isEqualTo(SwapOrder.Status.REJECTED);
+        assertThat(signs.get()).isZero();
+        assertThat(jupiter.getRequestCount()).isZero();
+    }
+
+    @Test
+    void anOrderThatStoppedBeingApprovedBetweenTheReadAndTheClaimIsNotExecuted() {
+        SwapOrder a = approved(1_026_997L);
+        withStatus(a, SwapOrder.Status.REJECTED, null);
+        // the read still sees it APPROVED (a stale read, a concurrent reject): only the conditional claim can say no
+        InMemorySwapOrderRepository real = repo;
+        repo = new InMemorySwapOrderRepository() {
+            @Override
+            public Mono<SwapOrder> find(UUID id) {
+                return id.equals(a.id()) ? Mono.just(a) : real.find(id);
+            }
+
+            @Override
+            public Mono<SwapOrder> transition(UUID id, SwapOrder.Status from, SwapOrder.Status to, String error) {
+                return real.transition(id, from, to, error);
+            }
+        };
+        assertThat(reason(executor().execute(approver(), a.id()))).isEqualTo("not_approved");
+        assertThat(real.find(a.id()).block().status()).isEqualTo(SwapOrder.Status.REJECTED);
+        assertThat(jupiter.getRequestCount()).isZero();
+    }
+
+    @Test
+    void theBytesSimulatedAreTheBytesAttestedSignedAndSent() {
+        executor().execute(approver(), approved(1_026_997L).id()).block();
+        assertThat(simulated).hasSize(1);
+        String bytes = simulated.get(0);
+        assertThat(lastValidatorBody.get().path("transaction").asText()).isEqualTo(bytes);
+        assertThat(signedRequests).containsExactly(bytes);
+        byte[] unsigned = Base64.getDecoder().decode(bytes);
+        byte[] onTheWire = Base64.getDecoder().decode(sent.get(0));
+        assertThat(Arrays.copyOfRange(onTheWire, 65, onTheWire.length)).isEqualTo(Arrays.copyOfRange(unsigned, 65, unsigned.length));
+    }
+
+    // ---- LEAD review of b2b: design ---------------------------------------------------------------------
+
+    @Test
+    void reconcileFailsASignatureTheChainNeverSawOncePastItsLastValidHeight() {
+        SwapOrder o = withStatus(approved(1_026_997L), SwapOrder.Status.UNKNOWN_SENT, "5sig");
+        repo.putHeight(o.id(), 1_000L);
+        status.set("unknown");
+        blockHeight.set(1_000L);
+        // at the last valid height it may still land
+        assertThat(executor().reconcile(approver(), o.id()).block().status()).isEqualTo(SwapOrder.Status.UNKNOWN_SENT);
+        blockHeight.set(1_001L);
+        SwapOrder r = executor().reconcile(approver(), o.id()).block();
+        assertThat(r.status()).isEqualTo(SwapOrder.Status.FAILED);
+        assertThat(r.error()).isEqualTo("blockhash_expired");
+        assertThat(sends()).isZero();
+    }
+
+    @Test
+    void aSignatureTheChainKnowsWinsOverAnExpiredHeight() {
+        SwapOrder o = withStatus(approved(1_026_997L), SwapOrder.Status.UNKNOWN_SENT, "5sig");
+        repo.putHeight(o.id(), 1_000L);
+        blockHeight.set(5_000L);
+        status.set("finalized");
+        assertThat(executor().reconcile(approver(), o.id()).block().status()).isEqualTo(SwapOrder.Status.CONFIRMED);
+    }
+
+    @Test
+    void theHeightIsReadBeforeTheSignatureStatus() {
+        SwapOrder o = withStatus(approved(1_026_997L), SwapOrder.Status.UNKNOWN_SENT, "5sig");
+        repo.putHeight(o.id(), 1_000L);
+        status.set("unknown");
+        executor().reconcile(approver(), o.id()).block();
+        assertThat(rpcMethods).containsSubsequence("getBlockHeight", "getSignatureStatuses");
+    }
+
+    @Test
+    void aCallerThatGoesAwayDoesNotStopTheExecutionHalfway() throws Exception {
+        SwapOrder o = approved(1_026_997L);
+        executor().execute(approver(), o.id()).subscribe().dispose();
+        long deadline = System.currentTimeMillis() + 5_000;
+        while (repo.find(o.id()).block().status() != SwapOrder.Status.CONFIRMED && System.currentTimeMillis() < deadline) {
+            Thread.sleep(20);
+        }
+        assertThat(repo.find(o.id()).block().status()).isEqualTo(SwapOrder.Status.CONFIRMED);
+        assertThat(sends()).isEqualTo(1);
+    }
+
+    @Test
+    void theWindowIsCheckedAgainRightBeforeTheBroadcast() {
+        SwapOrder o = approved(1_026_997L);
+        onSign.set(() -> clock.now = o.expiresAt());
+        SwapOrder done = executor().execute(approver(), o.id()).block();
+        assertThat(done.status()).isEqualTo(SwapOrder.Status.FAILED);
+        assertThat(done.error()).isEqualTo("execution_window_elapsed");
+        assertThat(done.txSignature()).isNotNull();
+        assertThat(sends()).isZero();
+    }
+
+    @Test
+    void anRpcThatAnswersAnotherSignatureLeavesTheOrderUnknownSent() {
+        send.set("other");
+        SwapOrder done = executor().execute(approver(), approved(1_026_997L).id()).block();
+        assertThat(done.status()).isEqualTo(SwapOrder.Status.UNKNOWN_SENT);
+        assertThat(done.error()).isEqualTo("signature_mismatch");
+        assertThat(rpcMethods).doesNotContain("getSignatureStatuses");
+    }
+
+    @Test
+    void onlyTheHttpStatusOfARefusalReachesTheLog() {
+        assertThat(SwapExecutor.httpStatusOnly("HTTP 403 {\"error\":\"token=abc\"}")).isEqualTo("HTTP 403");
+        assertThat(SwapExecutor.httpStatusOnly("connection reset by peer at 10.0.0.1")).isEqualTo("refused");
+        assertThat(SwapExecutor.httpStatusOnly(null)).isEqualTo("refused");
+    }
+
+    @Test
+    void theReconcileJobSettlesInFlightOrdersAndLeavesSettledOnesAlone() {
+        SwapOrder settled = withStatus(approved(1_026_997L), SwapOrder.Status.UNKNOWN_SENT, "5a");
+        SwapOrder done = withStatus(approved(1_026_997L), SwapOrder.Status.CONFIRMED, "5b");
+        status.set("finalized");
+        SwapExecutor ex = executor();
+        SwapsProperties props = new SwapsProperties(true, APPROVER, "", null, null, "devnet", null, null, null, null, null);
+        SwapReconcileJob job = new SwapReconcileJob(props, repo, ex);
+        assertThat(job.sweep().block()).isEqualTo(1L);
+        assertThat(repo.find(settled.id()).block().status()).isEqualTo(SwapOrder.Status.CONFIRMED);
+        assertThat(repo.find(done.id()).block().status()).isEqualTo(SwapOrder.Status.CONFIRMED);
+        assertThat(sends()).isZero();
     }
 }
