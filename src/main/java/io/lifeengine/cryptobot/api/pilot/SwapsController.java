@@ -1,5 +1,6 @@
 package io.lifeengine.cryptobot.api.pilot;
 
+import io.lifeengine.cryptobot.application.pilot.SwapExecutor;
 import io.lifeengine.cryptobot.application.pilot.SwapOrder;
 import io.lifeengine.cryptobot.application.pilot.SwapOrderService;
 import io.lifeengine.cryptobot.security.CryptobotPrincipal;
@@ -22,6 +23,8 @@ import reactor.core.publisher.Mono;
  * KAN-1249 pilot swap orders. {@code POST /swaps} proposes (needs {@code Idempotency-Key}); {@code GET /swaps/{id}}
  * shows it (the approval nonce only to the approver); {@code POST /swaps/{id}/approve} approves (needs
  * {@code X-CSRF-Token}); {@code POST /swaps/{id}/reject} rejects. See {@link SwapOrderService} for who may approve.
+ * {@code POST /swaps/{id}/execute} (the approver) executes an approved order once; {@code POST /swaps/{id}/reconcile}
+ * (creator or approver) asks the chain where an in-flight order is. See {@link SwapExecutor}.
  */
 @RestController
 @RequestMapping(path = "/api/cryptobot/swaps", produces = "application/json")
@@ -48,9 +51,11 @@ public class SwapsController {
     }
 
     private final SwapOrderService swaps;
+    private final SwapExecutor executor;
 
-    public SwapsController(SwapOrderService swaps) {
+    public SwapsController(SwapOrderService swaps, SwapExecutor executor) {
         this.swaps = swaps;
+        this.executor = executor;
     }
 
     @PostMapping(consumes = "application/json")
@@ -82,6 +87,20 @@ public class SwapsController {
     @PostMapping("/{id}/reject")
     public Mono<ResponseEntity<?>> reject(@PathVariable UUID id, @AuthenticationPrincipal CryptobotPrincipal principal) {
         return swaps.reject(principal, id)
+                .<ResponseEntity<?>>map(o -> ResponseEntity.ok(SwapView.of(o, null)))
+                .onErrorResume(SwapOrderService.SwapRefused.class, SwapsController::refused);
+    }
+
+    @PostMapping("/{id}/execute")
+    public Mono<ResponseEntity<?>> execute(@PathVariable UUID id, @AuthenticationPrincipal CryptobotPrincipal principal) {
+        return executor.execute(principal, id)
+                .<ResponseEntity<?>>map(o -> ResponseEntity.ok(SwapView.of(o, null)))
+                .onErrorResume(SwapOrderService.SwapRefused.class, SwapsController::refused);
+    }
+
+    @PostMapping("/{id}/reconcile")
+    public Mono<ResponseEntity<?>> reconcile(@PathVariable UUID id, @AuthenticationPrincipal CryptobotPrincipal principal) {
+        return executor.reconcile(principal, id)
                 .<ResponseEntity<?>>map(o -> ResponseEntity.ok(SwapView.of(o, null)))
                 .onErrorResume(SwapOrderService.SwapRefused.class, SwapsController::refused);
     }

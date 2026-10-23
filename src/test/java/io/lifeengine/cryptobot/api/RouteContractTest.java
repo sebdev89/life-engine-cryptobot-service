@@ -52,6 +52,8 @@ class RouteContractTest {
             "GET /api/cryptobot/swaps/{id}",
             "POST /api/cryptobot/swaps/{id}/approve",
             "POST /api/cryptobot/swaps/{id}/reject",
+            "POST /api/cryptobot/swaps/{id}/execute",
+            "POST /api/cryptobot/swaps/{id}/reconcile",
             "GET /api/cryptobot/market-reviews/latest",
             "GET /api/cryptobot/market-reviews",
             "POST /api/cryptobot/glossary/events",

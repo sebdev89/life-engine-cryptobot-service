@@ -106,6 +106,35 @@ class SwapOrderR2dbcStoreIT {
     }
 
     @Test
+    @DisplayName("the signature is written once, only on an EXECUTING order")
+    void signatureOnceOnlyWhileExecuting() {
+        SwapOrder o = store.insert(pending("it-sig", 1L)).block();
+        // still pending: no signature
+        assertThat(store.markSigned(o.id(), "sig-1").block()).isNull();
+        store.approve(o.id(), APPROVER, T0, "jti-it-sig", T0.plusSeconds(120)).block();
+        store.transition(o.id(), SwapOrder.Status.APPROVED, SwapOrder.Status.EXECUTING, null).block();
+        assertThat(store.markSigned(o.id(), "sig-1").block().txSignature()).isEqualTo("sig-1");
+        // a second one never replaces it
+        assertThat(store.markSigned(o.id(), "sig-2").block()).isNull();
+        assertThat(store.find(o.id()).block().txSignature()).isEqualTo("sig-1");
+    }
+
+    @Test
+    @DisplayName("spentSince: orders that may have moved funds, approved inside the window")
+    void spentSince() {
+        Instant since = T0.plusSeconds(3_600);
+        SwapOrder executing = store.insert(pending("it-spent-1", 1L)).block();
+        store.approve(executing.id(), APPROVER, since.plusSeconds(1), "jti-it-spent-1", since.plusSeconds(120)).block();
+        store.transition(executing.id(), SwapOrder.Status.APPROVED, SwapOrder.Status.EXECUTING, null).block();
+        SwapOrder old = store.insert(pending("it-spent-2", 1L)).block();
+        store.approve(old.id(), APPROVER, since.minusSeconds(1), "jti-it-spent-2", since.plusSeconds(120)).block();
+        store.transition(old.id(), SwapOrder.Status.APPROVED, SwapOrder.Status.EXECUTING, null).block();
+        SwapOrder onlyApproved = store.insert(pending("it-spent-3", 1L)).block();
+        store.approve(onlyApproved.id(), APPROVER, since.plusSeconds(2), "jti-it-spent-3", since.plusSeconds(120)).block();
+        assertThat(store.spentSince(since).map(SwapOrder::id).collectList().block()).containsExactly(executing.id());
+    }
+
+    @Test
     @DisplayName("the audit trail is ordered and accepts null actor and detail")
     void auditTrail() {
         SwapOrder o = store.insert(pending("it-audit", 1L)).block();

@@ -12,7 +12,7 @@ import java.util.concurrent.CopyOnWriteArrayList;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
-/** Same contract as {@code SwapOrderR2dbcStore} (V17), in memory: conditional transitions, a UNIQUE approval jti and the audit trail. */
+/** Same contract as {@code SwapOrderR2dbcStore} (V17), in memory: conditional transitions, a UNIQUE approval jti, a signature written once and the audit trail. */
 public class InMemorySwapOrderRepository implements SwapOrderRepository {
 
     private final Map<UUID, SwapOrder> orders = new ConcurrentHashMap<>();
@@ -65,6 +65,31 @@ public class InMemorySwapOrderRepository implements SwapOrderRepository {
                 o.txSignature(), error == null ? o.error() : error, o.createdAt(), Instant.now());
         orders.put(id, t);
         return Mono.just(t);
+    }
+
+    @Override
+    public synchronized Mono<SwapOrder> markSigned(UUID id, String signature) {
+        SwapOrder o = orders.get(id);
+        if (o == null || o.status() != SwapOrder.Status.EXECUTING || o.txSignature() != null) {
+            return Mono.empty();
+        }
+        SwapOrder s = new SwapOrder(o.id(), o.idempotencyKey(), o.createdBy(), o.status(), o.direction(), o.cluster(), o.owner(), o.inAmount(),
+                o.minOut(), o.maxSlippageBps(), o.preview(), o.previewHash(), o.approvalNonce(), o.approvedBy(), o.approvedAt(), o.approvalJti(),
+                o.expiresAt(), signature, o.error(), o.createdAt(), Instant.now());
+        orders.put(id, s);
+        return Mono.just(s);
+    }
+
+    @Override
+    public Flux<SwapOrder> spentSince(Instant since) {
+        Set<SwapOrder.Status> spent = Set.of(SwapOrder.Status.EXECUTING, SwapOrder.Status.SENT, SwapOrder.Status.UNKNOWN_SENT, SwapOrder.Status.CONFIRMED);
+        return Flux.fromIterable(List.copyOf(orders.values()))
+                .filter(o -> spent.contains(o.status()) && o.approvedAt() != null && !o.approvedAt().isBefore(since));
+    }
+
+    /** Test hook: put an order in any state, as a crash or an earlier run would have left it. */
+    public void put(SwapOrder o) {
+        orders.put(o.id(), o);
     }
 
     @Override
