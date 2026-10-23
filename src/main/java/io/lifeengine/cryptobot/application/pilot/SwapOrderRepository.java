@@ -8,11 +8,13 @@ import reactor.core.publisher.Mono;
 /** V17 {@code swap_order} + {@code swap_order_audit}. Every state change is a conditional update: it happens once or not at all. */
 public interface SwapOrderRepository {
 
+    /** Fails with {@code DataIntegrityViolationException} if the creator already used that idempotency key. */
     Mono<SwapOrder> insert(SwapOrder order);
 
     Mono<SwapOrder> find(UUID id);
 
-    Mono<SwapOrder> findByIdempotencyKey(String key);
+    /** Idempotency keys are per creator: one user cannot occupy another's. */
+    Mono<SwapOrder> findByIdempotencyKey(UUID createdBy, String key);
 
     /**
      * PENDING_APPROVAL → APPROVED, only if the order is still pending and {@code jti} was never used for an approval

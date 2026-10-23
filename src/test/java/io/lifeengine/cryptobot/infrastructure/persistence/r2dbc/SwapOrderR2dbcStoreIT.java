@@ -34,6 +34,7 @@ class SwapOrderR2dbcStoreIT {
             .withDatabaseName("cryptobot_it").withUsername("cryptobot").withPassword("cryptobot");
 
     static SwapOrderR2dbcStore store;
+    static DatabaseClient db;
     static final Instant T0 = Instant.parse("2026-10-23T12:00:00Z");
     static final UUID APPROVER = UUID.randomUUID();
 
@@ -44,23 +45,34 @@ class SwapOrderR2dbcStoreIT {
         PostgresqlConnectionFactory cf = new PostgresqlConnectionFactory(PostgresqlConnectionConfiguration.builder()
                 .host(POSTGRES.getHost()).port(POSTGRES.getFirstMappedPort()).database(POSTGRES.getDatabaseName())
                 .username(POSTGRES.getUsername()).password(POSTGRES.getPassword()).build());
-        store = new SwapOrderR2dbcStore(DatabaseClient.create(cf));
+        db = DatabaseClient.create(cf);
+        store = new SwapOrderR2dbcStore(db);
     }
 
     static SwapOrder pending(String key, long inAmount) {
-        return new SwapOrder(UUID.randomUUID(), key, UUID.randomUUID(), SwapOrder.Status.PENDING_APPROVAL, SwapOrder.Direction.SOL_USDC, "devnet",
+        return pending(key, inAmount, UUID.randomUUID());
+    }
+
+    static SwapOrder pending(String key, long inAmount, UUID creator) {
+        return new SwapOrder(UUID.randomUUID(), key, creator, SwapOrder.Status.PENDING_APPROVAL, SwapOrder.Direction.SOL_USDC, "devnet",
                 "5tzFkiKscXHK5ZXCGbXZxdw7gTjjD1mBwuoFbhUvuAi9", inAmount, 1_026_997L, 50, "{\"p\":1}", "a".repeat(64), "b".repeat(64), null, null,
                 null, T0.plusSeconds(120), null, null, T0, T0);
     }
 
     @Test
-    @DisplayName("insert, find by id and by idempotency key; the key is UNIQUE")
+    @DisplayName("insert, find by id and by (creator, idempotency key); the key is UNIQUE per creator only")
     void insertsAndFinds() {
-        SwapOrder o = store.insert(pending("it-k1", 10_000_000L)).block();
+        UUID creator = UUID.randomUUID();
+        SwapOrder o = store.insert(pending("it-k1", 10_000_000L, creator)).block();
         assertThat(store.find(o.id()).block().inAmount()).isEqualTo(10_000_000L);
-        assertThat(store.findByIdempotencyKey("it-k1").block().id()).isEqualTo(o.id());
+        assertThat(store.findByIdempotencyKey(creator, "it-k1").block().id()).isEqualTo(o.id());
         assertThat(store.find(o.id()).block().expiresAt()).isEqualTo(T0.plusSeconds(120));
-        assertThatThrownBy(() -> store.insert(pending("it-k1", 1L)).block()).isInstanceOf(RuntimeException.class);
+        // the same creator cannot reuse it; another creator can have the same key
+        assertThatThrownBy(() -> store.insert(pending("it-k1", 1L, creator)).block())
+                .isInstanceOf(org.springframework.dao.DataIntegrityViolationException.class);
+        SwapOrder other = store.insert(pending("it-k1", 1L, UUID.randomUUID())).block();
+        assertThat(other.id()).isNotEqualTo(o.id());
+        assertThat(store.findByIdempotencyKey(other.createdBy(), "it-k1").block().id()).isEqualTo(other.id());
     }
 
     @Test
@@ -104,9 +116,22 @@ class SwapOrderR2dbcStoreIT {
     }
 
     @Test
+    @DisplayName("the audit table is append-only for real: UPDATE and DELETE are refused by a trigger")
+    void auditIsAppendOnly() {
+        SwapOrder o = store.insert(pending("it-immutable", 1L)).block();
+        store.audit(o.id(), "CREATED", null, o.previewHash(), "original").block();
+        assertThatThrownBy(() -> db.sql("UPDATE swap_order_audit SET detail = 'edited' WHERE order_id = :id").bind("id", o.id()).fetch().rowsUpdated()
+                .block()).hasMessageContaining("append-only");
+        assertThatThrownBy(() -> db.sql("DELETE FROM swap_order_audit WHERE order_id = :id").bind("id", o.id()).fetch().rowsUpdated().block())
+                .hasMessageContaining("append-only");
+        assertThat(store.auditEvents(o.id()).collectList().block()).containsExactly("CREATED");
+    }
+
+    @Test
     @DisplayName("CHECK constraints: no zero amount, no unknown status or cluster")
     void constraints() {
         assertThatThrownBy(() -> store.insert(pending("it-zero", 0L)).block()).isInstanceOf(RuntimeException.class);
+        assertThatThrownBy(() -> store.insert(pending("it-huge", 1_000_000_000_000_001L)).block()).isInstanceOf(RuntimeException.class);
         SwapOrder badCluster = new SwapOrder(UUID.randomUUID(), "it-cluster", UUID.randomUUID(), SwapOrder.Status.PENDING_APPROVAL,
                 SwapOrder.Direction.SOL_USDC, "testnet", "o", 1L, 1L, 50, "{}", "a".repeat(64), "b".repeat(64), null, null, null, T0, null, null, T0, T0);
         assertThatThrownBy(() -> store.insert(badCluster).block()).isInstanceOf(RuntimeException.class);

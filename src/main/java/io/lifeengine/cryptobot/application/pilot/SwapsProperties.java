@@ -15,6 +15,7 @@ import org.springframework.boot.context.properties.bind.ConstructorBinding;
  * @param approvalTtl how long an order may wait for approval, and an approved order for execution (default 2 min)
  * @param approvalIatMaxAge the approval token's {@code iat} may be at most this old (default 5 min)
  * @param cluster where orders are quoted, simulated and (later) sent: {@code devnet} (default) or {@code mainnet-beta}
+ * @param createsPerHour new orders one user may propose per rolling hour (each one calls Jupiter and the RPC); default 20
  */
 @ConfigurationProperties(prefix = "cryptobot.swaps")
 public record SwapsProperties(
@@ -27,7 +28,8 @@ public record SwapsProperties(
         Long maxLamportsIn,
         Long maxUsdcIn,
         Integer maxSlippageBps,
-        Long maxPriorityFeeLamports) {
+        Long maxPriorityFeeLamports,
+        Integer createsPerHour) {
 
     @ConstructorBinding
     public SwapsProperties {
@@ -40,6 +42,7 @@ public record SwapsProperties(
         maxUsdcIn = maxUsdcIn == null || maxUsdcIn <= 0 ? 10_000_000L : maxUsdcIn;
         maxSlippageBps = maxSlippageBps == null || maxSlippageBps < 0 ? 100 : Math.min(maxSlippageBps, 10_000);
         maxPriorityFeeLamports = maxPriorityFeeLamports == null || maxPriorityFeeLamports <= 0 ? 200_000L : maxPriorityFeeLamports;
+        createsPerHour = createsPerHour == null || createsPerHour <= 0 ? 20 : createsPerHour;
         if (!cluster.equals("devnet") && !cluster.equals("mainnet-beta")) {
             throw new IllegalArgumentException("cryptobot.swaps.cluster must be devnet or mainnet-beta, was " + cluster);
         }

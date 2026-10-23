@@ -32,6 +32,9 @@ public class SwapsController {
 
     public record CreateSwap(SwapOrder.Direction direction, Long amount, Integer maxSlippageBps) {}
 
+    /** The preview the approver saw ({@code previewHash} from {@code GET /swaps/{id}}): approving binds exactly it. */
+    public record ApproveSwap(String previewHash) {}
+
     /** The order as the caller may see it; {@code approvalNonce} is null unless the caller is the approver and it is pending. */
     public record SwapView(UUID id, String status, String direction, String cluster, String owner, long inAmount, long minOut, int maxSlippageBps,
             String previewHash, String preview, UUID createdBy, UUID approvedBy, Instant approvedAt, Instant expiresAt, String txSignature,
@@ -70,8 +73,8 @@ public class SwapsController {
 
     @PostMapping("/{id}/approve")
     public Mono<ResponseEntity<?>> approve(@PathVariable UUID id, @RequestHeader(value = CSRF_HEADER, required = false) String csrf,
-            @AuthenticationPrincipal CryptobotPrincipal principal) {
-        return swaps.approve(principal, id, csrf)
+            @RequestBody(required = false) ApproveSwap body, @AuthenticationPrincipal CryptobotPrincipal principal) {
+        return swaps.approve(principal, id, csrf, body == null ? null : body.previewHash())
                 .<ResponseEntity<?>>map(o -> ResponseEntity.ok(SwapView.of(o, null)))
                 .onErrorResume(SwapOrderService.SwapRefused.class, SwapsController::refused);
     }
@@ -90,6 +93,7 @@ public class SwapsController {
             case NOT_FOUND -> HttpStatus.NOT_FOUND;
             case CONFLICT -> HttpStatus.CONFLICT;
             case UNAVAILABLE -> HttpStatus.SERVICE_UNAVAILABLE;
+            case RATE_LIMITED -> HttpStatus.TOO_MANY_REQUESTS;
         };
         return Mono.just(ResponseEntity.status(status).body(Map.of("reason", ex.reason())));
     }

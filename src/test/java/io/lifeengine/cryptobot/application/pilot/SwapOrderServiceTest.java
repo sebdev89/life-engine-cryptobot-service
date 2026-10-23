@@ -133,7 +133,7 @@ class SwapOrderServiceTest {
         SolanaRpcClient solana = new SolanaRpcClient(WebClient.builder(), new SolanaRpcProperties(rpcUrl, rpcUrl, Duration.ofSeconds(3)), om);
         SignerClient signerClient = new SignerClient(WebClient.builder(),
                 new SignerProperties(true, "http://localhost:" + signer.getPort(), "tok", Duration.ofSeconds(3)));
-        SwapsProperties props = new SwapsProperties(enabled, APPROVER, approverTenant, null, null, "devnet", null, null, null, null);
+        SwapsProperties props = new SwapsProperties(enabled, APPROVER, approverTenant, null, null, "devnet", null, null, null, null, null);
         return new SwapOrderService(props, repo, new JupiterSwapClient(WebClient.builder(), md, om), solana, signerClient, meters, clock);
     }
 
@@ -195,11 +195,57 @@ class SwapOrderServiceTest {
     }
 
     @Test
-    void theSameIdempotencyKeyReturnsTheSameOrderToItsCreatorAndIsRefusedToAnyoneElse() {
+    void theSameIdempotencyKeyReturnsTheSameOrderToItsCreatorAndIsAnotherUsersOwnKey() {
         SwapOrderService s = service();
         SwapOrder first = created(s, "k-same");
         assertThat(created(s, "k-same").id()).isEqualTo(first.id());
-        assertThat(reason(s.create(approver(), "k-same", solToUsdc()))).isEqualTo("idempotency_key_in_use");
+        // keys are per creator: another user's same key is their own order, not a conflict
+        SwapOrder theirs = s.create(approver(), "k-same", solToUsdc()).block();
+        assertThat(theirs.id()).isNotEqualTo(first.id());
+        assertThat(theirs.createdBy()).isEqualTo(APPROVER);
+    }
+
+    @Test
+    void twoConcurrentProposalsWithTheSameKeyEndAsOneOrder() {
+        // the first lookup misses (the other request has not inserted yet), the insert then hits the UNIQUE: re-read it
+        SwapOrder winner = created(service(), "k-race");
+        java.util.concurrent.atomic.AtomicBoolean missOnce = new java.util.concurrent.atomic.AtomicBoolean(true);
+        InMemorySwapOrderRepository shared = repo;
+        repo = new InMemorySwapOrderRepository() {
+            @Override
+            public Mono<SwapOrder> insert(SwapOrder o) {
+                return shared.insert(o);
+            }
+
+            @Override
+            public Mono<SwapOrder> findByIdempotencyKey(UUID createdBy, String key) {
+                return missOnce.getAndSet(false) ? Mono.empty() : shared.findByIdempotencyKey(createdBy, key);
+            }
+
+            @Override
+            public Mono<Void> audit(UUID orderId, String event, UUID actor, String previewHash, String detail) {
+                return shared.audit(orderId, event, actor, previewHash, detail);
+            }
+        };
+        assertThat(created(service(), "k-race").id()).isEqualTo(winner.id());
+    }
+
+    @Test
+    void proposalsAreRateLimitedPerCreatorButReplaysAreFree() {
+        String rpcUrl = "http://localhost:" + rpc.getPort();
+        ObjectMapper om = new ObjectMapper();
+        SwapOrderService s = new SwapOrderService(new SwapsProperties(true, APPROVER, "", null, null, "devnet", null, null, null, null, 2), repo,
+                new JupiterSwapClient(WebClient.builder(), new MarketDataProperties("http://localhost:" + jupiter.getPort(), Duration.ofSeconds(3),
+                        Map.of(), Map.of(), true), om),
+                new SolanaRpcClient(WebClient.builder(), new SolanaRpcProperties(rpcUrl, rpcUrl, Duration.ofSeconds(3)), om),
+                new SignerClient(WebClient.builder(), new SignerProperties(true, "http://localhost:" + signer.getPort(), "tok", Duration.ofSeconds(3))),
+                meters, clock);
+        created(s, "r1");
+        created(s, "r2");
+        assertThat(created(s, "r1").idempotencyKey()).isEqualTo("r1"); // a replay is not a new proposal
+        assertThat(reason(s.create(someone(), "r3", solToUsdc()))).isEqualTo("too_many_proposals");
+        clock.now = clock.now.plus(Duration.ofHours(1)).plusSeconds(1);
+        assertThat(created(s, "r3").status()).isEqualTo(SwapOrder.Status.PENDING_APPROVAL);
     }
 
     @Test
@@ -214,8 +260,9 @@ class SwapOrderServiceTest {
         assertThat(reason(s.create(someone(), " ", solToUsdc()))).isEqualTo("idempotency_key_required");
         assertThat(reason(service(false, "").create(someone(), "k", solToUsdc()))).isEqualTo("swaps_disabled");
         simulationOk.set(false);
-        assertThat(reason(s.create(someone(), "k-sim", solToUsdc()))).startsWith("simulation_failed");
-        assertThat(repo.findByIdempotencyKey("k-sim").block()).isNull();
+        // a stable code for the client; the RPC's detail is only logged
+        assertThat(reason(s.create(someone(), "k-sim", solToUsdc()))).isEqualTo("simulation_failed");
+        assertThat(repo.findByIdempotencyKey(SOMEONE, "k-sim").block()).isNull();
     }
 
     // ---- approval --------------------------------------------------------------------------------
@@ -226,7 +273,7 @@ class SwapOrderServiceTest {
         SwapOrder o = created(s, "k-ok");
         clock.now = T0.plusSeconds(30);
 
-        SwapOrder approved = s.approve(approver(), o.id(), nonce(s, o)).block();
+        SwapOrder approved = s.approve(approver(), o.id(), nonce(s, o), o.previewHash()).block();
 
         assertThat(approved.status()).isEqualTo(SwapOrder.Status.APPROVED);
         assertThat(approved.approvedBy()).isEqualTo(APPROVER);
@@ -237,8 +284,12 @@ class SwapOrderServiceTest {
         assertThat(approved.minOut()).isEqualTo(o.minOut());
         assertThat(approved.previewHash()).isEqualTo(o.previewHash());
         assertThat(repo.auditEvents(o.id()).collectList().block()).containsExactly("CREATED", "APPROVED");
+        InMemorySwapOrderRepository.AuditRow row = repo.auditRows(o.id()).get(1);
+        assertThat(row.previewHash()).isEqualTo(o.previewHash()).isNotNull();
+        assertThat(row.actor()).isEqualTo(APPROVER);
+        assertThat(row.detail()).contains("jti=").contains("sid=sid-1");
         // single use
-        assertThat(reason(s.approve(approver(), o.id(), o.approvalNonce()))).isEqualTo("not_pending");
+        assertThat(reason(s.approve(approver(), o.id(), o.approvalNonce(), o.previewHash()))).isEqualTo("not_pending");
     }
 
     @Test
@@ -246,11 +297,14 @@ class SwapOrderServiceTest {
         SwapOrderService s = service();
         SwapOrder o = created(s, "k-who");
         String n = o.approvalNonce();
-        assertThat(reason(s.approve(someone(), o.id(), n))).isEqualTo("not_approver");
+        assertThat(reason(s.approve(someone(), o.id(), n, o.previewHash()))).isEqualTo("not_approver");
         // same sub, but a tenant user — and a present-but-empty tenant is not an absent one
-        assertThat(reason(s.approve(approver(clock.now, true, "acme", "RS256", List.of("ROLE_ADMIN")), o.id(), n))).isEqualTo("tenant_mismatch");
-        assertThat(reason(s.approve(approver(clock.now, true, "", "RS256", List.of("ROLE_ADMIN")), o.id(), n))).isEqualTo("tenant_mismatch");
-        assertThat(reason(s.approve(approver(clock.now, false, null, "RS256", List.of("ROLE_USER")), o.id(), n))).isEqualTo("not_admin");
+        assertThat(reason(s.approve(approver(clock.now, true, "acme", "RS256", List.of("ROLE_ADMIN")), o.id(), n, o.previewHash()))).isEqualTo("tenant_mismatch");
+        assertThat(reason(s.approve(approver(clock.now, true, "", "RS256", List.of("ROLE_ADMIN")), o.id(), n, o.previewHash()))).isEqualTo("tenant_mismatch");
+        assertThat(reason(s.approve(approver(clock.now, false, null, "RS256", List.of("ROLE_USER")), o.id(), n, o.previewHash()))).isEqualTo("not_admin");
+        // an operator is not an admin, whatever runtime authorities it carries
+        assertThat(reason(s.approve(approver(clock.now, false, null, "RS256", List.of("ROLE_OPERATOR", "RUNTIME_OPERATOR", "RUNTIME_VIEWER")),
+                o.id(), n, o.previewHash()))).isEqualTo("not_admin");
         assertThat(repo.find(o.id()).block().status()).isEqualTo(SwapOrder.Status.PENDING_APPROVAL);
     }
 
@@ -258,8 +312,8 @@ class SwapOrderServiceTest {
     void aConfiguredTenantMustBePresentAndEqual() {
         SwapOrderService s = service(true, "platform");
         SwapOrder o = created(s, "k-tenant");
-        assertThat(reason(s.approve(approver(), o.id(), o.approvalNonce()))).isEqualTo("tenant_mismatch");
-        assertThat(s.approve(approver(clock.now, true, "platform", "RS256", List.of("ROLE_ADMIN")), o.id(), o.approvalNonce()).block().status())
+        assertThat(reason(s.approve(approver(), o.id(), o.approvalNonce(), o.previewHash()))).isEqualTo("tenant_mismatch");
+        assertThat(s.approve(approver(clock.now, true, "platform", "RS256", List.of("ROLE_ADMIN")), o.id(), o.approvalNonce(), o.previewHash()).block().status())
                 .isEqualTo(SwapOrder.Status.APPROVED);
     }
 
@@ -268,17 +322,20 @@ class SwapOrderServiceTest {
         SwapOrderService s = service();
         SwapOrder o = created(s, "k-token");
         String n = o.approvalNonce();
-        assertThat(reason(s.approve(approver(clock.now, false, null, "HS256", List.of("ROLE_ADMIN")), o.id(), n))).isEqualTo("token_not_rs256");
+        assertThat(reason(s.approve(approver(clock.now, false, null, "HS256", List.of("ROLE_ADMIN")), o.id(), n, o.previewHash()))).isEqualTo("token_not_rs256");
         assertThat(reason(s.approve(approver(clock.now.minus(Duration.ofMinutes(5)).minusSeconds(1), false, null, "RS256", List.of("ROLE_ADMIN")),
-                o.id(), n))).isEqualTo("token_not_fresh");
-        assertThat(reason(s.approve(approver(clock.now.plusSeconds(31), false, null, "RS256", List.of("ROLE_ADMIN")), o.id(), n)))
+                o.id(), n, o.previewHash()))).isEqualTo("token_not_fresh");
+        assertThat(reason(s.approve(approver(clock.now.plusSeconds(31), false, null, "RS256", List.of("ROLE_ADMIN")), o.id(), n, o.previewHash())))
                 .isEqualTo("token_not_fresh");
-        assertThat(reason(s.approve(approver(null, false, null, "RS256", List.of("ROLE_ADMIN")), o.id(), n))).isEqualTo("token_not_fresh");
+        assertThat(reason(s.approve(approver(null, false, null, "RS256", List.of("ROLE_ADMIN")), o.id(), n, o.previewHash()))).isEqualTo("token_not_fresh");
         CryptobotPrincipal noJti = new CryptobotPrincipal(APPROVER, "s", "ADMIN", List.of("ROLE_ADMIN"), "raw", clock.now, null, "sid", false, null,
                 "RS256");
-        assertThat(reason(s.approve(noJti, o.id(), n))).isEqualTo("token_without_jti_or_sid");
+        assertThat(reason(s.approve(noJti, o.id(), n, o.previewHash()))).isEqualTo("token_without_jti_or_sid");
+        CryptobotPrincipal noSid = new CryptobotPrincipal(APPROVER, "s", "ADMIN", List.of("ROLE_ADMIN"), "raw", clock.now, "jti-nosid", null, false,
+                null, "RS256");
+        assertThat(reason(s.approve(noSid, o.id(), n, o.previewHash()))).isEqualTo("token_without_jti_or_sid");
         // exactly 5 minutes old is still fresh
-        assertThat(s.approve(approver(clock.now.minus(Duration.ofMinutes(5)), false, null, "RS256", List.of("ROLE_ADMIN")), o.id(), n).block()
+        assertThat(s.approve(approver(clock.now.minus(Duration.ofMinutes(5)), false, null, "RS256", List.of("ROLE_ADMIN")), o.id(), n, o.previewHash()).block()
                 .status()).isEqualTo(SwapOrder.Status.APPROVED);
     }
 
@@ -290,10 +347,32 @@ class SwapOrderServiceTest {
         assertThat(s.view(someone(), a.id()).block().approvalNonce()).isNull();
         assertThat(s.view(approver(), a.id()).block().approvalNonce()).isEqualTo(a.approvalNonce());
         // b's nonce does not approve a; no nonce does not either
-        assertThat(reason(s.approve(approver(), a.id(), b.approvalNonce()))).isEqualTo("csrf_mismatch");
-        assertThat(reason(s.approve(approver(), a.id(), null))).isEqualTo("csrf_mismatch");
-        s.approve(approver(), a.id(), a.approvalNonce()).block();
+        assertThat(reason(s.approve(approver(), a.id(), b.approvalNonce(), a.previewHash()))).isEqualTo("csrf_mismatch");
+        assertThat(reason(s.approve(approver(), a.id(), null, a.previewHash()))).isEqualTo("csrf_mismatch");
+        s.approve(approver(), a.id(), a.approvalNonce(), a.previewHash()).block();
         assertThat(s.view(approver(), a.id()).block().approvalNonce()).as("no nonce once it is no longer pending").isNull();
+    }
+
+    @Test
+    void theApprovalBindsThePreviewTheApproverSaw() {
+        SwapOrderService s = service();
+        SwapOrder o = created(s, "k-preview");
+        assertThat(reason(s.approve(approver(), o.id(), o.approvalNonce(), "f".repeat(64)))).isEqualTo("preview_mismatch");
+        assertThat(reason(s.approve(approver(), o.id(), o.approvalNonce(), null))).isEqualTo("preview_mismatch");
+        assertThat(repo.find(o.id()).block().status()).isEqualTo(SwapOrder.Status.PENDING_APPROVAL);
+    }
+
+    @Test
+    void anAdminWhoIsNotTheApproverNeverSeesTheNonceAndOthersCannotReadTheOrder() {
+        SwapOrderService s = service();
+        CryptobotPrincipal otherAdmin = new CryptobotPrincipal(UUID.randomUUID(), "admin2@x", "ADMIN", List.of("ROLE_ADMIN"), "raw", clock.now,
+                "jti-a2", "sid-a2", false, null, "RS256");
+        SwapOrder mine = s.create(otherAdmin, "k-admin2", solToUsdc()).block();
+        // the other admin created it, so they may read it — but not its nonce
+        assertThat(s.view(otherAdmin, mine.id()).block().approvalNonce()).isNull();
+        // someone who is neither its creator nor the approver cannot read it at all
+        assertThat(reason(s.view(someone(), mine.id()))).isEqualTo("not_creator_or_approver");
+        assertThat(s.view(approver(), mine.id()).block().approvalNonce()).isEqualTo(mine.approvalNonce());
     }
 
     @Test
@@ -302,8 +381,8 @@ class SwapOrderServiceTest {
         SwapOrder a = created(s, "k-j1");
         SwapOrder b = created(s, "k-j2");
         CryptobotPrincipal sameToken = approver();
-        s.approve(sameToken, a.id(), a.approvalNonce()).block();
-        assertThat(reason(s.approve(sameToken, b.id(), b.approvalNonce()))).isEqualTo("not_pending_or_token_used");
+        s.approve(sameToken, a.id(), a.approvalNonce(), a.previewHash()).block();
+        assertThat(reason(s.approve(sameToken, b.id(), b.approvalNonce(), b.previewHash()))).isEqualTo("not_pending_or_token_used");
         assertThat(repo.find(b.id()).block().status()).isEqualTo(SwapOrder.Status.PENDING_APPROVAL);
     }
 
@@ -312,13 +391,13 @@ class SwapOrderServiceTest {
         SwapOrderService s = service();
         SwapOrder o = created(s, "k-late");
         clock.now = T0.plusSeconds(120);
-        assertThat(reason(s.approve(approver(), o.id(), o.approvalNonce()))).isEqualTo("approval_expired");
+        assertThat(reason(s.approve(approver(), o.id(), o.approvalNonce(), o.previewHash()))).isEqualTo("approval_expired");
         assertThat(repo.find(o.id()).block().status()).isEqualTo(SwapOrder.Status.EXPIRED);
         assertThat(repo.auditEvents(o.id()).collectList().block()).containsExactly("CREATED", "EXPIRED");
         // one second before the deadline it would have been fine
         SwapOrder p = created(s, "k-intime");
         clock.now = clock.now.plusSeconds(119);
-        assertThat(s.approve(approver(), p.id(), p.approvalNonce()).block().status()).isEqualTo(SwapOrder.Status.APPROVED);
+        assertThat(s.approve(approver(), p.id(), p.approvalNonce(), p.previewHash()).block().status()).isEqualTo(SwapOrder.Status.APPROVED);
     }
 
     @Test
@@ -329,7 +408,7 @@ class SwapOrderServiceTest {
         assertThat(reason(s.reject(other, o.id()))).isEqualTo("not_creator_or_approver");
         assertThat(s.reject(someone(), o.id()).block().status()).isEqualTo(SwapOrder.Status.REJECTED);
         assertThat(reason(s.reject(approver(), o.id()))).isEqualTo("not_pending");
-        assertThat(reason(s.approve(approver(), o.id(), o.approvalNonce()))).isEqualTo("not_pending");
+        assertThat(reason(s.approve(approver(), o.id(), o.approvalNonce(), o.previewHash()))).isEqualTo("not_pending");
     }
 
     @Test
@@ -338,20 +417,20 @@ class SwapOrderServiceTest {
         SwapOrderService base = service();
         SwapOrder o = created(base, "k-none");
         String rpcUrl = "http://localhost:" + rpc.getPort();
-        SwapOrderService none = new SwapOrderService(new SwapsProperties(true, null, "", null, null, "devnet", null, null, null, null), repo,
+        SwapOrderService none = new SwapOrderService(new SwapsProperties(true, null, "", null, null, "devnet", null, null, null, null, null), repo,
                 new JupiterSwapClient(WebClient.builder(), new MarketDataProperties("http://localhost:" + jupiter.getPort(), Duration.ofSeconds(3),
                         Map.of(), Map.of(), true), om),
                 new SolanaRpcClient(WebClient.builder(), new SolanaRpcProperties(rpcUrl, rpcUrl, Duration.ofSeconds(3)), om),
                 new SignerClient(WebClient.builder(), new SignerProperties(true, "http://localhost:" + signer.getPort(), "tok", Duration.ofSeconds(3))),
                 meters, clock);
-        assertThat(reason(none.approve(approver(), o.id(), o.approvalNonce()))).isEqualTo("no_approver_configured");
+        assertThat(reason(none.approve(approver(), o.id(), o.approvalNonce(), o.previewHash()))).isEqualTo("no_approver_configured");
     }
 
     @Test
     void disabledMeansNothingAtAll() {
         SwapOrderService off = service(false, "");
         UUID id = UUID.randomUUID();
-        assertThat(reason(off.approve(approver(), id, "n"))).isEqualTo("swaps_disabled");
+        assertThat(reason(off.approve(approver(), id, "n", "h"))).isEqualTo("swaps_disabled");
         assertThat(reason(off.reject(approver(), id))).isEqualTo("swaps_disabled");
         assertThat(reason(off.view(approver(), id))).isEqualTo("swaps_disabled");
         StepVerifier.create(off.create(someone(), "k", solToUsdc())).expectError(SwapOrderService.SwapRefused.class).verify();

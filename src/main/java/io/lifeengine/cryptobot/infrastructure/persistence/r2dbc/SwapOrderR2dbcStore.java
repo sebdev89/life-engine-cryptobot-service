@@ -49,8 +49,9 @@ public class SwapOrderR2dbcStore implements SwapOrderRepository {
     }
 
     @Override
-    public Mono<SwapOrder> findByIdempotencyKey(String key) {
-        return db.sql("SELECT " + COLS + " FROM swap_order WHERE idempotency_key = :key").bind("key", key).map((row, meta) -> order(row)).one();
+    public Mono<SwapOrder> findByIdempotencyKey(UUID createdBy, String key) {
+        return db.sql("SELECT " + COLS + " FROM swap_order WHERE created_by = :by AND idempotency_key = :key").bind("by", createdBy).bind("key", key)
+                .map((row, meta) -> order(row)).one();
     }
 
     @Override

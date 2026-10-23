@@ -128,6 +128,7 @@ cryptobot:
     max-usdc-in: ${CRYPTOBOT_SWAPS_MAX_USDC_IN:10000000}
     max-slippage-bps: ${CRYPTOBOT_SWAPS_MAX_SLIPPAGE_BPS:100}
     max-priority-fee-lamports: ${CRYPTOBOT_SWAPS_MAX_PRIORITY_FEE_LAMPORTS:200000}
+    creates-per-hour: ${CRYPTOBOT_SWAPS_CREATES_PER_HOUR:20}
   paper:
     enabled: ${CRYPTOBOT_PAPER_ENABLED:false}
     interval: ${CRYPTOBOT_PAPER_INTERVAL:5m}

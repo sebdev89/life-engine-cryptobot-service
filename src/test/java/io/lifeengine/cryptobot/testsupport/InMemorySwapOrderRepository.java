@@ -17,12 +17,15 @@ public class InMemorySwapOrderRepository implements SwapOrderRepository {
 
     private final Map<UUID, SwapOrder> orders = new ConcurrentHashMap<>();
     private final Set<String> usedJtis = ConcurrentHashMap.newKeySet();
-    private final Map<UUID, List<String>> audit = new ConcurrentHashMap<>();
+    private final Map<UUID, List<AuditRow>> audit = new ConcurrentHashMap<>();
+
+    /** One audit row as written. */
+    public record AuditRow(String event, UUID actor, String previewHash, String detail) {}
 
     @Override
     public synchronized Mono<SwapOrder> insert(SwapOrder o) {
-        if (orders.values().stream().anyMatch(e -> e.idempotencyKey().equals(o.idempotencyKey()))) {
-            return Mono.error(new IllegalStateException("duplicate idempotency_key"));
+        if (orders.values().stream().anyMatch(e -> e.createdBy().equals(o.createdBy()) && e.idempotencyKey().equals(o.idempotencyKey()))) {
+            return Mono.error(new org.springframework.dao.DataIntegrityViolationException("uq_swap_order_creator_key"));
         }
         orders.put(o.id(), o);
         return Mono.just(o);
@@ -34,8 +37,8 @@ public class InMemorySwapOrderRepository implements SwapOrderRepository {
     }
 
     @Override
-    public Mono<SwapOrder> findByIdempotencyKey(String key) {
-        return Mono.justOrEmpty(orders.values().stream().filter(o -> o.idempotencyKey().equals(key)).findFirst());
+    public Mono<SwapOrder> findByIdempotencyKey(UUID createdBy, String key) {
+        return Mono.justOrEmpty(orders.values().stream().filter(o -> o.createdBy().equals(createdBy) && o.idempotencyKey().equals(key)).findFirst());
     }
 
     @Override
@@ -66,12 +69,16 @@ public class InMemorySwapOrderRepository implements SwapOrderRepository {
 
     @Override
     public Mono<Void> audit(UUID orderId, String event, UUID actor, String previewHash, String detail) {
-        audit.computeIfAbsent(orderId, k -> new CopyOnWriteArrayList<>()).add(event);
+        audit.computeIfAbsent(orderId, k -> new CopyOnWriteArrayList<>()).add(new AuditRow(event, actor, previewHash, detail));
         return Mono.empty();
     }
 
     @Override
     public Flux<String> auditEvents(UUID orderId) {
-        return Flux.fromIterable(audit.getOrDefault(orderId, List.of()));
+        return Flux.fromIterable(audit.getOrDefault(orderId, List.of())).map(AuditRow::event);
+    }
+
+    public List<AuditRow> auditRows(UUID orderId) {
+        return List.copyOf(audit.getOrDefault(orderId, List.of()));
     }
 }

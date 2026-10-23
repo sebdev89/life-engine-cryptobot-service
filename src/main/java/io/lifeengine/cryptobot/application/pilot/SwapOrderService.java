@@ -54,7 +54,7 @@ public class SwapOrderService {
 
     /** A request the service will not carry out, with a stable reason and the kind of failure it is. */
     public static final class SwapRefused extends RuntimeException {
-        public enum Kind { BAD_REQUEST, FORBIDDEN, NOT_FOUND, CONFLICT, UNAVAILABLE }
+        public enum Kind { BAD_REQUEST, FORBIDDEN, NOT_FOUND, CONFLICT, UNAVAILABLE, RATE_LIMITED }
 
         private final Kind kind;
         private final String reason;
@@ -87,6 +87,8 @@ public class SwapOrderService {
     private final MeterRegistry meters;
     private final Clock clock;
     private final ObjectMapper canonical = new ObjectMapper().configure(SerializationFeature.ORDER_MAP_ENTRIES_BY_KEYS, true);
+    /** Proposal timestamps per creator within the last hour (each proposal calls Jupiter and the RPC). */
+    private final Map<UUID, java.util.Deque<Instant>> proposals = new java.util.concurrent.ConcurrentHashMap<>();
 
     public SwapOrderService(SwapsProperties props, SwapOrderRepository repo, JupiterSwapClient jupiter, SolanaRpcClient rpc, SignerClient signer,
             MeterRegistry meters, Clock clock) {
@@ -118,11 +120,16 @@ public class SwapOrderService {
             return Mono.error(new SwapRefused(SwapRefused.Kind.BAD_REQUEST, "slippage_out_of_bounds"));
         }
         String key = idempotencyKey.trim();
-        return repo.findByIdempotencyKey(key)
-                .flatMap(existing -> existing.createdBy().equals(principal.userId())
-                        ? Mono.just(existing)
-                        : Mono.<SwapOrder>error(new SwapRefused(SwapRefused.Kind.CONFLICT, "idempotency_key_in_use")))
-                .switchIfEmpty(Mono.defer(() -> propose(principal, key, req)));
+        return repo.findByIdempotencyKey(principal.userId(), key)
+                .switchIfEmpty(Mono.defer(() -> {
+                    if (!admitProposal(principal.userId())) {
+                        return Mono.error(new SwapRefused(SwapRefused.Kind.RATE_LIMITED, "too_many_proposals"));
+                    }
+                    return propose(principal, key, req)
+                            // the same creator and key raced in: the other request created it; return that one
+                            .onErrorResume(org.springframework.dao.DataIntegrityViolationException.class,
+                                    ex -> repo.findByIdempotencyKey(principal.userId(), key));
+                }));
     }
 
     private Mono<SwapOrder> propose(CryptobotPrincipal principal, String key, CreateRequest req) {
@@ -135,7 +142,9 @@ public class SwapOrderService {
                             UnsignedSwapCheck.check(swap.transactionBase64(), owner);
                             return rpc.simulateTransaction(cluster, swap.transactionBase64(), false).flatMap(sim -> {
                                 if (!sim.ok()) {
-                                    return Mono.error(new SwapRefused(SwapRefused.Kind.CONFLICT, "simulation_failed: " + sim.error()));
+                                    // the client gets a stable code; the RPC's detail stays in the log
+                                    log.warn("swap_order_simulation_failed direction={} amount={} error={}", req.direction(), req.amount(), sim.error());
+                                    return Mono.error(new SwapRefused(SwapRefused.Kind.CONFLICT, "simulation_failed"));
                                 }
                                 long minOut = BigInteger.valueOf(quote.outAmount()).multiply(BigInteger.valueOf(10_000 - req.maxSlippageBps()))
                                         .divide(BigInteger.valueOf(10_000)).longValueExact();
@@ -181,7 +190,8 @@ public class SwapOrderService {
 
     // ---- approval ----------------------------------------------------------------------------------
 
-    public Mono<SwapOrder> approve(CryptobotPrincipal principal, UUID id, String csrfToken) {
+    /** @param previewHash the preview the approver saw: it must be this order's, exactly (explicit binding) */
+    public Mono<SwapOrder> approve(CryptobotPrincipal principal, UUID id, String csrfToken, String previewHash) {
         if (!props.enabled()) {
             return Mono.error(new SwapRefused(SwapRefused.Kind.NOT_FOUND, "swaps_disabled"));
         }
@@ -208,6 +218,9 @@ public class SwapOrderService {
                     if (csrfToken == null || !MessageDigest.isEqual(csrfToken.getBytes(StandardCharsets.UTF_8),
                             order.approvalNonce().getBytes(StandardCharsets.UTF_8))) {
                         return Mono.error(new SwapRefused(SwapRefused.Kind.FORBIDDEN, "csrf_mismatch"));
+                    }
+                    if (previewHash == null || !previewHash.equals(order.previewHash())) {
+                        return Mono.error(new SwapRefused(SwapRefused.Kind.CONFLICT, "preview_mismatch"));
                     }
                     return repo.approve(order.id(), principal.userId(), now, principal.jti(), now.plus(props.approvalTtl()))
                             .switchIfEmpty(Mono.error(new SwapRefused(SwapRefused.Kind.CONFLICT, "not_pending_or_token_used")))
@@ -245,8 +258,14 @@ public class SwapOrderService {
         }
         return repo.find(id)
                 .switchIfEmpty(Mono.error(new SwapRefused(SwapRefused.Kind.NOT_FOUND, "order_not_found")))
-                .map(order -> new View(order, order.status() == SwapOrder.Status.PENDING_APPROVAL && approverIdentityRefusal(principal) == null
-                        ? order.approvalNonce() : null));
+                .flatMap(order -> {
+                    boolean approver = approverIdentityRefusal(principal) == null;
+                    boolean creator = principal != null && order.createdBy().equals(principal.userId());
+                    if (!approver && !creator) {
+                        return Mono.error(new SwapRefused(SwapRefused.Kind.FORBIDDEN, "not_creator_or_approver"));
+                    }
+                    return Mono.just(new View(order, order.status() == SwapOrder.Status.PENDING_APPROVAL && approver ? order.approvalNonce() : null));
+                });
     }
 
     // ---- who may approve ----------------------------------------------------------------------------
@@ -282,6 +301,22 @@ public class SwapOrderService {
             return "token_not_fresh";
         }
         return null;
+    }
+
+    /** Rolling one-hour window per creator; true = admitted (and counted). */
+    private boolean admitProposal(UUID creator) {
+        Instant now = clock.instant();
+        java.util.Deque<Instant> window = proposals.computeIfAbsent(creator, k -> new java.util.ArrayDeque<>());
+        synchronized (window) {
+            while (!window.isEmpty() && !window.peekFirst().isAfter(now.minus(Duration.ofHours(1)))) {
+                window.removeFirst();
+            }
+            if (window.size() >= props.createsPerHour()) {
+                return false;
+            }
+            window.addLast(now);
+            return true;
+        }
     }
 
     private void count(SwapOrder.Status status) {

@@ -5,8 +5,9 @@
 
 CREATE TABLE swap_order (
     id                UUID          PRIMARY KEY,
-    -- the creator's Idempotency-Key: the same key returns the same order instead of a second one
-    idempotency_key   VARCHAR(100)  NOT NULL UNIQUE,
+    -- the creator's Idempotency-Key: the same key returns the same order instead of a second one. Unique per creator,
+    -- so one user cannot occupy another's key
+    idempotency_key   VARCHAR(100)  NOT NULL,
     created_by        UUID          NOT NULL,
     status            VARCHAR(20)   NOT NULL,
     direction         VARCHAR(10)   NOT NULL,
@@ -32,7 +33,10 @@ CREATE TABLE swap_order (
                                                        'UNKNOWN_SENT', 'FAILED', 'REJECTED', 'EXPIRED')),
     CONSTRAINT chk_swap_order_direction CHECK (direction IN ('SOL_USDC', 'USDC_SOL')),
     CONSTRAINT chk_swap_order_cluster CHECK (cluster IN ('devnet', 'mainnet-beta')),
-    CONSTRAINT chk_swap_order_amounts CHECK (in_amount > 0 AND min_out > 0 AND max_slippage_bps BETWEEN 0 AND 10000),
+    -- base units (lamports, USDC units); the pilot is far below the bound, which only rules out nonsense
+    CONSTRAINT chk_swap_order_amounts CHECK (in_amount BETWEEN 1 AND 1000000000000000 AND min_out BETWEEN 1 AND 1000000000000000
+                                             AND max_slippage_bps BETWEEN 0 AND 10000),
+    CONSTRAINT uq_swap_order_creator_key UNIQUE (created_by, idempotency_key),
     CONSTRAINT chk_swap_order_approval CHECK ((approved_by IS NULL) = (approved_at IS NULL))
 );
 
@@ -50,3 +54,13 @@ CREATE TABLE swap_order_audit (
 );
 
 CREATE INDEX idx_swap_order_audit_order ON swap_order_audit (order_id, at);
+
+-- Append-only for real: an audit row can be added, never changed or removed.
+CREATE FUNCTION swap_order_audit_immutable() RETURNS trigger AS $$
+BEGIN
+    RAISE EXCEPTION 'swap_order_audit is append-only (% refused)', TG_OP;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER trg_swap_order_audit_immutable BEFORE UPDATE OR DELETE ON swap_order_audit
+    FOR EACH ROW EXECUTE FUNCTION swap_order_audit_immutable();
