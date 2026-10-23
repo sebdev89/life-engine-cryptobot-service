@@ -257,6 +257,12 @@ cryptobot:
       # env-overridable so a stack can enable POV_REWARD (Proof of Value payouts). Changing it changes H_R: the
       # validator's VALIDATOR_POLICY_ENABLED_STRATEGIES must match and VALIDATOR_POLICY_HASH be re-pinned (the demo does both).
       enabled-strategies: ${CRYPTOBOT_POLICY_ENABLED_STRATEGIES:REBALANCE}
+      # KAN-1249 pilot: PILOT_SWAP's per-swap limits (lamports, USDC base units, bps). All three or none; set ⇒ a
+      # `pilot_swap` section enters the policy and changes H_R (the validator's VALIDATOR_POLICY_PILOT_SWAP_* must match
+      # and VALIDATOR_POLICY_HASH be re-pinned). Empty (default) ⇒ no pilot and the hash is what it was.
+      pilot-swap-max-lamports-in: ${CRYPTOBOT_POLICY_PILOT_SWAP_MAX_LAMPORTS_IN:}
+      pilot-swap-max-usdc-in: ${CRYPTOBOT_POLICY_PILOT_SWAP_MAX_USDC_IN:}
+      pilot-swap-max-slippage-bps: ${CRYPTOBOT_POLICY_PILOT_SWAP_MAX_SLIPPAGE_BPS:}
     # timelock (paper §19): the wait between approval and the first moment the proposal can
     # be executed. A human can cancel (POST /proposals/{id}/cancel) while it runs. By tier of the
     # verdict: ALLOW ⇒ `autonomous` (none by default), ESCALATE ⇒ `escalated` (30 min). The

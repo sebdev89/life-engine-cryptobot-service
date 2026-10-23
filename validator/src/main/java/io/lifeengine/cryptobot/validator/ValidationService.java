@@ -5,6 +5,7 @@ import io.lifeengine.cryptobot.validator.crypto.Base58;
 import io.lifeengine.cryptobot.validator.policy.CanonicalJson;
 import io.lifeengine.cryptobot.validator.policy.IndependentPolicyTable;
 import io.lifeengine.cryptobot.validator.policy.PolicyInput;
+import io.lifeengine.cryptobot.validator.policy.PolicyRules;
 import io.lifeengine.cryptobot.validator.policy.PolicyVerdict;
 import io.lifeengine.cryptobot.validator.tx.CompiledTransaction;
 import io.lifeengine.cryptobot.validator.tx.SwapRules;
@@ -67,6 +68,13 @@ public class ValidationService {
     public static final String REFUSAL_DISAGREEMENT = "VERDICT_DISAGREEMENT";
     public static final String REFUSAL_MESSAGE_HASH = "MESSAGE_HASH_MISMATCH";
     public static final String REFUSAL_SWAP_RULES = "SWAP_RULES";
+    /** KAN-1249: a swap is only ever {@code PILOT_SWAP}, within the policy's {@code pilot_swap} limits; and that strategy is only a swap. */
+    public static final String REFUSAL_SWAP_STRATEGY = "SWAP_STRATEGY";
+    public static final String REFUSAL_PILOT_SWAP_NOT_CONFIGURED = "PILOT_SWAP_NOT_CONFIGURED";
+    public static final String REFUSAL_PILOT_SWAP_LIMITS = "PILOT_SWAP_LIMITS";
+    public static final String STRATEGY_PILOT_SWAP = "PILOT_SWAP";
+    static final String WSOL_MINT = "So11111111111111111111111111111111111111112";
+    static final String USDC_MINT = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
     public static final String CHECK_HASH_FROM_BYTES = "message_hash_from_bytes";
     public static final String CHECK_JUPITER_SWAP = "jupiter_swap_v1";
 
@@ -180,6 +188,18 @@ public class ValidationService {
                 refusals.add(REFUSAL_MESSAGE_HASH);
             }
         }
+        boolean pilotStrategy = STRATEGY_PILOT_SWAP.equals(input.intent().strategyId());
+        if ((swapIntent != null) != pilotStrategy) {
+            refusals.add(REFUSAL_SWAP_STRATEGY);
+        }
+        if (swapIntent != null) {
+            PolicyRules.PilotSwap pilot = policy.rules().pilotSwap();
+            if (pilot == null) {
+                refusals.add(REFUSAL_PILOT_SWAP_NOT_CONFIGURED);
+            } else if (!withinPilot(pilot, swapIntent)) {
+                refusals.add(REFUSAL_PILOT_SWAP_LIMITS);
+            }
+        }
         if (swapIntent != null) {
             checks.add(CHECK_JUPITER_SWAP);
             swapViolations = SwapRules.check(tx, swapIntent).violations().stream().map(v -> v.code() + ": " + v.detail()).toList();
@@ -239,6 +259,12 @@ public class ValidationService {
                 messageHash,
                 List.copyOf(checks),
                 swapViolations);
+    }
+
+    /** In-amount within the pilot's cap for its input mint (SOL or USDC only) and slippage within the pilot's. */
+    static boolean withinPilot(PolicyRules.PilotSwap pilot, SwapRules.SwapIntent s) {
+        long cap = WSOL_MINT.equals(s.inputMint()) ? pilot.maxLamportsIn() : USDC_MINT.equals(s.inputMint()) ? pilot.maxUsdcIn() : -1;
+        return cap > 0 && s.inAmount() <= cap && s.maxSlippageBps() <= pilot.maxSlippageBps();
     }
 
     private static CompiledTransaction decodeTransaction(String base64) {
