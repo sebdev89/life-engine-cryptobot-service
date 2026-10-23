@@ -73,6 +73,33 @@ public class SwapOrderR2dbcStore implements SwapOrderRepository {
     }
 
     @Override
+    public Mono<SwapOrder> markSigned(UUID id, String signature, long lastValidBlockHeight) {
+        return db.sql("UPDATE swap_order SET tx_signature = :sig, last_valid_block_height = :lvb, updated_at = NOW() WHERE id = :id"
+                        + " AND status = 'EXECUTING' AND tx_signature IS NULL RETURNING " + COLS)
+                .bind("id", id).bind("sig", signature).bind("lvb", lastValidBlockHeight)
+                .map((row, meta) -> order(row)).one();
+    }
+
+    @Override
+    public Mono<Long> lastValidBlockHeight(UUID id) {
+        return db.sql("SELECT last_valid_block_height FROM swap_order WHERE id = :id AND last_valid_block_height IS NOT NULL").bind("id", id)
+                .map((row, meta) -> row.get("last_valid_block_height", Long.class)).one();
+    }
+
+    @Override
+    public Flux<SwapOrder> inFlight() {
+        return db.sql("SELECT " + COLS + " FROM swap_order WHERE status IN ('EXECUTING', 'SENT', 'UNKNOWN_SENT') ORDER BY created_at")
+                .map((row, meta) -> order(row)).all();
+    }
+
+    @Override
+    public Flux<SwapOrder> spentSince(Instant since) {
+        return db.sql("SELECT " + COLS + " FROM swap_order WHERE status IN ('EXECUTING', 'SENT', 'UNKNOWN_SENT', 'CONFIRMED')"
+                        + " AND approved_at >= :since")
+                .bind("since", since).map((row, meta) -> order(row)).all();
+    }
+
+    @Override
     public Mono<Void> audit(UUID orderId, String event, UUID actor, String previewHash, String detail) {
         DatabaseClient.GenericExecuteSpec spec = db.sql("INSERT INTO swap_order_audit (order_id, event, actor, preview_hash, detail)"
                         + " VALUES (:order, :event, :actor, :hash, :detail)")

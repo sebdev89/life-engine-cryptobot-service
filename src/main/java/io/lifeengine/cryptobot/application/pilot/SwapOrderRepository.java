@@ -25,6 +25,22 @@ public interface SwapOrderRepository {
     /** {@code from} → {@code to}, only if the order is in {@code from}. Empty = it was not. */
     Mono<SwapOrder> transition(UUID id, SwapOrder.Status from, SwapOrder.Status to, String error);
 
+    /**
+     * Records the transaction signature of an EXECUTING order, once ({@code tx_signature} still null), with the last
+     * block height its blockhash is valid for (V18). It is written after the signer answered and before the broadcast:
+     * from then on a crash leaves an order that can be looked up on chain. Empty = it was not EXECUTING or already had one.
+     */
+    Mono<SwapOrder> markSigned(UUID id, String signature, long lastValidBlockHeight);
+
+    /** The last valid block height stored with the signature; empty when there is none. */
+    Mono<Long> lastValidBlockHeight(UUID id);
+
+    /** Orders a crash or a lost client may have left in flight: EXECUTING, SENT, UNKNOWN_SENT. */
+    Flux<SwapOrder> inFlight();
+
+    /** Orders that may have moved funds (EXECUTING, SENT, UNKNOWN_SENT, CONFIRMED) approved at or after {@code since}. */
+    Flux<SwapOrder> spentSince(Instant since);
+
     Mono<Void> audit(UUID orderId, String event, UUID actor, String previewHash, String detail);
 
     /** The audit trail of one order, oldest first: {@code event} values. */

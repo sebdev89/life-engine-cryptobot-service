@@ -106,6 +106,60 @@ class SwapOrderR2dbcStoreIT {
     }
 
     @Test
+    @DisplayName("the signature and its last valid height are written once, only on an EXECUTING order")
+    void signatureOnceOnlyWhileExecuting() {
+        SwapOrder o = store.insert(pending("it-sig", 1L)).block();
+        // still pending: no signature
+        assertThat(store.markSigned(o.id(), "sig-1", 100L).block()).isNull();
+        assertThat(store.lastValidBlockHeight(o.id()).block()).isNull();
+        executing(o, T0, "jti-it-sig");
+        assertThat(store.markSigned(o.id(), "sig-1", 100L).block().txSignature()).isEqualTo("sig-1");
+        assertThat(store.lastValidBlockHeight(o.id()).block()).isEqualTo(100L);
+        // a second one never replaces it
+        assertThat(store.markSigned(o.id(), "sig-2", 200L).block()).isNull();
+        assertThat(store.find(o.id()).block().txSignature()).isEqualTo("sig-1");
+        assertThat(store.lastValidBlockHeight(o.id()).block()).isEqualTo(100L);
+    }
+
+    static void executing(SwapOrder o, Instant approvedAt, String jti) {
+        store.approve(o.id(), APPROVER, approvedAt, jti, approvedAt.plusSeconds(120)).block();
+        store.transition(o.id(), SwapOrder.Status.APPROVED, SwapOrder.Status.EXECUTING, null).block();
+    }
+
+    @Test
+    @DisplayName("spentSince: every order that may have moved funds (EXECUTING, SENT, UNKNOWN_SENT, CONFIRMED) approved inside the window")
+    void spentSince() {
+        Instant since = T0.plusSeconds(3_600);
+        Instant in = since.plusSeconds(1);
+        SwapOrder exec = store.insert(pending("it-spent-exec", 1L)).block();
+        executing(exec, in, "jti-sp-exec");
+        SwapOrder sent = store.insert(pending("it-spent-sent", 1L)).block();
+        executing(sent, in, "jti-sp-sent");
+        store.transition(sent.id(), SwapOrder.Status.EXECUTING, SwapOrder.Status.SENT, null).block();
+        SwapOrder unknown = store.insert(pending("it-spent-unknown", 1L)).block();
+        executing(unknown, in, "jti-sp-unknown");
+        store.transition(unknown.id(), SwapOrder.Status.EXECUTING, SwapOrder.Status.UNKNOWN_SENT, null).block();
+        SwapOrder confirmed = store.insert(pending("it-spent-confirmed", 1L)).block();
+        executing(confirmed, in, "jti-sp-confirmed");
+        store.transition(confirmed.id(), SwapOrder.Status.EXECUTING, SwapOrder.Status.CONFIRMED, null).block();
+        // not counted: failed, only approved, or approved before the window
+        SwapOrder failed = store.insert(pending("it-spent-failed", 1L)).block();
+        executing(failed, in, "jti-sp-failed");
+        store.transition(failed.id(), SwapOrder.Status.EXECUTING, SwapOrder.Status.FAILED, "x").block();
+        SwapOrder onlyApproved = store.insert(pending("it-spent-approved", 1L)).block();
+        store.approve(onlyApproved.id(), APPROVER, in, "jti-sp-approved", in.plusSeconds(120)).block();
+        SwapOrder old = store.insert(pending("it-spent-old", 1L)).block();
+        executing(old, since.minusSeconds(1), "jti-sp-old");
+
+        assertThat(store.spentSince(since).map(SwapOrder::id).collectList().block())
+                .containsExactlyInAnyOrder(exec.id(), sent.id(), unknown.id(), confirmed.id());
+        // in flight: EXECUTING, SENT, UNKNOWN_SENT (of any age), never CONFIRMED or FAILED
+        assertThat(store.inFlight().map(SwapOrder::id).collectList().block())
+                .contains(exec.id(), sent.id(), unknown.id(), old.id())
+                .doesNotContain(confirmed.id(), failed.id(), onlyApproved.id());
+    }
+
+    @Test
     @DisplayName("the audit trail is ordered and accepts null actor and detail")
     void auditTrail() {
         SwapOrder o = store.insert(pending("it-audit", 1L)).block();
