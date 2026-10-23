@@ -7,10 +7,12 @@ import io.lifeengine.cryptobot.trading.backtest.BacktestResult;
 import io.lifeengine.cryptobot.trading.backtest.BacktestStrategy;
 import io.lifeengine.cryptobot.trading.backtest.Backtester;
 import io.lifeengine.cryptobot.trading.backtest.FeeModel;
+import io.lifeengine.cryptobot.trading.backtest.PriceBar;
 import io.lifeengine.cryptobot.trading.backtest.Strategies;
 import java.math.BigDecimal;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.List;
 import java.util.Locale;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -32,6 +34,8 @@ public class BacktestService {
     private static final Logger log = LoggerFactory.getLogger(BacktestService.class);
     public static final String SOURCE = "coinbase-exchange-candles";
     public static final String SOURCE_STOCKS = "yahoo-chart";
+    /** Below this many sessions a stock-vs-index result is reported but not claimed ({@code beatsBenchmark} null). */
+    public static final int MIN_BENCHMARK_BARS = 120;
     /** A stock trade through a retail broker: no commission, but a spread and slippage. */
     public static final FeeModel STOCK_FEES = new FeeModel(5, 5);
 
@@ -78,7 +82,7 @@ public class BacktestService {
                     logRun("crypto", product, strategy, bars.size(), request, report);
                     long expected = Duration.between(request.from(), request.to()).toSeconds() / granularity.toSeconds();
                     return new Run("crypto", SOURCE, product, granularity.toSeconds(), Math.max(0, expected - bars.size()), report,
-                            null, null, null);
+                            null, null, null, null);
                 });
     }
 
@@ -90,13 +94,18 @@ public class BacktestService {
         return Mono.zip(stocks.closes(symbol, granularity, request.from(), request.to()),
                         stocks.closes(benchmark, granularity, request.from(), request.to()))
                 .map(t -> {
+                    if (t.getT1().isEmpty()) {
+                        throw new IllegalArgumentException("no history for " + symbol + " in the window");
+                    }
+                    Comparison comparison = Comparison.of(t.getT1(), t.getT2());
                     BacktestReport report = BacktestReport.of(t.getT1(), strategy, initialUsd, fees);
-                    // the index held over the same window, same costs: what "just buy the market" did
-                    BacktestResult index = Backtester.run(t.getT2(), Strategies.holdSol(), initialUsd, fees);
+                    // the index held over the symbol's own sessions, same costs: what "just buy the market" did
+                    BacktestResult index = Backtester.run(comparison.benchmarkBars(), Strategies.holdSol(), initialUsd, fees);
                     logRun("stock", symbol, strategy, t.getT1().size(), request, report);
                     // markets close nights and weekends: "missing" bars against the calendar mean nothing here
-                    return new Run("stock", SOURCE_STOCKS, symbol, granularity.toSeconds(), null, report, benchmark, index,
-                            report.strategy().finalUsd().compareTo(index.finalUsd()) > 0);
+                    Boolean beats = comparison.window().lowConfidence() ? null : report.strategy().finalUsd().compareTo(index.finalUsd()) > 0;
+                    return new Run("stock", SOURCE_STOCKS, symbol, granularity.toSeconds(), null, report, benchmark, index, beats,
+                            comparison.window());
                 });
     }
 
@@ -152,7 +161,11 @@ public class BacktestService {
      * candles the source does not have inside the window (Coinbase skips intervals without trades; 5 of 4320 hourly
      * bars over 180 days of SOL-USD on 2026-10-20); null for stocks, whose market closes nights and weekends. The
      * backtest runs over what exists, never over invented prices. Stocks also carry the index held over the same
-     * window ({@code benchmark}, {@code benchmarkResult}) and whether the strategy ended above it.
+     * window ({@code benchmark}, {@code benchmarkResult}) and whether the strategy ended above it. "The same window"
+     * is the symbol's own history, not the one asked for: a symbol listed mid-window (SPCX, first session 2026-06-12)
+     * is compared with the index from that session on ({@code benchmarkWindow}). With fewer than
+     * {@link #MIN_BENCHMARK_BARS} sessions {@code beatsBenchmark} is null and {@code benchmarkWindow.lowConfidence}
+     * true: too short to claim anything.
      */
     public record Run(
             String market,
@@ -163,5 +176,24 @@ public class BacktestService {
             BacktestReport report,
             String benchmark,
             BacktestResult benchmarkResult,
-            Boolean beatsBenchmark) {}
+            Boolean beatsBenchmark,
+            BenchmarkWindow benchmarkWindow) {}
+
+    /** The window the stock and the index were actually compared over, and how many sessions each side had in it. */
+    public record BenchmarkWindow(Instant from, Instant to, int symbolBars, int benchmarkBars, boolean lowConfidence) {}
+
+    /** The index cut to the symbol's first and last session. */
+    record Comparison(List<PriceBar> benchmarkBars, BenchmarkWindow window) {
+
+        static Comparison of(List<PriceBar> symbol, List<PriceBar> benchmark) {
+            Instant from = symbol.get(0).time();
+            Instant to = symbol.get(symbol.size() - 1).time();
+            List<PriceBar> cut = benchmark.stream().filter(b -> !b.time().isBefore(from) && !b.time().isAfter(to)).toList();
+            if (cut.isEmpty()) {
+                throw new IllegalArgumentException("the benchmark has no sessions between " + from + " and " + to);
+            }
+            boolean low = Math.min(symbol.size(), cut.size()) < MIN_BENCHMARK_BARS;
+            return new Comparison(cut, new BenchmarkWindow(from, to, symbol.size(), cut.size(), low));
+        }
+    }
 }
