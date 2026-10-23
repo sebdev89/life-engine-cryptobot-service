@@ -103,8 +103,11 @@ public class CryptobotJwtService {
                 authorities.add("ROLE_" + role.trim().toUpperCase(Locale.ROOT));
             }
             List<String> effective = withDerivedRuntimeAuthorities(role, authorities);
+            java.util.Date iat = claims.getIssuedAt();
             return ParseOutcome.ok(
-                    new CryptobotPrincipal(userId, email, role, List.copyOf(effective), rawToken));
+                    new CryptobotPrincipal(userId, email, role, List.copyOf(effective), rawToken, iat == null ? null : iat.toInstant(),
+                            claims.getId(), claims.get("sid", String.class), claims.containsKey("tenant"), claims.get("tenant", String.class),
+                            verifiedAlgorithm(rawToken)));
         } catch (ExpiredJwtException ex) {
             return ParseOutcome.failed("expired");
         } catch (SignatureException | MalformedJwtException ex) {
@@ -129,6 +132,11 @@ public class CryptobotJwtService {
             throw new JwtException("hs256_disabled");
         }
         return Jwts.parser().verifyWith(key).build().parseSignedClaims(rawToken).getPayload();
+    }
+
+    /** The algorithm the signature was verified with: RS256 only through the JWKS, otherwise the HS256 secret. */
+    private String verifiedAlgorithm(String rawToken) {
+        return "RS256".equals(peekAlg(rawToken)) && jwksKeyProvider.isConfigured() ? "RS256" : "HS256";
     }
 
     static String peekAlg(String rawToken) {

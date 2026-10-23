@@ -47,6 +47,11 @@ class RouteContractTest {
             "POST /api/cryptobot/dead-letters/{id}/resolve",
             "POST /api/cryptobot/dead-letters/{id}/requeue",
             "GET /api/cryptobot/snapshots/{symbol}",
+            // KAN-1249 pilot: swap orders (off by default; see SwapOrderService)
+            "POST /api/cryptobot/swaps",
+            "GET /api/cryptobot/swaps/{id}",
+            "POST /api/cryptobot/swaps/{id}/approve",
+            "POST /api/cryptobot/swaps/{id}/reject",
             "GET /api/cryptobot/market-reviews/latest",
             "GET /api/cryptobot/market-reviews",
             "POST /api/cryptobot/glossary/events",

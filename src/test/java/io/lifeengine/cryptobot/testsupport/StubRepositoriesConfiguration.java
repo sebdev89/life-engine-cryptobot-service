@@ -149,6 +149,12 @@ public class StubRepositoriesConfiguration {
         return new InMemoryLineageRepository();
     }
 
+    /** KAN-1249: pilot swap orders and their audit. */
+    @Bean
+    io.lifeengine.cryptobot.application.pilot.SwapOrderRepository swapOrderRepository() {
+        return new InMemorySwapOrderRepository();
+    }
+
     /** KAN-1217: paper portfolios, ticks and price checks. */
     @Bean
     io.lifeengine.cryptobot.application.paper.PaperRepository paperRepository() {

@@ -1,0 +1,114 @@
+package io.lifeengine.cryptobot.infrastructure.persistence.r2dbc;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+
+import io.lifeengine.cryptobot.application.pilot.SwapOrder;
+import io.r2dbc.postgresql.PostgresqlConnectionConfiguration;
+import io.r2dbc.postgresql.PostgresqlConnectionFactory;
+import java.time.Instant;
+import java.time.temporal.ChronoUnit;
+import java.util.UUID;
+import org.flywaydb.core.Flyway;
+import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Test;
+import org.springframework.r2dbc.core.DatabaseClient;
+import org.testcontainers.containers.PostgreSQLContainer;
+import org.testcontainers.junit.jupiter.Container;
+import org.testcontainers.junit.jupiter.Testcontainers;
+import org.testcontainers.utility.DockerImageName;
+
+/**
+ * KAN-1249 pilot persistence against a real Postgres (Testcontainers, Flyway V1..V17): a state change happens once or
+ * not at all, an approval's jti is UNIQUE across orders (so a restart cannot let a token approve twice), the
+ * idempotency key is UNIQUE, the CHECK constraints hold, and the audit trail is append-only and ordered.
+ *
+ * <p>Opt-in ({@code *IT}): {@code ./mvnw test -Dtest=SwapOrderR2dbcStoreIT}. Needs Docker.
+ */
+@Testcontainers
+class SwapOrderR2dbcStoreIT {
+
+    @Container
+    static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>(DockerImageName.parse("postgres:16-alpine"))
+            .withDatabaseName("cryptobot_it").withUsername("cryptobot").withPassword("cryptobot");
+
+    static SwapOrderR2dbcStore store;
+    static final Instant T0 = Instant.parse("2026-10-23T12:00:00Z");
+    static final UUID APPROVER = UUID.randomUUID();
+
+    @BeforeAll
+    static void migrateAndWire() {
+        Flyway.configure().dataSource(POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword())
+                .locations("classpath:db/migration").load().migrate();
+        PostgresqlConnectionFactory cf = new PostgresqlConnectionFactory(PostgresqlConnectionConfiguration.builder()
+                .host(POSTGRES.getHost()).port(POSTGRES.getFirstMappedPort()).database(POSTGRES.getDatabaseName())
+                .username(POSTGRES.getUsername()).password(POSTGRES.getPassword()).build());
+        store = new SwapOrderR2dbcStore(DatabaseClient.create(cf));
+    }
+
+    static SwapOrder pending(String key, long inAmount) {
+        return new SwapOrder(UUID.randomUUID(), key, UUID.randomUUID(), SwapOrder.Status.PENDING_APPROVAL, SwapOrder.Direction.SOL_USDC, "devnet",
+                "5tzFkiKscXHK5ZXCGbXZxdw7gTjjD1mBwuoFbhUvuAi9", inAmount, 1_026_997L, 50, "{\"p\":1}", "a".repeat(64), "b".repeat(64), null, null,
+                null, T0.plusSeconds(120), null, null, T0, T0);
+    }
+
+    @Test
+    @DisplayName("insert, find by id and by idempotency key; the key is UNIQUE")
+    void insertsAndFinds() {
+        SwapOrder o = store.insert(pending("it-k1", 10_000_000L)).block();
+        assertThat(store.find(o.id()).block().inAmount()).isEqualTo(10_000_000L);
+        assertThat(store.findByIdempotencyKey("it-k1").block().id()).isEqualTo(o.id());
+        assertThat(store.find(o.id()).block().expiresAt()).isEqualTo(T0.plusSeconds(120));
+        assertThatThrownBy(() -> store.insert(pending("it-k1", 1L)).block()).isInstanceOf(RuntimeException.class);
+    }
+
+    @Test
+    @DisplayName("approve is single use, and one jti approves one order across the whole table")
+    void approveOnceAndJtiUnique() {
+        SwapOrder a = store.insert(pending("it-a", 1L)).block();
+        SwapOrder b = store.insert(pending("it-b", 1L)).block();
+        Instant at = T0.plusSeconds(10).truncatedTo(ChronoUnit.MILLIS);
+
+        SwapOrder approved = store.approve(a.id(), APPROVER, at, "jti-it-1", at.plusSeconds(120)).block();
+        assertThat(approved.status()).isEqualTo(SwapOrder.Status.APPROVED);
+        assertThat(approved.approvedBy()).isEqualTo(APPROVER);
+        assertThat(approved.approvalJti()).isEqualTo("jti-it-1");
+        assertThat(approved.expiresAt()).isEqualTo(at.plusSeconds(120));
+
+        // the same order again: no longer pending
+        assertThat(store.approve(a.id(), APPROVER, at, "jti-it-2", at).block()).isNull();
+        // the same jti on another order: refused by the UNIQUE constraint, and b stays pending
+        assertThat(store.approve(b.id(), APPROVER, at, "jti-it-1", at).block()).isNull();
+        assertThat(store.find(b.id()).block().status()).isEqualTo(SwapOrder.Status.PENDING_APPROVAL);
+    }
+
+    @Test
+    @DisplayName("transitions are conditional on the current status")
+    void conditionalTransitions() {
+        SwapOrder o = store.insert(pending("it-t", 1L)).block();
+        assertThat(store.transition(o.id(), SwapOrder.Status.PENDING_APPROVAL, SwapOrder.Status.REJECTED, "rejected").block().status())
+                .isEqualTo(SwapOrder.Status.REJECTED);
+        assertThat(store.transition(o.id(), SwapOrder.Status.PENDING_APPROVAL, SwapOrder.Status.EXPIRED, null).block()).isNull();
+        assertThat(store.find(o.id()).block().error()).isEqualTo("rejected");
+    }
+
+    @Test
+    @DisplayName("the audit trail is ordered and accepts null actor and detail")
+    void auditTrail() {
+        SwapOrder o = store.insert(pending("it-audit", 1L)).block();
+        store.audit(o.id(), "CREATED", UUID.randomUUID(), o.previewHash(), null).block();
+        store.audit(o.id(), "EXPIRED", null, o.previewHash(), null).block();
+        store.audit(o.id(), "NOTE", null, null, "detail").block();
+        assertThat(store.auditEvents(o.id()).collectList().block()).containsExactly("CREATED", "EXPIRED", "NOTE");
+    }
+
+    @Test
+    @DisplayName("CHECK constraints: no zero amount, no unknown status or cluster")
+    void constraints() {
+        assertThatThrownBy(() -> store.insert(pending("it-zero", 0L)).block()).isInstanceOf(RuntimeException.class);
+        SwapOrder badCluster = new SwapOrder(UUID.randomUUID(), "it-cluster", UUID.randomUUID(), SwapOrder.Status.PENDING_APPROVAL,
+                SwapOrder.Direction.SOL_USDC, "testnet", "o", 1L, 1L, 50, "{}", "a".repeat(64), "b".repeat(64), null, null, null, T0, null, null, T0, T0);
+        assertThatThrownBy(() -> store.insert(badCluster).block()).isInstanceOf(RuntimeException.class);
+    }
+}

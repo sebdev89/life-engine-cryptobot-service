@@ -47,7 +47,7 @@ jobs:
       # Value (PovR2dbcStoreIT, ProofOfValueApiIT): clases *IT que Surefire no toma por defecto.
       # El runner hosteado de GitHub trae Docker nativo (un job = una VM efimera): sin reintento.
       - name: Run Postgres integration tests (Testcontainers)
-        run: ./mvnw -B -ntp -Dtest=ActionProposalR2dbcStoreIT,OutboxEventR2dbcStoreIT,DeadLetterR2dbcStoreIT,PovR2dbcStoreIT,ProofOfValueApiIT,ProofOfValueRewardApiIT,ProofOfValueRevenueApiIT,PaperR2dbcStoreIT test
+        run: ./mvnw -B -ntp -Dtest=ActionProposalR2dbcStoreIT,OutboxEventR2dbcStoreIT,DeadLetterR2dbcStoreIT,PovR2dbcStoreIT,ProofOfValueApiIT,ProofOfValueRewardApiIT,ProofOfValueRevenueApiIT,PaperR2dbcStoreIT,SwapOrderR2dbcStoreIT test
 
       - name: Run signer tests (isolated module, own pom)
         run: ./mvnw -B -ntp -f signer/pom.xml test

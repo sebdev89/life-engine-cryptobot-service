@@ -113,6 +113,21 @@ cryptobot:
   # ---- Paper trading (KAN-1217, v3): strategies forward on live closed candles, simulated fills, no money.
   # Off by default; on only in k8s-uat, where the 2–4 week window is measured. The portfolios default to the two
   # benchmarks + band 50 % ± 5 % + DCA 50 USD/day (see PaperProperties); their knobs freeze at the first tick.
+  # KAN-1249 pilot: swap orders proposed, approved by one human, then executed. OFF by default. Who may approve is
+  # server configuration only (gitops), never part of a request.
+  swaps:
+    enabled: ${CRYPTOBOT_SWAPS_ENABLED:false}
+    # the approver's user id (JWT sub); unset = nobody can approve
+    approver-user-id: ${CRYPTOBOT_SWAPS_APPROVER_USER_ID:}
+    # the approver's JWT tenant claim; empty = the claim must be ABSENT (a platform user)
+    approver-tenant: ${CRYPTOBOT_SWAPS_APPROVER_TENANT:}
+    approval-ttl: ${CRYPTOBOT_SWAPS_APPROVAL_TTL:2m}
+    approval-iat-max-age: ${CRYPTOBOT_SWAPS_APPROVAL_IAT_MAX_AGE:5m}
+    cluster: ${CRYPTOBOT_SWAPS_CLUSTER:devnet}
+    max-lamports-in: ${CRYPTOBOT_SWAPS_MAX_LAMPORTS_IN:100000000}
+    max-usdc-in: ${CRYPTOBOT_SWAPS_MAX_USDC_IN:10000000}
+    max-slippage-bps: ${CRYPTOBOT_SWAPS_MAX_SLIPPAGE_BPS:100}
+    max-priority-fee-lamports: ${CRYPTOBOT_SWAPS_MAX_PRIORITY_FEE_LAMPORTS:200000}
   paper:
     enabled: ${CRYPTOBOT_PAPER_ENABLED:false}
     interval: ${CRYPTOBOT_PAPER_INTERVAL:5m}
