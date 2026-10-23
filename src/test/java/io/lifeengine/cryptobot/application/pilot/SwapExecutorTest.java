@@ -872,4 +872,43 @@ class SwapExecutorTest {
         assertThat(repo.find(done.id()).block().status()).isEqualTo(SwapOrder.Status.CONFIRMED);
         assertThat(sends()).isZero();
     }
+
+    @Test
+    void withTheFlagOffTheJobNeverStartsAndReconcileNeverAsksTheChain() {
+        SwapOrder o = withStatus(approved(1_026_997L), SwapOrder.Status.UNKNOWN_SENT, "5a");
+        AtomicInteger inFlightCalls = new AtomicInteger();
+        InMemorySwapOrderRepository real = repo;
+        InMemorySwapOrderRepository counting = new InMemorySwapOrderRepository() {
+            @Override
+            public reactor.core.publisher.Flux<SwapOrder> inFlight() {
+                inFlightCalls.incrementAndGet();
+                return real.inFlight();
+            }
+        };
+        SwapsProperties off = new SwapsProperties(false, APPROVER, "", null, null, "devnet", null, null, null, null, null);
+        SwapExecutor ex = executor(false, "devnet", true, Optional.of(new SwapExecutor.Price(new BigDecimal("150"), T0)));
+        SwapReconcileJob job = new SwapReconcileJob(off, counting, ex);
+        job.start();
+        assertThat(job.started()).isFalse();
+        try {
+            // the loop's first tick is immediate: give a wrongly started one the time to ask
+            Thread.sleep(300);
+        } catch (InterruptedException e) {
+            throw new IllegalStateException(e);
+        } finally {
+            job.stop();
+        }
+        assertThat(inFlightCalls.get()).isZero();
+        // and even if something reached it: the order is returned untouched, nothing asked
+        status.set("finalized");
+        assertThat(ex.reconcileOrder(o, null).block().status()).isEqualTo(SwapOrder.Status.UNKNOWN_SENT);
+        assertThat(rpcMethods).isEmpty();
+    }
+
+    @Test
+    void aLongDetailIsTruncatedForTheLog() {
+        assertThat(SwapExecutor.truncated("x".repeat(500))).hasSize(201).endsWith("…");
+        assertThat(SwapExecutor.truncated("short")).isEqualTo("short");
+        assertThat(SwapExecutor.truncated(null)).isNull();
+    }
 }

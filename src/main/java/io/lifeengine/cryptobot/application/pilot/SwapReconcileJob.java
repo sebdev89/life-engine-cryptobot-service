@@ -59,6 +59,11 @@ public class SwapReconcileJob {
                 .count();
     }
 
+    /** Whether the loop is running (it never is with the flag off). */
+    boolean started() {
+        return loop != null && !loop.isDisposed();
+    }
+
     @PreDestroy
     void stop() {
         if (loop != null && !loop.isDisposed()) {

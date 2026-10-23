@@ -78,6 +78,7 @@ public class SwapExecutor {
     public static final String AGENT = "pilot-swap";
     /** How long the intent the policy sees is valid, in seconds (the slot is the epoch second, as for PoV payouts). */
     static final long VALID_FOR_SECONDS = 60;
+    static final int MAX_DETAIL = 200;
 
     /** The SOL price the policy values a swap at, or empty when the oracle has no accepted consensus (then DENY). */
     public interface SolPrice {
@@ -412,9 +413,14 @@ public class SwapExecutor {
     /**
      * SENT / UNKNOWN_SENT / EXECUTING-with-signature: the chain decides — CONFIRMED, FAILED (it failed, or its blockhash
      * expired without it landing), or unchanged while it does not know. EXECUTING without a signature past its window:
-     * never broadcast, FAILED. Never sends anything. {@code actor} is null for {@link SwapReconcileJob}.
+     * never broadcast, FAILED. Never sends anything. With {@code cryptobot.swaps.enabled=false} it returns the order untouched
+     * without asking the chain. {@code actor} is null for {@link SwapReconcileJob}.
      */
     Mono<SwapOrder> reconcileOrder(SwapOrder order, UUID actor) {
+        // defence in depth: whoever calls this (the endpoint, the job), with the flag off nothing is asked or moved
+        if (!props.enabled()) {
+            return Mono.just(order);
+        }
         SolanaCluster cluster = SolanaCluster.parse(order.cluster());
         boolean inFlight = order.status() == SwapOrder.Status.SENT || order.status() == SwapOrder.Status.UNKNOWN_SENT
                 || order.status() == SwapOrder.Status.EXECUTING;
@@ -461,7 +467,7 @@ public class SwapExecutor {
     // ---- transitions -----------------------------------------------------------------------------------
 
     private Mono<SwapOrder> fail(SwapOrder order, SwapOrder.Status from, String code, String detail) {
-        log.warn("swap_order_failed id={} code={} detail={}", order.id(), code, detail);
+        log.warn("swap_order_failed id={} code={} detail={}", order.id(), code, truncated(detail));
         return move(order, from, SwapOrder.Status.FAILED, code, "FAILED", code);
     }
 
@@ -474,6 +480,11 @@ public class SwapExecutor {
                     log.info("swap_order_{} id={} signature={} detail={}", to.name().toLowerCase(java.util.Locale.ROOT), m.id(), m.txSignature(), detail);
                 })
                 .switchIfEmpty(Mono.defer(() -> repo.find(order.id())));
+    }
+
+    /** A detail for the log, at most {@link #MAX_DETAIL} characters: an RPC's error message is not ours to log whole. */
+    static String truncated(String detail) {
+        return detail == null || detail.length() <= MAX_DETAIL ? detail : detail.substring(0, MAX_DETAIL) + "…";
     }
 
     private void count(SwapOrder.Status status) {
