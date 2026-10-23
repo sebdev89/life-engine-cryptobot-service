@@ -65,6 +65,16 @@ class BacktestControllerTest {
                             + (d + 3 * 86400) + "],\"indicators\":{\"quote\":[{\"close\":[" + closes + "]}]}}],\"error\":null}}";
                     return new MockResponse().setHeader("Content-Type", "application/json").setBody(body);
                 }
+                // a symbol listed on the third session, and an index that doubles before it: 100 → 200 → 220
+                if (path.startsWith("/v8/finance/chart/NEWCO") || path.startsWith("/v8/finance/chart/IDX")) {
+                    long d = STOCK_DAY.getEpochSecond();
+                    String body = path.contains("NEWCO")
+                            ? "{\"chart\":{\"result\":[{\"timestamp\":[" + (d + 2 * 86400) + "," + (d + 3 * 86400)
+                                    + "],\"indicators\":{\"quote\":[{\"close\":[50,60]}]}}],\"error\":null}}"
+                            : "{\"chart\":{\"result\":[{\"timestamp\":[" + d + "," + (d + 86400) + "," + (d + 2 * 86400) + "," + (d + 3 * 86400)
+                                    + "],\"indicators\":{\"quote\":[{\"close\":[100,100,200,220]}]}}],\"error\":null}}";
+                    return new MockResponse().setHeader("Content-Type", "application/json").setBody(body);
+                }
                 return new MockResponse().setResponseCode(404);
             }
         });
@@ -128,7 +138,32 @@ class BacktestControllerTest {
                 .jsonPath("$.report.fees.feeBps").isEqualTo(5)
                 .jsonPath("$.benchmark").isEqualTo("QQQ")
                 .jsonPath("$.benchmarkResult.finalUsd").isEqualTo(1030.0)
-                .jsonPath("$.beatsBenchmark").isEqualTo(true);
+                .jsonPath("$.benchmarkWindow.symbolBars").isEqualTo(4)
+                .jsonPath("$.benchmarkWindow.benchmarkBars").isEqualTo(4)
+                // four sessions is far below 120: reported, not claimed
+                .jsonPath("$.benchmarkWindow.lowConfidence").isEqualTo(true)
+                .jsonPath("$.beatsBenchmark").doesNotExist();
+    }
+
+    @Test
+    void aSymbolListedMidWindowIsComparedWithTheIndexFromItsFirstSession() {
+        post(Map.of("market", "stock", "symbol", "newco", "benchmarkSymbol", "idx", "strategy", "hold-sol",
+                        "from", STOCK_DAY.minusSeconds(3600).toString(), "to", STOCK_DAY.plusSeconds(4 * 86400).toString()),
+                signJwt(List.of("RUNTIME_OPERATOR")))
+                .expectStatus().isOk()
+                .expectBody()
+                .jsonPath("$.report.strategy.bars").isEqualTo(2)
+                .jsonPath("$.report.holdSol.finalUsd").isEqualTo(1200.0)
+                .jsonPath("$.benchmark").isEqualTo("IDX")
+                // the index from NEWCO's first session: 200 → 220, not 100 → 220
+                .jsonPath("$.benchmarkResult.bars").isEqualTo(2)
+                .jsonPath("$.benchmarkResult.finalUsd").isEqualTo(1100.0)
+                .jsonPath("$.benchmarkWindow.from").isEqualTo(STOCK_DAY.plusSeconds(2 * 86400).toString())
+                .jsonPath("$.benchmarkWindow.to").isEqualTo(STOCK_DAY.plusSeconds(3 * 86400).toString())
+                .jsonPath("$.benchmarkWindow.symbolBars").isEqualTo(2)
+                .jsonPath("$.benchmarkWindow.benchmarkBars").isEqualTo(2)
+                .jsonPath("$.benchmarkWindow.lowConfidence").isEqualTo(true)
+                .jsonPath("$.beatsBenchmark").doesNotExist();
     }
 
     @Test
