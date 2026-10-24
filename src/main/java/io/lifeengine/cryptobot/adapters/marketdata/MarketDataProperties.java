@@ -57,11 +57,29 @@ public record MarketDataProperties(
         this(jupiterBaseUrl, timeout, aliases, fallbackPrices, jupiterEnabled, pyth, coingecko, null, oracle);
     }
 
-    public record Pyth(Boolean enabled, String baseUrl, Map<String, String> feeds) {
+    /**
+     * Pyth Hermes. Since Pyth's Core upgrade (2026-08-26) hermes.pyth.network answers 401 without an API key;
+     * {@code apiKey} (env {@code CRYPTOBOT_PYTH_API_KEY}, from a Secret) is sent as {@code Authorization: Bearer}.
+     * Without one, keep {@code enabled=false} in a real stack: the other sources reach quorum on their own.
+     */
+    public record Pyth(Boolean enabled, String baseUrl, Map<String, String> feeds, String apiKey) {
+        @ConstructorBinding
         public Pyth {
             enabled = enabled == null ? Boolean.TRUE : enabled;
             baseUrl = baseUrl == null || baseUrl.isBlank() ? "https://hermes.pyth.network" : baseUrl.trim();
             feeds = feeds == null ? Map.of() : Map.copyOf(feeds);
+            apiKey = apiKey == null || apiKey.isBlank() ? null : apiKey.trim();
+        }
+
+        /** The shape before the API key (keyless; a stub Hermes in tests and the demo). */
+        public Pyth(Boolean enabled, String baseUrl, Map<String, String> feeds) {
+            this(enabled, baseUrl, feeds, null);
+        }
+
+        /** Never the key itself: records print it in toString. */
+        @Override
+        public String toString() {
+            return "Pyth[enabled=" + enabled + ", baseUrl=" + baseUrl + ", feeds=" + feeds + ", apiKey=" + (apiKey == null ? "none" : "set") + "]";
         }
     }
 

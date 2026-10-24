@@ -82,6 +82,34 @@ class PythAndCoinGeckoSourcesTest {
         assertThat(new PythHermesPriceSource(WebClient.builder(), props(false, true), new ObjectMapper()).enabled()).isFalse();
     }
 
+    private MarketDataProperties propsWithKey(String key) {
+        String base = "http://localhost:" + server.getPort();
+        return new MarketDataProperties(base, Duration.ofSeconds(2), Map.of(), Map.of(), false,
+                new MarketDataProperties.Pyth(true, base, Map.of("SOL", SOL_FEED), key),
+                new MarketDataProperties.CoinGecko(false, base, Map.of()), null);
+    }
+
+    @Test
+    void theApiKeyGoesAsABearerHeaderAndNoKeyMeansNoHeader() throws Exception {
+        server.enqueue(new MockResponse().setHeader("Content-Type", "application/json").setBody("{\"parsed\":[]}"));
+        new PythHermesPriceSource(WebClient.builder(), propsWithKey(" k-123 "), new ObjectMapper()).observe(ASKED).block();
+        assertThat(server.takeRequest().getHeader("Authorization")).isEqualTo("Bearer k-123");
+
+        server.enqueue(new MockResponse().setHeader("Content-Type", "application/json").setBody("{\"parsed\":[]}"));
+        new PythHermesPriceSource(WebClient.builder(), propsWithKey("  "), new ObjectMapper()).observe(ASKED).block();
+        assertThat(server.takeRequest().getHeader("Authorization")).isNull();
+    }
+
+    @Test
+    void a401IsAnAbsentObservationAndTheKeyNeverPrints() {
+        // Hermes since Pyth's Core upgrade: no key, 401
+        server.enqueue(new MockResponse().setResponseCode(401).setBody("unauthorized"));
+        PythHermesPriceSource pyth = new PythHermesPriceSource(WebClient.builder(), propsWithKey(null), new ObjectMapper());
+        StepVerifier.create(pyth.observe(ASKED)).assertNext(obs -> assertThat(obs).isEmpty()).verifyComplete();
+        assertThat(propsWithKey("s3cret").pyth().toString()).doesNotContain("s3cret").contains("apiKey=set");
+        assertThat(propsWithKey(null).pyth().toString()).contains("apiKey=none");
+    }
+
     @Test
     void coinGeckoParsesUsdAndLastUpdatedAt() throws Exception {
         server.enqueue(new MockResponse().setHeader("Content-Type", "application/json")

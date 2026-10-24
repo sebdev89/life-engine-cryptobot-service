@@ -12,16 +12,20 @@ import java.util.Locale;
 import java.util.Map;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.http.HttpHeaders;
 import org.springframework.stereotype.Component;
 import org.springframework.web.reactive.function.client.WebClient;
+import org.springframework.web.reactive.function.client.WebClientResponseException;
 import org.springframework.web.util.UriBuilder;
 import reactor.core.publisher.Mono;
 
 /**
- * Pyth Network via Hermes ({@code GET /v2/updates/price/latest?ids[]=…&parsed=true}), keyless —
- * the pull-oracle view of the price, aggregated from first-party publishers. The only source
- * with its own {@code publish_time}, so its freshness is the network's, not our fetch's.
- * Feed ids come from {@code cryptobot.marketdata.pyth.feeds} (symbol → hex id).
+ * Pyth Network via Hermes ({@code GET /v2/updates/price/latest?ids[]=…&parsed=true}) — the
+ * pull-oracle view of the price, aggregated from first-party publishers. The only source with its
+ * own {@code publish_time}, so its freshness is the network's, not our fetch's. Feed ids come from
+ * {@code cryptobot.marketdata.pyth.feeds} (symbol → hex id). Since Pyth's Core upgrade Hermes needs an
+ * API key: {@code cryptobot.marketdata.pyth.api-key} goes as {@code Authorization: Bearer}; a 401 is logged
+ * with {@code reason=api_key_required} so the cause is not a guess.
  */
 @Component
 public class PythHermesPriceSource implements PriceSource {
@@ -34,7 +38,11 @@ public class PythHermesPriceSource implements PriceSource {
     private final ObjectMapper objectMapper;
 
     public PythHermesPriceSource(WebClient.Builder builder, MarketDataProperties properties, ObjectMapper objectMapper) {
-        this.webClient = builder.baseUrl(properties.pyth().baseUrl()).build();
+        WebClient.Builder b = builder.baseUrl(properties.pyth().baseUrl());
+        if (properties.pyth().apiKey() != null) {
+            b = b.defaultHeader(HttpHeaders.AUTHORIZATION, "Bearer " + properties.pyth().apiKey());
+        }
+        this.webClient = b.build();
         this.properties = properties;
         this.objectMapper = objectMapper;
     }
@@ -77,7 +85,12 @@ public class PythHermesPriceSource implements PriceSource {
                 .timeout(properties.timeout())
                 .map(raw -> parse(raw, byFeed))
                 .onErrorResume(ex -> {
-                    log.warn("pyth_price_failed feeds={} error={}", byFeed.keySet(), ex.toString());
+                    if (ex instanceof WebClientResponseException.Unauthorized) {
+                        log.warn("pyth_price_failed feeds={} reason=api_key_required api_key={} status=401", byFeed.keySet(),
+                                properties.pyth().apiKey() == null ? "none" : "rejected");
+                    } else {
+                        log.warn("pyth_price_failed feeds={} error={}", byFeed.keySet(), ex.toString());
+                    }
                     return Mono.just(List.of());
                 });
     }
