@@ -35,6 +35,10 @@ public class CryptobotJwtService {
     static final String RUNTIME_VIEWER = "RUNTIME_VIEWER";
     static final String RUNTIME_OPERATOR = "RUNTIME_OPERATOR";
     static final String RUNTIME_ADMIN = "RUNTIME_ADMIN";
+    /** KAN-1323 (ADR-SEC-002): CryptoBot's own permissions, granted by auth per user. */
+    public static final String CRYPTOBOT_VIEWER = "CRYPTOBOT_VIEWER";
+    public static final String CRYPTOBOT_OPERATOR = "CRYPTOBOT_OPERATOR";
+    public static final String CRYPTOBOT_ADMIN = "CRYPTOBOT_ADMIN";
 
     private static final String PLATFORM_ROLE_ADMIN = "ROLE_ADMIN";
 
@@ -102,7 +106,7 @@ public class CryptobotJwtService {
             if (authorities.isEmpty() && role != null) {
                 authorities.add("ROLE_" + role.trim().toUpperCase(Locale.ROOT));
             }
-            List<String> effective = withDerivedRuntimeAuthorities(role, authorities);
+            List<String> effective = withCryptobotAuthorities(withDerivedRuntimeAuthorities(role, authorities));
             java.util.Date iat = claims.getIssuedAt();
             return ParseOutcome.ok(
                     new CryptobotPrincipal(userId, email, role, List.copyOf(effective), rawToken, iat == null ? null : iat.toInstant(),
@@ -199,7 +203,7 @@ public class CryptobotJwtService {
      * </ul>
      */
     private List<String> withDerivedRuntimeAuthorities(String role, List<String> existing) {
-        if (!runtimeSecurityProperties.deriveRuntimeAuthoritiesFromRole()) {
+        if (!runtimeSecurityProperties.deriveRuntimeAuthoritiesFromRole() || !runtimeSecurityProperties.acceptLegacyRuntimeAuthorities()) {
             return existing;
         }
         Set<String> merged = new LinkedHashSet<>(existing);
@@ -216,5 +220,36 @@ public class CryptobotJwtService {
             merged.add(RUNTIME_VIEWER);
         }
         return new ArrayList<>(merged);
+    }
+
+    /**
+     * KAN-1323: the authorities the security rules check, {@code CRYPTOBOT_*}. Each level includes the ones below
+     * (ADMIN ⇒ OPERATOR ⇒ VIEWER). While {@code acceptLegacyRuntimeAuthorities} is on, {@code RUNTIME_ADMIN /
+     * OPERATOR / VIEWER} count as the matching {@code CRYPTOBOT_*}; once it is off they are dropped from the
+     * principal entirely, whatever the token or the bridge says, so a platform ADMIN without a CryptoBot role gets 403.
+     */
+    List<String> withCryptobotAuthorities(List<String> authorities) {
+        Set<String> out = new LinkedHashSet<>();
+        boolean legacy = runtimeSecurityProperties.acceptLegacyRuntimeAuthorities();
+        for (String a : authorities) {
+            boolean runtime = RUNTIME_VIEWER.equals(a) || RUNTIME_OPERATOR.equals(a) || RUNTIME_ADMIN.equals(a);
+            if (!runtime || legacy) {
+                out.add(a);
+            }
+        }
+        // with legacy off the RUNTIME_* are already gone from out
+        boolean admin = out.contains(CRYPTOBOT_ADMIN) || out.contains(RUNTIME_ADMIN);
+        boolean operator = admin || out.contains(CRYPTOBOT_OPERATOR) || out.contains(RUNTIME_OPERATOR);
+        boolean viewer = operator || out.contains(CRYPTOBOT_VIEWER) || out.contains(RUNTIME_VIEWER);
+        if (viewer) {
+            out.add(CRYPTOBOT_VIEWER);
+        }
+        if (operator) {
+            out.add(CRYPTOBOT_OPERATOR);
+        }
+        if (admin) {
+            out.add(CRYPTOBOT_ADMIN);
+        }
+        return new ArrayList<>(out);
     }
 }

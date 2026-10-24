@@ -17,9 +17,11 @@ import reactor.core.publisher.Mono;
 @EnableWebFluxSecurity
 public class CryptobotSecurityConfig {
 
-    public static final String AUTHORITY_MARKET_REVIEW = "RUNTIME_OPERATOR";
+    public static final String AUTHORITY_MARKET_REVIEW = CryptobotJwtService.CRYPTOBOT_OPERATOR;
+    /** KAN-1323: reading (GET) needs only CRYPTOBOT_VIEWER; owner and tenant isolation stays in the services. */
+    public static final String AUTHORITY_VIEWER = CryptobotJwtService.CRYPTOBOT_VIEWER;
     /** Opening and submitting an anchoring batch on devnet is an admin/cron action, not an operator's. */
-    public static final String AUTHORITY_ANCHOR_ADMIN = "RUNTIME_ADMIN";
+    public static final String AUTHORITY_ANCHOR_ADMIN = CryptobotJwtService.CRYPTOBOT_ADMIN;
 
     @Bean
     SecurityWebFilterChain cryptobotSecurityWebFilterChain(
@@ -70,7 +72,7 @@ public class CryptobotSecurityConfig {
                                         .pathMatchers(HttpMethod.POST, "/api/cryptobot/monitoring/**")
                                         .hasAuthority(AUTHORITY_MARKET_REVIEW)
                                         .pathMatchers(HttpMethod.GET, "/api/cryptobot/market-reviews/**")
-                                        .hasAuthority(AUTHORITY_MARKET_REVIEW)
+                                        .hasAuthority(AUTHORITY_VIEWER)
                                         .pathMatchers(HttpMethod.POST, "/api/cryptobot/anchors")
                                         .hasAuthority(AUTHORITY_ANCHOR_ADMIN)
                                         // the global DLQ and its resolution are an admin's, not an operator's.
@@ -85,6 +87,9 @@ public class CryptobotSecurityConfig {
                                         // fault injection exists only in the demo stack (cryptobot.chaos.enabled); admin there too.
                                         .pathMatchers("/api/cryptobot/demo/**")
                                         .hasAuthority(AUTHORITY_ANCHOR_ADMIN)
+                                        // KAN-1323: reads need CRYPTOBOT_VIEWER, everything else CRYPTOBOT_OPERATOR
+                                        .pathMatchers(HttpMethod.GET, "/api/cryptobot/**")
+                                        .hasAuthority(AUTHORITY_VIEWER)
                                         .pathMatchers("/api/cryptobot/**")
                                         .hasAuthority(AUTHORITY_MARKET_REVIEW)
                                         .anyExchange()

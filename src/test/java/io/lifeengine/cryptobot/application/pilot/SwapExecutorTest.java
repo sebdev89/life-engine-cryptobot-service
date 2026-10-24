@@ -323,7 +323,7 @@ class SwapExecutorTest {
     }
 
     static CryptobotPrincipal approver() {
-        return new CryptobotPrincipal(APPROVER, "sebas@x", "ADMIN", List.of("ROLE_ADMIN"), "raw", T0, "jti-exec", "sid-1", false, null, "RS256");
+        return new CryptobotPrincipal(APPROVER, "sebas@x", "ADMIN", List.of("CRYPTOBOT_ADMIN"), "raw", T0, "jti-exec", "sid-1", false, null, "RS256");
     }
 
     static CryptobotPrincipal creator() {

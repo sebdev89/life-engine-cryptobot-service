@@ -420,6 +420,9 @@ lifeengine:
       # /api/cryptobot/** with a forwarded user token. Set to `false` once auth ships
       # proper RUNTIME_* permission rows + role mappings.
       derive-runtime-authorities-from-role: ${CRYPTOBOT_DERIVE_RUNTIME_AUTHORITIES:true}
+      # KAN-1323 (ADR-SEC-002): RUNTIME_* (token or bridge) still counts as CRYPTOBOT_*. false = only CRYPTOBOT_* —
+      # turn off only once the users who need CryptoBot hold a role with CRYPTOBOT_*, or they are locked out.
+      accept-legacy-runtime-authorities: ${CRYPTOBOT_ACCEPT_LEGACY_RUNTIME_AUTHORITIES:true}
 
 management:
   endpoints:
