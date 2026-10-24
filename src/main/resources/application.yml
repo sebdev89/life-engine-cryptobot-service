@@ -153,6 +153,8 @@ cryptobot:
     pyth:
       enabled: ${CRYPTOBOT_PYTH_ENABLED:true}
       base-url: ${CRYPTOBOT_PYTH_BASE_URL:https://hermes.pyth.network}
+      # Since Pyth's Core upgrade (2026-08-26) Hermes answers 401 without a key. From a Secret, never in a ConfigMap.
+      api-key: ${CRYPTOBOT_PYTH_API_KEY:}
       # symbol → Hermes price-feed id (hex). Only the policy's allowed assets are pinned here; a symbol
       # without a feed is simply not observed by Pyth (the other sources still have to reach quorum).
       feeds:
