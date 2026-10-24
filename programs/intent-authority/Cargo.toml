@@ -3,7 +3,7 @@ name = "intent-authority"
 version = "0.1.0"
 edition = "2021"
 description = "CryptoBot on-chain authority (paper level 4): policy PDA, nonce PDA and execution receipt — validates agent, expiry slot, nonce and policy hash before any execution (KAN-437)"
-license = "MIT"
+license = "Apache-2.0"
 publish = false
 
 [lib]
