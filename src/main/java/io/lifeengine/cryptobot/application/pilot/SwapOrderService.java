@@ -38,7 +38,7 @@ import reactor.core.publisher.Mono;
  * <p><b>Approval</b> ({@code POST /swaps/{id}/approve}). User tokens from Auth carry no {@code aud} today (KAN-1285),
  * so any valid user token could be presented here; the defense is every one of these, from server configuration:
  * {@code sub} is {@code cryptobot.swaps.approver-user-id}; the {@code tenant} claim is absent (or equals the configured
- * one — present-but-empty is not absent); {@code ROLE_ADMIN}; the signature was verified as RS256 through the JWKS;
+ * one — present-but-empty is not absent); {@code CRYPTOBOT_ADMIN} (KAN-1323; not the platform ROLE_ADMIN); the signature was verified as RS256 through the JWKS;
  * {@code iat} at most {@code approval-iat-max-age} old; {@code jti} and {@code sid} present and the {@code jti} never used
  * for an approval before (UNIQUE in the database, so a restart does not forget it); {@code X-CSRF-Token} equal to the
  * order's nonce, which {@code GET /swaps/{id}} only returns to that approver; the order still pending and inside its
@@ -270,7 +270,7 @@ public class SwapOrderService {
 
     // ---- who may approve ----------------------------------------------------------------------------
 
-    /** null = this principal is the configured approver (sub, tenant, ROLE_ADMIN); otherwise why not. */
+    /** null = this principal is the configured approver (sub, tenant, CRYPTOBOT_ADMIN); otherwise why not. */
     String approverIdentityRefusal(CryptobotPrincipal p) {
         if (props.approverUserId() == null) {
             return "no_approver_configured";
@@ -282,7 +282,8 @@ public class SwapOrderService {
         if (!tenantOk) {
             return "tenant_mismatch";
         }
-        if (!p.authorities().contains("ROLE_ADMIN")) {
+        // KAN-1323 (ADR-SEC-002): CryptoBot's own admin permission, never the platform's ROLE_ADMIN by itself
+        if (!p.authorities().contains(io.lifeengine.cryptobot.security.CryptobotJwtService.CRYPTOBOT_ADMIN)) {
             return "not_admin";
         }
         return null;

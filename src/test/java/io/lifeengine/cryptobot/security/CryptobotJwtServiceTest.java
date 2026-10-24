@@ -108,7 +108,45 @@ class CryptobotJwtServiceTest {
 
         CryptobotPrincipal principal = parseOk(service, token);
 
-        assertThat(principal.authorities()).containsExactly("RUNTIME_OPERATOR");
+        // KAN-1323: while legacy is accepted, RUNTIME_OPERATOR also counts as CRYPTOBOT_OPERATOR (and VIEWER below it)
+        assertThat(principal.authorities()).containsExactly("RUNTIME_OPERATOR", "CRYPTOBOT_VIEWER", "CRYPTOBOT_OPERATOR");
+    }
+
+    // ---- KAN-1323 (ADR-SEC-002): CRYPTOBOT_* -------------------------------------------------------
+
+    private static CryptobotJwtService service(boolean bridge, boolean legacy) {
+        return new CryptobotJwtService(new CryptobotJwtProperties(TEST_SECRET), new CryptobotRuntimeSecurityProperties(bridge, legacy),
+                mock(JwksPublicKeyProvider.class));
+    }
+
+    @Test
+    void cryptobotLevelsIncludeTheOnesBelowAndNothingAbove() {
+        CryptobotJwtService s = service(false, false);
+        assertThat(parseOk(s, signedToken("USER", List.of("CRYPTOBOT_ADMIN"))).authorities())
+                .contains("CRYPTOBOT_ADMIN", "CRYPTOBOT_OPERATOR", "CRYPTOBOT_VIEWER");
+        assertThat(parseOk(s, signedToken("USER", List.of("CRYPTOBOT_OPERATOR"))).authorities())
+                .contains("CRYPTOBOT_OPERATOR", "CRYPTOBOT_VIEWER").doesNotContain("CRYPTOBOT_ADMIN");
+        assertThat(parseOk(s, signedToken("USER", List.of("CRYPTOBOT_VIEWER"))).authorities())
+                .contains("CRYPTOBOT_VIEWER").doesNotContain("CRYPTOBOT_OPERATOR", "CRYPTOBOT_ADMIN");
+    }
+
+    @Test
+    void withLegacyOffAPlatformAdminWithRuntimeAuthoritiesInTheTokenGetsNothingFromCryptobot() {
+        // auth V59 puts RUNTIME_* on the ADMIN role's token: turning the bridge off alone would not close it
+        CryptobotJwtService s = service(true, false);
+        var p = parseOk(s, signedToken("ADMIN", List.of("ROLE_ADMIN", "RUNTIME_ADMIN", "RUNTIME_OPERATOR", "RUNTIME_VIEWER")));
+        assertThat(p.authorities()).containsExactly("ROLE_ADMIN");
+    }
+
+    @Test
+    void withLegacyOnARuntimeAdminIsACryptobotAdminAsBefore() {
+        var p = parseOk(service(true, true), signedToken("ADMIN", List.of("ROLE_ADMIN")));
+        assertThat(p.authorities()).contains("RUNTIME_ADMIN", "CRYPTOBOT_ADMIN", "CRYPTOBOT_OPERATOR", "CRYPTOBOT_VIEWER");
+    }
+
+    @Test
+    void theOldConstructorKeepsLegacyOn() {
+        assertThat(new CryptobotRuntimeSecurityProperties(true).acceptLegacyRuntimeAuthorities()).isTrue();
     }
 
     @Test

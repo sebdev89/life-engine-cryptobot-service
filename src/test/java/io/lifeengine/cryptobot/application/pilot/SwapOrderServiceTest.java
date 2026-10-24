@@ -143,7 +143,7 @@ class SwapOrderServiceTest {
 
     /** The approver as Auth issues them: RS256 via the JWKS, fresh, a new jti each time, no tenant claim, ROLE_ADMIN. */
     CryptobotPrincipal approver() {
-        return approver(clock.now, false, null, "RS256", List.of("ROLE_ADMIN"));
+        return approver(clock.now, false, null, "RS256", List.of("CRYPTOBOT_ADMIN"));
     }
 
     CryptobotPrincipal approver(Instant iat, boolean tenantPresent, String tenant, String alg, List<String> authorities) {
@@ -299,12 +299,16 @@ class SwapOrderServiceTest {
         String n = o.approvalNonce();
         assertThat(reason(s.approve(someone(), o.id(), n, o.previewHash()))).isEqualTo("not_approver");
         // same sub, but a tenant user — and a present-but-empty tenant is not an absent one
-        assertThat(reason(s.approve(approver(clock.now, true, "acme", "RS256", List.of("ROLE_ADMIN")), o.id(), n, o.previewHash()))).isEqualTo("tenant_mismatch");
-        assertThat(reason(s.approve(approver(clock.now, true, "", "RS256", List.of("ROLE_ADMIN")), o.id(), n, o.previewHash()))).isEqualTo("tenant_mismatch");
+        assertThat(reason(s.approve(approver(clock.now, true, "acme", "RS256", List.of("CRYPTOBOT_ADMIN")), o.id(), n, o.previewHash()))).isEqualTo("tenant_mismatch");
+        assertThat(reason(s.approve(approver(clock.now, true, "", "RS256", List.of("CRYPTOBOT_ADMIN")), o.id(), n, o.previewHash()))).isEqualTo("tenant_mismatch");
         assertThat(reason(s.approve(approver(clock.now, false, null, "RS256", List.of("ROLE_USER")), o.id(), n, o.previewHash()))).isEqualTo("not_admin");
         // an operator is not an admin, whatever runtime authorities it carries
         assertThat(reason(s.approve(approver(clock.now, false, null, "RS256", List.of("ROLE_OPERATOR", "RUNTIME_OPERATOR", "RUNTIME_VIEWER")),
                 o.id(), n, o.previewHash()))).isEqualTo("not_admin");
+        // KAN-1323 (ADR-SEC-002): the platform's ROLE_ADMIN alone is not CryptoBot's admin
+        assertThat(reason(s.approve(approver(clock.now, false, null, "RS256", List.of("ROLE_ADMIN")), o.id(), n, o.previewHash()))).isEqualTo("not_admin");
+        assertThat(reason(s.approve(approver(clock.now, false, null, "RS256", List.of("CRYPTOBOT_OPERATOR", "CRYPTOBOT_VIEWER")), o.id(), n, o.previewHash())))
+                .isEqualTo("not_admin");
         assertThat(repo.find(o.id()).block().status()).isEqualTo(SwapOrder.Status.PENDING_APPROVAL);
     }
 
@@ -313,7 +317,7 @@ class SwapOrderServiceTest {
         SwapOrderService s = service(true, "platform");
         SwapOrder o = created(s, "k-tenant");
         assertThat(reason(s.approve(approver(), o.id(), o.approvalNonce(), o.previewHash()))).isEqualTo("tenant_mismatch");
-        assertThat(s.approve(approver(clock.now, true, "platform", "RS256", List.of("ROLE_ADMIN")), o.id(), o.approvalNonce(), o.previewHash()).block().status())
+        assertThat(s.approve(approver(clock.now, true, "platform", "RS256", List.of("CRYPTOBOT_ADMIN")), o.id(), o.approvalNonce(), o.previewHash()).block().status())
                 .isEqualTo(SwapOrder.Status.APPROVED);
     }
 
@@ -322,20 +326,20 @@ class SwapOrderServiceTest {
         SwapOrderService s = service();
         SwapOrder o = created(s, "k-token");
         String n = o.approvalNonce();
-        assertThat(reason(s.approve(approver(clock.now, false, null, "HS256", List.of("ROLE_ADMIN")), o.id(), n, o.previewHash()))).isEqualTo("token_not_rs256");
-        assertThat(reason(s.approve(approver(clock.now.minus(Duration.ofMinutes(5)).minusSeconds(1), false, null, "RS256", List.of("ROLE_ADMIN")),
+        assertThat(reason(s.approve(approver(clock.now, false, null, "HS256", List.of("CRYPTOBOT_ADMIN")), o.id(), n, o.previewHash()))).isEqualTo("token_not_rs256");
+        assertThat(reason(s.approve(approver(clock.now.minus(Duration.ofMinutes(5)).minusSeconds(1), false, null, "RS256", List.of("CRYPTOBOT_ADMIN")),
                 o.id(), n, o.previewHash()))).isEqualTo("token_not_fresh");
-        assertThat(reason(s.approve(approver(clock.now.plusSeconds(31), false, null, "RS256", List.of("ROLE_ADMIN")), o.id(), n, o.previewHash())))
+        assertThat(reason(s.approve(approver(clock.now.plusSeconds(31), false, null, "RS256", List.of("CRYPTOBOT_ADMIN")), o.id(), n, o.previewHash())))
                 .isEqualTo("token_not_fresh");
-        assertThat(reason(s.approve(approver(null, false, null, "RS256", List.of("ROLE_ADMIN")), o.id(), n, o.previewHash()))).isEqualTo("token_not_fresh");
-        CryptobotPrincipal noJti = new CryptobotPrincipal(APPROVER, "s", "ADMIN", List.of("ROLE_ADMIN"), "raw", clock.now, null, "sid", false, null,
+        assertThat(reason(s.approve(approver(null, false, null, "RS256", List.of("CRYPTOBOT_ADMIN")), o.id(), n, o.previewHash()))).isEqualTo("token_not_fresh");
+        CryptobotPrincipal noJti = new CryptobotPrincipal(APPROVER, "s", "ADMIN", List.of("CRYPTOBOT_ADMIN"), "raw", clock.now, null, "sid", false, null,
                 "RS256");
         assertThat(reason(s.approve(noJti, o.id(), n, o.previewHash()))).isEqualTo("token_without_jti_or_sid");
-        CryptobotPrincipal noSid = new CryptobotPrincipal(APPROVER, "s", "ADMIN", List.of("ROLE_ADMIN"), "raw", clock.now, "jti-nosid", null, false,
+        CryptobotPrincipal noSid = new CryptobotPrincipal(APPROVER, "s", "ADMIN", List.of("CRYPTOBOT_ADMIN"), "raw", clock.now, "jti-nosid", null, false,
                 null, "RS256");
         assertThat(reason(s.approve(noSid, o.id(), n, o.previewHash()))).isEqualTo("token_without_jti_or_sid");
         // exactly 5 minutes old is still fresh
-        assertThat(s.approve(approver(clock.now.minus(Duration.ofMinutes(5)), false, null, "RS256", List.of("ROLE_ADMIN")), o.id(), n, o.previewHash()).block()
+        assertThat(s.approve(approver(clock.now.minus(Duration.ofMinutes(5)), false, null, "RS256", List.of("CRYPTOBOT_ADMIN")), o.id(), n, o.previewHash()).block()
                 .status()).isEqualTo(SwapOrder.Status.APPROVED);
     }
 
@@ -365,7 +369,7 @@ class SwapOrderServiceTest {
     @Test
     void anAdminWhoIsNotTheApproverNeverSeesTheNonceAndOthersCannotReadTheOrder() {
         SwapOrderService s = service();
-        CryptobotPrincipal otherAdmin = new CryptobotPrincipal(UUID.randomUUID(), "admin2@x", "ADMIN", List.of("ROLE_ADMIN"), "raw", clock.now,
+        CryptobotPrincipal otherAdmin = new CryptobotPrincipal(UUID.randomUUID(), "admin2@x", "ADMIN", List.of("CRYPTOBOT_ADMIN"), "raw", clock.now,
                 "jti-a2", "sid-a2", false, null, "RS256");
         SwapOrder mine = s.create(otherAdmin, "k-admin2", solToUsdc()).block();
         // the other admin created it, so they may read it — but not its nonce
