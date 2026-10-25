@@ -16,7 +16,7 @@ public record SwapsSignerProperties(String baseUrl, String token, Duration timeo
 
     public SwapsSignerProperties {
         baseUrl = baseUrl == null ? "" : baseUrl.trim();
-        token = token == null ? "" : token;
+        token = token == null ? "" : token.trim();
         timeout = timeout == null ? Duration.ofSeconds(8) : timeout;
     }
 
