@@ -52,6 +52,22 @@ public final class BuildIdentityJsonProvider extends AbstractJsonProvider<ILoggi
         generator.writeStringField(FIELD_COMMIT, commitSha);
     }
 
+    /** What this process is (the same values every log line carries), for an endpoint that reports them. */
+    public record BuildIdentity(String version, String commit) {}
+
+    private static volatile BuildIdentity current;
+
+    /** KAN-1359: the build identity of this process, resolved once. */
+    public static BuildIdentity current() {
+        BuildIdentity c = current;
+        if (c == null) {
+            BuildIdentityJsonProvider p = new BuildIdentityJsonProvider();
+            c = new BuildIdentity(p.version(), p.commitSha());
+            current = c;
+        }
+        return c;
+    }
+
     String version() {
         return version;
     }

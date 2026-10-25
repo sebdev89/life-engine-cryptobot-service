@@ -2,6 +2,7 @@ package io.lifeengine.cryptobot.health;
 
 import io.lifeengine.cryptobot.application.MarketSnapshotProvider;
 import io.lifeengine.cryptobot.infrastructure.runtime.RuntimeClient;
+import io.lifeengine.cryptobot.observability.BuildIdentityJsonProvider;
 import java.time.Clock;
 import java.time.Instant;
 import org.springframework.beans.factory.annotation.Value;
@@ -35,6 +36,8 @@ public class CryptobotHealthController {
                 runtimeClient.runtimeBaseUrl(),
                 runtimeClient.runtimeWorkflowId(),
                 buildVersion,
+                BuildIdentityJsonProvider.current().version(),
+                BuildIdentityJsonProvider.current().commit(),
                 Instant.now(clock));
     }
 
@@ -44,5 +47,8 @@ public class CryptobotHealthController {
             String runtimeBaseUrl,
             String runtimeWorkflowId,
             String buildVersion,
+            /* KAN-1359: the same version and short commit every log line carries; "unknown" when the build has none */
+            String version,
+            String commit,
             Instant observedAt) {}
 }
