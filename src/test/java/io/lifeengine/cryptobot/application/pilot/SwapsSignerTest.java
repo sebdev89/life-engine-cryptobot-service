@@ -45,4 +45,11 @@ class SwapsSignerTest {
             assertThat(pilot.takeRequest().getHeaders().toMultimap().toString()).contains("pilot-token");
         }
     }
+
+    @Test
+    void theTokenIsTrimmedLikeTheSignerDoesSoASecretWithANewlineStillMatches() {
+        // the signer trims SIGNER_TOKEN (SignerProperties); a Secret written with a trailing newline must not become a 401
+        assertThat(new SwapsSignerProperties("http://x", " tok\n", null).token()).isEqualTo("tok");
+        assertThat(new SwapsSignerProperties("http://x", null, null).token()).isEmpty();
+    }
 }
