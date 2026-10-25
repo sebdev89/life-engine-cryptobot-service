@@ -48,7 +48,8 @@ import org.springframework.boot.context.properties.EnableConfigurationProperties
     io.lifeengine.cryptobot.core.execution.NetworkPolicy.class,
     io.lifeengine.cryptobot.application.backtest.BacktestProperties.class,
     io.lifeengine.cryptobot.application.paper.PaperProperties.class,
-    io.lifeengine.cryptobot.application.pilot.SwapsProperties.class
+    io.lifeengine.cryptobot.application.pilot.SwapsProperties.class,
+    io.lifeengine.cryptobot.application.pilot.SwapsSignerProperties.class
 })
 public class CryptobotServiceApplication {
 

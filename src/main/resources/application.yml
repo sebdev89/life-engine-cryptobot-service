@@ -133,6 +133,12 @@ cryptobot:
     max-slippage-bps: ${CRYPTOBOT_SWAPS_MAX_SLIPPAGE_BPS:100}
     max-priority-fee-lamports: ${CRYPTOBOT_SWAPS_MAX_PRIORITY_FEE_LAMPORTS:200000}
     creates-per-hour: ${CRYPTOBOT_SWAPS_CREATES_PER_HOUR:20}
+    # The signer swaps use. Empty = the shared cryptobot.signer (as before). Set = the pilot's dedicated (mainnet)
+    # signer: its own key, cluster, caps and ledger; devnet transfers and PoV payouts keep the shared one.
+    signer:
+      base-url: ${CRYPTOBOT_SWAPS_SIGNER_BASE_URL:}
+      token: ${CRYPTOBOT_SWAPS_SIGNER_TOKEN:}
+      timeout: ${CRYPTOBOT_SWAPS_SIGNER_TIMEOUT:8s}
   paper:
     enabled: ${CRYPTOBOT_PAPER_ENABLED:false}
     interval: ${CRYPTOBOT_PAPER_INTERVAL:5m}
